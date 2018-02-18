@@ -1,0 +1,186 @@
+#	$Id: README,v 2.0 2001/09/14 19:05:06 garyb Exp $	
+
+Here are instructions for use of the orbit-fitting programs.  Descriptions
+of the algorithms are given in "Orbit Fitting and Uncertainties for
+Kuiper Belt Objects," G. Bernstein & B. Khushalani 2000, AJ 120 3323.
+Updates to the algorithms and software are described in the
+updates.tex file included in this distribution.
+
+You are looking at Release $Name:  $ of the README.  Run any of the programs
+with the "-v" flag to see which release they are from.
+
+--------------------------------------------------------------------------
+LEGAL NOTICE:  I of course take no responsibility for the veracity of the
+results produced by this software, though I will make an effort to
+fix any bugs brought to my attention.
+
+If you use this software, please
+(1) let me know, by emailing garyb@astro.lsa.umich.edu, whether you
+have gotten it to work.
+
+(2) Acknowledge use of the software in any resulting publications, and
+alert me to them.  This helps with tenure, funding, etc., and makes me
+feel like the effort was worthwhile.
+
+--------------------------------------------------------------------------
+INSTALLATION:
+
+First, after you've untarred the programs, you can just type "make" to
+compile the important programs, assuming you have gcc in your path.  Be aware
+that one of the subroutines (aeiderivs.c) takes a good while to compile
+on some machines.  Don't bother compiling aeiderivs with an optimizer as it
+is not called very often and it will take forever to compile.  The Makefile
+should take care of this for you.
+
+Missing from this tar file is a file named "binEphem.405", which MUST
+be reachable in the directory where you're executing these codes.
+This is the JPL DE405 solar system ephemeris translated into a binary
+form for fast use with C subroutines.  I have a version of the file
+which covers the years 1980-2060 (roughly), and is in the proper
+format for Sparc systems.  Since it's a binary file, this may be
+unreadable on other hardware (e.g. it's different on Intel/Linux
+machines).  Also the programs won't work on dates outside the range
+covered by this file.  To make a new version of the binEphem file,
+you'll need to acquire the relevant ASCII ephemeris files from JPL and
+put them in the binary format using some programs I acquired.  I have
+put these together into a separate tar file, called DE405C.tar.gz.
+
+Also included is a file "observatories.dat" which contains locations
+of various observatories and their standard MPC codes.  The format
+should be pretty obvious if you need to add more.  There is now a
+facility for specifying orbiting observatories, see update.tex for
+more information.
+
+By default, the programs will look for the observatory and ephemeris
+data files under the names "observatories.dat" and "binEphem.405" in
+the current directory.  You can tell the programs to look elsewhere by
+either 
+	(a) Setting the environment variables ORBITS_EPHEM and
+	ORBITS_OBSERVATORIES to the names of the appropriate files, or
+	(b) Specifying the JPL and/or observatories filenames with the
+	-j and -o flags on the command line of appropriate programs.
+
+There are four programs of primary interest:
+
+*fit_radec:  Fits an orbit to a list of observed positions.  The std input file
+	is, say, "pluto.radec", and the standard output should be redirected
+	to a file called "pluto.abg".  This will contain the best-fit
+	orbit in our "alpha/beta/gamma" parameterization, plus the
+	covariance matrix for these parameters.  The standard error
+	receives some additional status info plus a dump of the
+	residuals to the input observations.
+
+*predict:  Takes as input the "pluto.abg" file produced by fit_radec,
+	and will ask you for an observing site and date/time at which
+	to predict the position of the object.  Position is given
+	both in the coord system centered on the first observation,
+	and in the standard ICRS RA/Dec.  The major/minor axes of the
+	error ellipse are also given, with the PA of the error ellipse
+	given in degrees from North through East (the astronomer's
+	silly convention).  Units are arcsec.
+
+*postdict:  This is like predict, but instead of a future date you can
+	enter any observation in standard format (see below) and it will tell
+	you how well the fitted orbit agrees with that actual observation.
+
+*abg_to_aei: Takes as input the "pluto.abg" file produced by fit_radec,
+	and transforms into the usual orbital elements.  The full
+	covariance matrix for the six parameters is also output.  Note
+	that the angles (inclination, arg of perihelion, ascending
+	node) are given in DEGREES in the table but are assumed to be
+	in RADIANS for the covariance matrix.  Also the Time of Peri
+	is a JD but the covariance matrix elements assume YEARS as
+	units.
+
+I will not bother documenting the following two programs, which
+are for "batch mode" fitting & predicting of many KBOs:
+*AllMPC.c: Takes as input a file with observations of many bodies,
+	sorted by object.  Produces a whole bunch of *.abg fits as
+	output, as well as a summary table of all the fitted orbits.
+*planner.c: For a given date, site, and time, prints out the predictions
+	for a specified set of objects.
+
+--------------------------------------------------------------------------
+USAGE:
+
+The input format to the fit_radec file is somewhat flexible.  You can
+either
+
+(a) enter the observation in the standard format for Minor Planet
+Center submissions (with info in specific columns).  In this case the
+observations are assigned a standard uncertainty of 0.2" in each
+coordinate.  You may change this default error level with the "-m"
+flag on the command line.
+
+(b) enter using JD format:
+JD HH:MM:SS.SS +DD:MM:SS.SS ERROR OBSCODE
+Here you can use as many digits as you like in each field, you just
+need to insure that your RA & Dec don't have any spaces in them.
+ERROR is the uncertainty (in arcseconds) in each the RA & Dec of this
+observation. 
+OBSCODE is the observatory code, as used by the MPC.  The code must
+be in the "observatories.dat" file in order to be used.
+
+(c) enter using a date:
+YYYY MM DD.DDDDD HH:MM:SS.SS +DD:MM:SS.SS ERROR OBSCODE
+The fields have the same meanings as above, and again the number of
+digits in the date fields are flexible.
+
+*blank lines and lines beginning with a # sign are always treated as
+comments and ignored.  Output files are tagged with additional comments
+to help trace their history.
+*coordinates are assumed to be in the ICRS system, which is basically
+J2000.
+*The time is assumed to be UTC.  I'm not taking leap-seconds into
+account, that only matters at the milli-arcsecond level.
+*Positions are taken to be "astrometric", meaning they are as observed
+relative to the fixed stars.  I.e. corrections for light travel time
+must be made but corrections for stellar aberration must not.
+
+--------------------------------------------------------------------------
+TESTING:
+The file "qb1.ast" contains 1 year's worth of fake astrometric measurements
+for 1992 QB1 that can be fed into fit_radec if you want to try it.
+Your output should resemble "qb1.abg" if functioning correctly.
+Feeding the abg file into abg_to_aei should yield orbital-element
+results resembling "qb1.aei".  
+
+Likewise, "pluto14yr.ast" contains 14 years' worth of positions for
+the Pluto barycenter generated by the JPL Horizons software.  You can
+fit this and generate orbital elements, and compare to the
+"pluto14yr.abg" and "pluto14yr.aei" files in this distribution.
+
+-------------------------------------------------------------
+CAVEATS:
+*Check the chi-squared values of the fits done by fit_radec.  For good
+observations, 0.3" is probably an overestimate of the error and the
+chi-squared values will be low hence the stated orbit uncertainties
+will be overestimated.  But there are KBO observations that appear to
+be worse than this.  Right now there is no outlier rejection being
+performed, so when in doubt you can examine the residuals by hand.
+
+*The variances on the orbital elements produced by abg_to_aei assume
+that the map from phase space to elements is linear, which of course
+it is not.  If the errors are small this is usually ok.  Sometimes,
+though, even for accurate orbits there are highly non-linear behaviors
+in this map (for example, ascending node is degenerate when i->0, arg
+&time of perihelion are degenerate when e->0, and the a-e map is very
+nonlinear when the observation is near perihelion or aphelion.
+
+*There are some programs included here that I have used for testing &
+exploring, and aren't used by any of the above programs.
+
+*The programs won't work on Neptune (or any other giant planet) because
+there will be a divergence trying to calculate the perturbation on
+Neptune by Neptune.
+
+*The orbit integrator is using 20-day time steps so objects in close
+encounters will not be too accurate.
+
+*And of course this is all specialized to the case of distant objects.
+Certainly it's fine for KBOs - I've checked it out carefully on Pluto.
+For Centaurs it's probably all still going to work, but at <10 AU
+I'd start to be worried.
+
+Gary Bernstein
+garyb@astro.lsa.umich.edu

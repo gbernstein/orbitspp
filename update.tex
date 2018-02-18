@@ -1,0 +1,199 @@
+% $Id: update.tex,v 2.0 2001/09/14 19:05:06 garyb Exp $
+\documentstyle[12pt]{article}
+\textwidth=7.0in
+\oddsidemargin=-0.25in
+\begin{document}
+\begin{center}
+
+\bf Update to Bernstein-Khushalani Orbit-Fitting Software
+
+\em G. Bernstein, $Date: 2001/09/14 19:05:06 $
+
+\end{center}
+
+
+The orbit-fitting software uses the methods described by Bernstein \&
+Khushalani 2000, ``Orbit Fitting and Uncertainties for
+Kuiper Belt Objects,'' {\em AJ} {\bf 120} 3323.  I have since refined
+the algorithms used by the software to better recognize and fit
+degenerate orbits, and to incorporate features such as orbiting
+observatories. This document describes the updated algorithms, and
+describes the other conveniences and features added to the software
+since its original release to the public.  I assume that you've read
+the original paper before reading this document.  The {\tt README}
+file with the software is a more complete guide to installing and
+running the software.
+
+{\em Please remember that the software calculates {\bf barycentric}
+osculating elements, not the more commonly used heliocentric
+elements.}  The barycentric elements are more stable for KBOs, but
+disagree with the MPC's conventions.
+
+\section{Algorithms}
+\subsection{Recognizing and Fitting Degenerate Orbits}
+In the original code, the steps for recognizing and fitting degenerate
+orbits were as follows:
+\begin{enumerate}
+\item Do a preliminary linearized 5-parameter fit to the observations,
+with $\dot\gamma$ set to zero.  This step was skipped if the number of
+observations is only 2, since the fit would be degenerate.
+\item Use the linear fit as a starting point for a full non-linear
+6-parameter fit.
+\item If the 6-parameter fit has a large ${\rm Var}(\dot\gamma),$ then
+set $\dot\gamma=0$ and execute a non-linear fit to the other 5
+parameters, placing a nominal value for ${\rm Var}(\dot\gamma)$ into
+the output covariance matrix $\Sigma$.  
+\item If the 5-parameter fit still has unbound orbits within the
+uncertainty range, fit again but add an energy constraint to the
+$\chi^2$ being minimized, reducing the degrees of freedom by one.
+\end{enumerate}
+
+I have realized that Step (3) of this process can lead in some cases
+to orbit fits that are misleadingly precise.  This occurs when the
+observations are very accurate in constraining 5 degrees of freedom,
+but still have a strong degeneracy.  Examples are:  having only two
+observation nights but with several months between them; HST
+observations, with highly precise astrometry but over a short arc (few
+days); or two or more observations, but all at nearly the same time of
+year, so that line-of-sight motion remains indeterminate.
+
+In these cases the degeneracy is primarily, {\em but not exactly,} along
+$\dot\gamma$.  Then when we set $\dot\gamma=0$, we force the solution
+to a very precise location in the six-dimensional space and appear to
+get a very precise orbit, when in fact it is strongly degenerate.
+
+To remedy this situation, and to more clearly recognize when the orbit
+is doubly degenerate, the procedure is now as follows:
+\begin{enumerate}
+\item  Do a preliminary linearized 5-parameter fit to the observations,
+with $\dot\gamma$ set to zero.  The uncertainty on $\gamma,$ {\it
+i.e.} the KBO distance, is examined, and if
+\begin{equation}
+{\sigma_\gamma \over \gamma} > 0.2
+\end{equation}
+then we immediately recognize that the arc is too short to constrain
+even 5 parameters, and the orbit is doubly degenerate.
+\item If we pass the above test, then we execute the full
+6-dimensional fit, as before.
+\item If the 6-parameter fit has ${\rm Var}(\dot\gamma)$ comparable to
+the velocity needed to unbind the orbit, then we recognize the orbit
+as singly degenerate.  In this case, the 6-parameter fit is repeated,
+but with a constraint on energy so that we are minimizing a
+pseudo-$\chi^2$ 
+\begin{equation}
+\tilde\chi^2 \equiv \sum_i \left[ { (\hat\theta_{x,i} - \theta_{x,i})^2 \over
+\sigma_i^2 } + { (\hat\theta_{y,i} - \theta_{y,i})^2 \over
+\sigma_i^2 } \right] + { f_b^2  \over 3},
+\end{equation}
+where the binding energy fraction $f_b$ is defined by
+\begin{equation}
+\dot\alpha^2 + \dot\beta^2 + \dot\gamma^2 =
+(1+f_b) GM_\odot \gamma^3.
+\end{equation}
+Again, $f_b=0$ corresponds to a circular orbit, and $-1<f_b<1$ for
+bound orbits.  Hence the addition of the energy constraint pushes the
+orbit to be bound, and close to circular.
+\item If there were only 2 observations, or if Step (1) indicated a
+doubly degenerate orbit, then the $\tilde\chi^2$ minimization is done
+with $\dot\gamma$ fixed at zero, with a nominal variance placed on
+$\dot\gamma$ post-facto.
+\end{enumerate}
+Hence the primary change is that we use the energy constraint, rather
+than setting $\dot\gamma=0$, as a means of handling singly-degenerate
+orbits.  This avoids the (sometimes erroneous) assumption that {\em
+all} of the degeneracy is in $\dot\gamma$.  
+
+Another bug which was found to arise is that the traditional means of
+minimizing $\chi^2$ and calculating $\Sigma$ is to ignore the second
+derivatives of the fitted quantities, as is done in the standard {\it
+Numerical Recipes} routines that I used.  This approximation turns out
+to often be a poor one for the $f_b$ term in our $\tilde\chi^2$.  The
+code now explicitly inserts the necessary second-derivative terms.
+This bug had caused unrealistically small error bars to be placed on
+some very degenerate orbits.
+
+The default error placed on $\dot\gamma$ for doubly-degenerate orbits,
+and the strength of the constraint on $f_b$, are weaker than in the
+last release of the software, meaning the degenerate orbits will show
+somewhat larger errors in position and elements than before.
+
+\subsection{Orbiting Observatories}
+In preparing a proposal for KBO observations with HST, I produced code
+to compute positions from observatories in orbit around the Earth.  If
+an observation uses an observatory code which is $\ge2000$, it is
+assumed to be an orbiting observatory.  The {\tt observatories.dat}
+file must containing a corresponding entry with the following data on
+a line:
+
+\noindent
+{\it obscode   inclination  period  precession\_period  jd0  RA0  name}
+
+\noindent
+with the inclination (degrees) and period (days) of the spacecraft
+orbit, the precession period (in days) of the orbit pole
+about the Earth pole, the JD at which the spacecraft is at the
+ascending node of the orbit with pole directed toward a particular
+RA.  The supplied {\tt observatories.dat} file contains an entry which
+allows simulation of the HST orbit.  This is a schematic
+representation of the orbit, of course, just simulating the motions
+and seeing the effect on orbital fits, parallax, etc.
+Precise actual data must know the phase of the HST orbit more
+carefully than this simple parameterization can provide.  Indeed due
+to variable drag it is impossible to predict the HST position to
+better than a few thousand km even a month in advance.
+
+The spacecraft orbit is taken to be circular.
+
+\section{New Conveniences}
+The basic programs now accept command-line arguments through which one
+can specify the location of the binary JPL ephemeris and/or the
+observatories database file.  Also the uncertainty assigned to
+observations in MPC format can be altered on the command line.
+
+Alternatively the locations of the ephemeris and observatory files can
+be specified by setting the environment variables {\tt ORBIT\_EPHEMERIS}
+and {\tt ORBIT\_OBSERVATORIES}.  For example your {\tt .cshrc} file
+could contain the line
+
+\noindent
+{\tt setenv ORBIT\_OBSERVATORIES /usr/local/orbits/observatories.dat}
+
+\noindent
+If neither of these is done, the programs look in the current
+directory as before.
+
+The Release code for the software can be found by putting the {\tt -v}
+option on the command line of most of the basic programs as well.
+
+Sample input and output files for Pluto and 1992~QB$_1$ are now
+included in the distribution, to help check for proper compilation.
+
+\section{New Subroutines}
+The {\tt ephem\_earth.c} code has been reorganized to handle the
+orbiting observatories described above.  Some additional subroutines
+have been created, however, which are useful in creating your own
+programs: 
+\begin{itemize}
+\item {\tt elements\_to\_xv()} will create a Cartesian-basis orbit
+representation from an orbital-element representation; previously,
+only the reverse transformation was available.
+\item {\tt zenith\_angle()} will calculate the angle between an
+observation direction and the anti-geocenter vector.
+\item {\tt zenith\_horizon()} will calculate the angle from zenith to
+horizon for a chosen observatory.  A spherical Earth is assumed for
+orbiting observatories, while ground-based observatories just return
+90 degrees.
+\item {\tt is\_visible()} tells whether a given observation is above
+the horizon.
+\end{itemize}
+
+
+Other changes to the code since the first release include the addition
+of more observatories to the included {\tt observatories.dat} file.  I
+believe the file currently contains all sites that have contributed
+KBO observations at $R>21$ to the MPC.
+
+The package is now under CVS control, so each file has a header that
+gives the version number.  If you find bugs, etc., please let me know
+the version information of the files containing the bugs.
+\end{document}

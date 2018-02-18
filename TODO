@@ -1,0 +1,13 @@
+#	$Id: TODO,v 2.0 2001/09/14 19:05:06 garyb Exp $	
+To do on the orbit-fitting software:
+
+hard-wired things that should be configurable:
+*weighting factors on energy constraints
+*integrator time step
+
+Outlier rejection in fits
+
+unsafe string operations
+
+SVD decompositions of covariance matrices as better
+test for degeneracies and more numerical stability.
