@@ -15,6 +15,27 @@
 using namespace orbits;
 using namespace std;
 
+void checkSpice() {
+  // Routine to check spice error status and throw exception if bad
+  if (!failed_c()) return;
+  int msglen = 2048;
+  char msg[msglen];
+  getmsg_c("SHORT",msglen, msg);
+  string err = msg;
+  getmsg_c("EXPLAIN",msglen,msg);
+  if (strlen(msg)>0)
+    err = err + "\n" + msg;
+  getmsg_c("LONG",msglen,msg);
+  if (strlen(msg)>0)
+    err = err + "\n" + msg;
+
+  // Reset error status in case someone decides to catch this
+  // exception and proceed
+  reset_c();
+  
+  throw SpiceError(err);
+}
+
 bool
 Ephemeris::init = false;
 
@@ -31,15 +52,23 @@ Ephemeris::Ephemeris(const string& kernelFile) {
     throw std::runtime_error("Cannot create two instances of Ephemeris"
 			     " under cspice");
   init = true;
-  if (kernelFile) {
-    furnsh_c(kernelFile.c_str());
-  } else {
+
+  // Tell CSPICE not to abort on errors, rather go into "fall-through" mode
+  erract_c("SET",1,"RETURN");
+  // Shut off error message dumping
+  errdev_c("SET",1,"NULL");
+
+  
+  if (kernelFile.empty())  {
     // Find kernel file name from environment variable
-    char *kpath = getenv(SPICE_ENVIRON);
+    char *kpath = getenv(SPICE_ENVIRON.c_str());
     if (kpath == NULL) 
       throw std::runtime_error("No path given for SPICE kernel file");
     furnsh_c(kpath);
+  } else {
+    furnsh_c(kernelFile.c_str());
   }
+
   /* Get radii and flattening of Earth */
   int n;
   double abc[3];
@@ -76,7 +105,7 @@ double
 Ephemeris::utc2tdb(string utc) const {
   // Use spice string parsing method, which does all the leapseconds
   double tdb;
-  str2et_c(utc, &tdb);
+  str2et_c(utc.c_str(), &tdb);
   return tdb*SECOND;
 }
 
@@ -87,7 +116,7 @@ Ephemeris::jd2tdb(double jd) const {
   double utc = (jd - j2000_c()) * spd_c(); // (latter call is seconds per day)
   double delta;
   // Let spice calculate ET - UTC
-  deltet_c(utc, "UTC", delta);
+  deltet_c(utc, "UTC", &delta);
   // Convert to years
   return (utc + delta) * SECOND;
 }
@@ -98,8 +127,8 @@ Ephemeris::mjd2tdb(double mjd) const {
 }
 
 double
-Ephemeris::utc2tdb(const UT& utc) const {
-  return jd2tdb(Ut.getJD());
+Ephemeris::utc2tdb(const astrometry::UT& utc) const {
+  return jd2tdb(utc.getJD());
 }
 
 astrometry::CartesianICRS
@@ -118,11 +147,11 @@ Ephemeris::observatory(double lon,
   // Apply rotate to get geo->obs vector in ICRS
   mxv_c(rotate, geo, abc);
   // Get geocenter position
-  double s[6]
+  double s[6];
   spkgeo_c(EARTH, tdb/SECOND, "J2000", SSB, s, &lighttime);
-  CartesianICRS out;
-  for (i=0; i<3; i++)
-    out[i] = (abs[i] + s[i]) * (1000. / AU);
+  astrometry::CartesianICRS out;
+  for (int i=0; i<3; i++)
+    out[i] = (abc[i] + s[i]) * (1000. / AU);
   return out;
 }
 
