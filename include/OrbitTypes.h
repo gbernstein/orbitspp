@@ -11,8 +11,8 @@ namespace orbits {
 
   class State {
   public:
-    astrometry::CartesianEcliptic x;
-    astrometry::CartesianEcliptic v;
+    astrometry::CartesianICRS x;
+    astrometry::CartesianICRS v;
     double tdb;
   };
 
