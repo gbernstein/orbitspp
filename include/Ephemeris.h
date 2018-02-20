@@ -6,12 +6,18 @@
 #include "OrbitTypes.h"
 
 namespace orbits {
+  class SpiceError: public std::runtime_error {
+  public:
+    SpiceError(const string &m=""): 
+      std::runtime_error("SPICE Error: " +m) {}
+  };
+    
   class Ephemeris {
   public:
     Ephemeris(const string& kernelFile="");   // Will read specified kernel, or a default
     // No copying since cspice has its own internal state
-    Ephemeris(const Ephemeris& rhs) delete;
-    void operator=(const Ephemeris& rhs) delete;
+    Ephemeris(const Ephemeris& rhs) =delete;
+    void operator=(const Ephemeris& rhs) =delete;
 
     // Get barycentric body geometric position
     astrometry::CartesianICRS position(int body,
@@ -37,7 +43,7 @@ namespace orbits {
     // Can take as input either a string in valid CSPICE format, or my UT object.
     // TDB is defined here as Julian years past J2000 TDB.
     double utc2tdb(const string utc) const;
-    double utc2tdb(const astrometry::UT utc) const;
+    double utc2tdb(const astrometry::UT& utc) const;
     // Convert UTC-based JD or MJD to TDB.
     double jd2tdb(double jd) const;
     double mjd2tdb(double mjd) const;

@@ -1,94 +1,165 @@
-#	$Id: Makefile,v 2.2 2002/01/22 03:18:41 garyb Exp $	
-# Make file for orbit fitting programs.  Change flags below as required.
+# These site-dependent items should be defined in environment:
 
-CC = gcc
-CFLAGS = -O
-LIBS = -lm
-BINDIR = ~/bin.linux/
+# CXX = g++-6 -fopenmp
+# CXXFLAGS
 
-PROGS = fit_radec predict abg_to_aei postdict scatter AllMPC scenario2 planner
-ALL:  $(PROGS)
+# GBUTILS_DIR
+# ASTROMETRY_DIR
+# SPICE_DIR
 
-clean:
-	rm *.o *.dvi *.aux *.log core $(PROGS)
-install:
-	mv -f $(PROGS) $(BINDIR)
-tar:
-	tar -cvf orbfit.tar *.c *.h Makefile TODO README observatories.dat \
-	 qb1.a* pluto14yr.a* update.tex
-OBJS  = fit_radec.o predict.o abg_to_aei.o abg_to_xyz.o
+# MKL_DIR (optional, used with Eigen)
 
-NR   = nrutil.o ludcmp.o lubksb.o gaussj.o mrqmin_orbit.o mrqcof_orbit.o \
-	covsrt.o gasdev.o ran1.o
-ORBSUBS = orbfit1.o transforms.o dms.o ephem_earth.o
+INCLUDES := 
 
+LIBS := -lm
 
-ephem_earth.o: ephem_read.h
-orbfit1.o ephem_earth.o: ephem_types.h
-$(OBJS) $(ORBSUBS) orbfit2.o mrqmin_orbit.o mrqcof_orbit.o :  orbfit.h Makefile
+EXTDIRS := 
 
-# Note that aeiderivs is very slow to compile optimized so I'll give
-# it its own compilation here.
-aeiderivs.o: orbfit.h
-	$(CC) -O0 -c aeiderivs.c -o aeiderivs.o
+# Collect the includes and libraries we need
+ifdef SPICE_DIR
+INCLUDES += -I $(SPICE_DIR)/include
+LIBS += -L $(SPICE_DIR)/lib -lcspice
+else
+$(error Require SPICE_DIR in environment)
+endif
 
-fit_radec: fit_radec.o orbfit2.o $(ORBSUBS) $(NR)
-	$(CC) fit_radec.o orbfit2.o $(ORBSUBS) $(NR) $(LIBS) -o fit_radec
-predict: predict.o $(ORBSUBS) $(NR)
-	$(CC) predict.o $(ORBSUBS) $(NR) $(LIBS) -o predict
-postdict: postdict.o $(ORBSUBS) $(NR)
-	$(CC) postdict.o $(ORBSUBS) $(NR) $(LIBS) -o postdict
-abg_to_aei: abg_to_aei.o $(ORBSUBS)  aeiderivs.o $(NR)
-	$(CC)  abg_to_aei.o aeiderivs.o $(ORBSUBS) $(NR) $(LIBS) -o abg_to_aei
-abg_to_xyz: abg_to_xyz.o $(ORBSUBS) $(NR)
-	$(CC)  abg_to_xyz.o $(ORBSUBS) $(NR) $(LIBS) -o abg_to_xyz
-scenario: scenario.o orbfit2.o aeiderivs.o $(ORBSUBS) $(NR)
-	$(CC) scenario.o orbfit2.o aeiderivs.o \
-	$(ORBSUBS) $(NR) $(LIBS) -o scenario
-scenario2: scenario2.o orbfit2.o aeiderivs.o $(ORBSUBS) $(NR)
-	$(CC) scenario2.o orbfit2.o aeiderivs.o \
-	$(ORBSUBS) $(NR) $(LIBS) -o scenario2
-scatter: scatter.o orbfit2.o aeiderivs.o $(ORBSUBS) $(NR)
-	$(CC) scatter.o orbfit2.o aeiderivs.o \
-	$(ORBSUBS) $(NR) $(LIBS) -o scatter
-AllMPC: AllMPC.o orbfit2.o aeiderivs.o $(ORBSUBS) $(NR)
-	$(CC) AllMPC.o orbfit2.o aeiderivs.o \
-	$(ORBSUBS) $(NR) $(LIBS) -o AllMPC
-planner: planner.o $(ORBSUBS) $(NR)
-	$(CC) planner.o $(ORBSUBS) $(NR) $(LIBS) -o planner
+ifdef GBUTIL_DIR
+INCLUDES += -I $(GBUTIL_DIR)/include
+EXTDIRS += $(GBUTIL_DIR)
+GBUTIL_OBJ = $(GBUTIL_DIR)/obj
+else
+$(error Require GBUTIL_DIR in environment)
+endif
 
-# Programs for debugging tests ( am not maintaining all these)
-check_posn: check_posn.o orbfit1.o transforms.o dms.o ephem_earth.o $(NR)
-	$(CC) check_posn.o orbfit1.o transforms.o dms.o ephem_earth.o $(NR) \
-	$(LIBS) -o check_posn
+ifdef ASTROMETRY_DIR
+INCLUDES += -I $(ASTROMETRY_DIR)/include
+EXTDIRS += $(ASTROMETRY_DIR)
+ASTROMETRY_OBJ := $(ASTROMETRY_DIR)/obj
+else
+$(error Require ASTROMETRY_DIR in environment)
+endif
 
-check_orbit: check_orbit.o orbfit1.o transforms.o dms.o ephem_earth.o $(NR)
-	$(CC) check_orbit.o orbfit1.o transforms.o dms.o ephem_earth.o $(NR) \
-	$(LIBS) -o check_orbit
-fit_amoeba: fit_amoeba.o orbfit1.o transforms.o dms.o ephem_earth.o \
-	$(NR) amoeba.o amotry.o	
-	$(CC) fit_amoeba.o orbfit1.o \
-	transforms.o dms.o ephem_earth.o $(NR) amoeba.o amotry.o\
-	$(LIBS) -o fit_amoeba
-testang: testang.o orbfit1.o transforms.o dms.o ephem_earth.o $(NR)
-	$(CC) testang.o orbfit1.o transforms.o dms.o ephem_earth.o $(NR) \
-	$(LIBS) -o testang
+ifdef EIGEN_DIR
+INCLUDES += -I $(EIGEN_DIR) -D USE_EIGEN
+else
+$(error Require EIGEN_DIR in environment)
+endif
 
+ifdef MKL_DIR
+INCLUDES += -I $(MKL_DIR)/include -D USE_MKL
+endif
 
-# HST-planning programs
-hststuff1: hststuff1.o $(ORBSUBS) $(NR)
-	$(CC) hststuff1.o $(ORBSUBS) $(NR) $(LIBS) -o hststuff1
-hststuff2: hststuff2.o $(ORBSUBS) $(NR)
-	$(CC) hststuff2.o $(ORBSUBS) $(NR) $(LIBS) -o hststuff2
-hststuff3: hststuff3.o $(ORBSUBS) $(NR)
-	$(CC) hststuff3.o $(ORBSUBS) $(NR) $(LIBS) -o hststuff3
-hststuff4: hststuff4.o $(ORBSUBS) aeiderivs.o orbfit2.o $(NR)
-	$(CC) hststuff4.o $(ORBSUBS) aeiderivs.o orbfit2.o $(NR) $(LIBS) -o hststuff4
-radec_to_invar: radec_to_invar.o $(ORBSUBS) $(NR)
-	$(CC) radec_to_invar.o $(ORBSUBS) $(NR) $(LIBS) -o radec_to_invar
-invdump: invdump.o $(ORBSUBS) $(NR)
-	$(CC) invdump.o $(ORBSUBS) $(NR) $(LIBS) -o invdump
-testeph: testeph.o $(ORBSUBS) $(NR)
-	$(CC) testeph.o $(ORBSUBS) $(NR) $(LIBS) -o testeph
-plutinos: plutinos.o $(ORBSUBS) $(NR)
-	$(CC) plutinos.o $(ORBSUBS) $(NR) $(LIBS) -o plutinos
+# !! Not really using this but Astrometry does
+ifdef YAML_DIR
+INCLUDES += -I $(YAML_DIR)/include
+LIBS += -L $(YAML_DIR)/lib -lyaml-cpp
+else
+$(error Require YAML_DIR in environment)
+endif
+
+# Object files found in external packages:
+EXTOBJS =$(GBUTIL_OBJ)/StringStuff.o $(GBUTIL_OBJ)/Table.o $(GBUTIL_OBJ)/Pset.o \
+	$(ASTROMETRY_OBJ)/Astrometry.o 
+
+##### 
+BINDIR = bin
+OBJDIR = obj
+SRCDIR = src
+SUBDIR = src/subs
+INCLUDEDIR = include
+TESTDIR = tests
+TESTBINDIR = testbin
+
+# INCLUDES can be relative paths, and will not be exported to subdirectory makes.
+INCLUDES += -I $(INCLUDEDIR)
+
+# Executable C++ programs
+EXECS :=  $(wildcard $(SRCDIR)/*.cpp)
+TARGETS := $(EXECS:$(SRCDIR)/%.cpp=$(BINDIR)/%)
+OBJS := $(EXECS:$(SRCDIR)/%.cpp=$(OBJDIR)/%.o)
+
+# Python executables
+PYEXECS :=  $(wildcard $(SRCDIR)/*.py)
+PYTARGETS :=  $(PYEXECS:$(SRCDIR)/%.py=$(BINDIR)/%.py)
+# C++ subroutines
+SUBS :=  $(wildcard $(SUBDIR)/*.cpp)
+SUBOBJS := $(SUBS:$(SUBDIR)/%.cpp=$(OBJDIR)/%.o)
+
+CP = /bin/cp -p
+RM = /bin/rm -f
+
+#######################
+# Rules - ?? dependencies on INCLUDES ??
+#######################
+
+all: cpp python
+
+cpp: exts $(TARGETS)
+
+python: $(PYTARGETS)
+
+# No setup.py to do here ... python ./setup.py install
+
+# Compilation
+$(OBJS):  $(OBJDIR)/%.o : $(SRCDIR)/%.cpp
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+
+$(SUBOBJS): $(OBJDIR)/%.o : $(SUBDIR)/%.cpp 
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+
+# Linking
+$(TARGETS): $(BINDIR)/% : $(OBJDIR)/%.o $(SUBOBJS) $(EXTOBJS)
+	$(CXX) $(CXXFLAGS) $^  $(LIBS) -o $@
+
+# Python executables - copy into bin directory
+$(PYTARGETS): $(BINDIR)/% : $(SRCDIR)/%
+	$(CP) $^ $@
+
+# External objects - call external makefiles.  ?? Conditional??
+# Semicolon prevents calling default rule for .o/.cpp
+$(EXTOBJS): exts ;
+
+######### Test programs
+
+TESTSRC := $(wildcard $(TESTDIR)/*.cpp)
+TESTINCLUDE := -I $(TESTDIR)
+TESTOBJS := $(TESTSRC:$(TESTDIR)/%.cpp=$(OBJDIR)/%.o)
+TESTTARGETS := $(TESTSRC:$(TESTDIR)/%.cpp=$(TESTBINDIR)/%)
+TESTSPY := $(wildcard $(TESTDIR)/*.py)
+
+tests: $(TESTTARGETS)
+
+$(TESTOBJS):  $(OBJDIR)/%.o : $(TESTDIR)/%.cpp
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(TESTINCLUDE) -c $^ -o $@
+
+$(TESTTARGETS): $(TESTBINDIR)/% : $(OBJDIR)/%.o $(SUBOBJS) $(EXTOBJS)
+	$(CXX) $(CXXFLAGS) $^  $(LIBS) -o $@
+
+###############################################################
+## Standard stuff:
+###############################################################
+
+exts:
+	for dir in $(EXTDIRS); do (cd $$dir && $(MAKE)); done
+
+depend: local-depend
+	for dir in $(EXTDIRS); do (cd $$dir && $(MAKE) depend); done
+
+local-depend:
+	$(RM) .depend
+	for src in $(SUBS:%.cpp=%) $(EXECS:%.cpp=%); \
+	   do $(CXX) $(CXXFLAGS) $(INCLUDES) -MM $$src.cpp -MT obj/$$src.o >> .depend; \
+        done
+
+clean: local-clean
+	for dir in $(EXTDIRS); do (cd $$dir && $(MAKE) clean); done
+
+local-clean:
+	rm -f $(OBJDIR)/*.o $(BINDIR)/* $(TESTBINDIR)/* *~ *.dvi *.aux core .depend
+
+ifeq (.depend, $(wildcard .depend))
+include .depend
+endif
+
+.PHONY: all install dist depend clean 
+
