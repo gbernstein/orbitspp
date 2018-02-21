@@ -7,13 +7,17 @@
 #include "Ephemeris.h"
 #include "AstronomicalConstants.h"
 
-// cspice files:
+/* / cspice files:
 #include "SpiceZdf.h"
 #include "SpiceCK.h"
 #include "SpiceZpr.h"
+*/
+#include "SpiceUsr.h"
 
 using namespace orbits;
 using namespace std;
+
+extern "C" SpiceDouble spd_c(void);
 
 void checkSpice() {
   // Routine to check spice error status and throw exception if bad

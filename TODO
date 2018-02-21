@@ -1,6 +1,11 @@
-#	$Id: TODO,v 2.0 2001/09/14 19:05:06 garyb Exp $	
 To do on the orbit-fitting software:
 
+* Astrometry caches transform matrices for ecliptic, invariable
+* Get rid of need for YAML code to compile orbits (i.e. optional for Astrometry)
+* Get rid of old astrometry/Ephemeris
+* test programs for ephemeris
+
+---old todo's:
 hard-wired things that should be configurable:
 *weighting factors on energy constraints
 *integrator time step
