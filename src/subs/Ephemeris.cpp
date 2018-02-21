@@ -6,6 +6,8 @@
 
 #include "Ephemeris.h"
 #include "AstronomicalConstants.h"
+#include "StringStuff.h"
+#include "Std.h"
 
 /* / cspice files:
 #include "SpiceZdf.h"
@@ -136,7 +138,6 @@ Ephemeris::mjd2tdb(double mjd) const {
 
 double
 Ephemeris::utc2tdb(const astrometry::UT& utc) const {
-  cerr << std::fixed << std::setprecision(6) << utc.getJD() << endl;  /**/
   return jd2tdb(utc.getJD());
 }
 
@@ -168,11 +169,42 @@ Ephemeris::observatory(double lon,
 astrometry::CartesianICRS
 Ephemeris::observatory(int obsid,
 		       double tdb) const {
-
+  
   // Read observatory file if we don't have it
+  if (obsTable.empty()) {
+    // Find kernel file name from environment variable
+    char *kpath = getenv(OBS_ENVIRON.c_str());
+    if (kpath == NULL) 
+      throw std::runtime_error("No path given for observatory info file");
+    // Now open the file named by the environment variable
+    std::ifstream ifs(kpath);
+    if (!ifs) {
+      string fname(kpath);
+      FormatAndThrow<std::runtime_error>() << "Could not open observatory info file " << fname;
+    }
+    string buffer;
+    while (stringstuff::getlineNoComment(ifs, buffer)) {
+      int id;
+      string lonstring;
+      string latstring;
+      double elev;
+      istringstream iss(buffer);
+      if (!(iss >> id >> lonstring >> latstring >> elev))
+	throw std::runtime_error("Bad observatory spec: <" + buffer + ">");
+
+      ObsInfo oi;
+      oi.lon = -astrometry::dmsdeg(lonstring) * DEGREE; // Table gives degrees W lon, we want rad E
+      oi.lat = astrometry::dmsdeg(latstring) * DEGREE;
+      oi.elev = elev / 1000.;   // cspice wants km; MPC uses meters
+      obsTable[id] = oi;
+    }
+    ifs.close();
+  }
 
   // Look up our id
-
+  if (obsTable.count(obsid)==0) 
+    FormatAndThrow<std::runtime_error>() << "Unknown observatory id " << obsid;
+  auto obs = obsTable[obsid];
   // Call with lon/lat/elev
-
+  return observatory( obs.lon, obs.lat, obs.elev, tdb);
 }
