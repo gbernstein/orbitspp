@@ -6,6 +6,15 @@
 #include "OrbitTypes.h"
 
 namespace orbits {
+  // Here are standard spice object ID's we will use:
+  const int SSB = 0; //Solar system barycenter
+  const int SUN = 10; // Heliocenter
+  const int EARTH = 399; // Geocenter
+  const int JUPITER = 5; // Jupiter system barycenter
+  const int SATURN = 6; // Saturn barycenter
+  const int URANUS = 7; // Uranus barycenter
+  const int NEPTUNE = 8; // Neptune barycenter
+
   class SpiceError: public std::runtime_error {
   public:
     SpiceError(const string &m=""): 
@@ -48,14 +57,6 @@ namespace orbits {
     double jd2tdb(double jd) const;
     double mjd2tdb(double mjd) const;
     
-    // Here are standard object ID's we will use:
-    const int SSB = 0; //Solar system barycenter
-    const int SUN = 10; // Heliocenter
-    const int EARTH = 399; // Geocenter
-    const int JUPITER = 5; // Jupiter system barycenter
-    const int SATURN = 6; // Saturn barycenter
-    const int URANUS = 7; // Uranus barycenter
-    const int NEPTUNE = 8; // Neptune barycenter
     
   private:
     static bool init;  // We will only allow one Ephemeris to exist

@@ -46,9 +46,17 @@ namespace orbits {
     int obscode; // MPC observatory code
   };
 
-  class ABGCovar: public linalg::SMatrix<double,6,6> {
-  };
+  typedef linalg::SMatrix<double,6,6> ABGCovar;
 
+  // Declare function that gives partial derivs of
+  // orbital elements w.r.t. state.  Normally
+  // does barycentric with solar system mass, but
+  // heliocentric=true will assume heliocentric state
+  // and solar mass.
+  extern 
+  linalg::SMatrix<double,6,6>
+  aei_derivs( const orbits::State& xv, bool heliocentric=false);
+  
   class Frame: public astrometry::ReferenceFrame {
   public:
     double tdb0;  // Time coordinate origin

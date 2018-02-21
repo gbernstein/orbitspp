@@ -55,8 +55,6 @@ Ephemeris::Ephemeris(const string& kernelFile) {
   if (init)
     throw std::runtime_error("Cannot create two instances of Ephemeris"
 			     " under cspice");
-  init = true;
-
   // Tell CSPICE not to abort on errors, rather go into "fall-through" mode
   erract_c("SET",1,"RETURN");
   // Shut off error message dumping
@@ -77,8 +75,11 @@ Ephemeris::Ephemeris(const string& kernelFile) {
   int n;
   double abc[3];
   bodvcd_c(EARTH, "RADII", 3, &n, abc );
+  checkSpice();
   earthRadius = abc[0];
   earthFlatten =  ( abc[0]-abc[2]) / abc[0];
+
+  init = true;
 }
   
 State
@@ -87,6 +88,7 @@ Ephemeris::state(int body,
   double s[6];
   double lighttime;
   spkgeo_c(body, tdb/SECOND, "J2000", SSB, s, &lighttime);
+  checkSpice();
   State out;
   out.tdb = tdb;
   // Convert spice's km, s to AU, yr
@@ -110,6 +112,7 @@ Ephemeris::utc2tdb(string utc) const {
   // Use spice string parsing method, which does all the leapseconds
   double tdb;
   str2et_c(utc.c_str(), &tdb);
+  checkSpice();
   return tdb*SECOND;
 }
 
@@ -121,6 +124,7 @@ Ephemeris::jd2tdb(double jd) const {
   double delta;
   // Let spice calculate ET - UTC
   deltet_c(utc, "UTC", &delta);
+  checkSpice();
   // Convert to years
   return (utc + delta) * SECOND;
 }
@@ -132,6 +136,7 @@ Ephemeris::mjd2tdb(double mjd) const {
 
 double
 Ephemeris::utc2tdb(const astrometry::UT& utc) const {
+  cerr << std::fixed << std::setprecision(6) << utc.getJD() << endl;  /**/
   return jd2tdb(utc.getJD());
 }
 
@@ -153,6 +158,7 @@ Ephemeris::observatory(double lon,
   // Get geocenter position
   double s[6];
   spkgeo_c(EARTH, tdb/SECOND, "J2000", SSB, s, &lighttime);
+  checkSpice();
   astrometry::CartesianICRS out;
   for (int i=0; i<3; i++)
     out[i] = (abc[i] + s[i]) * (1000. / AU);
