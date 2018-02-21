@@ -4,6 +4,7 @@
 
 #include "Astrometry.h"
 #include "OrbitTypes.h"
+#include <map>
 
 namespace orbits {
   // Here are standard spice object ID's we will use:
@@ -63,6 +64,14 @@ namespace orbits {
     // Some static constants we can get from spice
     static double earthRadius;
     static double earthFlatten;
+
+    // Maintain an internal table of observatories
+    struct ObsInfo {
+      double lon;  // geodetic Lon, lat in radians
+      double lat;
+      double elev; // geodetic elevation, meters
+    };
+    mutable std::map<int, ObsInfo> obsTable;
   };
 
 } // end namespace orbits
