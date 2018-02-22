@@ -29,12 +29,12 @@ namespace orbits {
 
   class Elements: public linalg::SVector<double,6> {
   public:
-    const int A=0;
-    const int E=1;
-    const int I=2;
-    const int LAN=3; // Longitude of ascending node
-    const int AOP=4; // Argument of perihelion
-    const int TOP=5; // Time of perihelion passage
+    static const int A=0;
+    static const int E=1;
+    static const int I=2;
+    static const int LAN=3; // Longitude of ascending node
+    static const int AOP=4; // Argument of perihelion
+    static const int TOP=5; // Time of perihelion passage
   };
 
   class Observation {
