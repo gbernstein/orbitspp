@@ -6,6 +6,7 @@
 #include "LinearAlgebra.h"
 #include "OrbitTypes.h"
 #include "AstronomicalConstants.h"
+#include "Elements.h"
 
 namespace orbits {
   linalg::SMatrix<double,6,6>
@@ -16,8 +17,9 @@ namespace orbits {
 
     // State vectors are ICRS, in AU, yr units.
     // Convert state vector from ICRS to ecliptic
+    astrometry::Matrix33 partials;
     astrometry::CartesianEcliptic x_ecl(xv.x);
-    astrometry::CartesianEcliptic v_ecl(xv.v);
+    astrometry::CartesianEcliptic v_ecl(xv.v, partials);
 
     x = x_ecl[0];
     y = x_ecl[1];
@@ -2372,7 +2374,12 @@ namespace orbits {
       pow(mu*E2cube,
 	  1.5);
  
-    return derivs;
+    // ???? Need to include derivatives between ecliptic and ICRS states!
+    linalg::SMatrix<double,6,6> eclDerivs(0.);
+    eclDerivs.subMatrix(0,3,0,3) = partials;
+    eclDerivs.subMatrix(3,6,3,6) = partials;
+    /**/cerr << eclDerivs << endl;
+    return derivs * eclDerivs;
   }
 
 } //namespace ephemeris

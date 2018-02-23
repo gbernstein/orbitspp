@@ -6,7 +6,8 @@
 #include "Astrometry.h"
 
 using namespace astrometry;
-using namespace orbits;
+
+namespace orbits {
 
 Elements
 getElements(const State& s, bool heliocentric) {
@@ -178,3 +179,4 @@ getState(const Elements& el, double tdb, bool heliocentric) {
   
   return out;
 }
+} // end namespace
