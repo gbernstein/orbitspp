@@ -34,6 +34,8 @@ namespace orbits {
     astrometry::CartesianICRS position(double tdb) const;
     // Return position at a single time.
 
+    EIGEN_NEW
+    
   private:
     const Ephemeris& ephem;
     astrometry::Vector3 x0;  // Initial position
