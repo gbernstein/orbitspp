@@ -2374,11 +2374,24 @@ namespace orbits {
       pow(mu*E2cube,
 	  1.5);
  
-    // ???? Need to include derivatives between ecliptic and ICRS states!
+    // Need to include derivatives between ecliptic and ICRS states!
     linalg::SMatrix<double,6,6> eclDerivs(0.);
     eclDerivs.subMatrix(0,3,0,3) = partials;
     eclDerivs.subMatrix(3,6,3,6) = partials;
-    /**/cerr << eclDerivs << endl;
+
+    // Appears that the derivatives have a sign error when the angles are >180
+    orbits::Elements el = orbits::getElements(xv);
+    if (el[Elements::LAN] >=PI) {
+      // Flip signs of these derivatives
+      for (int j=0; j<6; j++) 
+	derivs(Elements::LAN,j) *= -1.;
+    }
+    if (el[Elements::AOP] >=PI) {
+      // Flip signs of these derivatives
+      for (int j=0; j<6; j++) 
+	derivs(Elements::AOP,j) *= -1.;
+    }
+    
     return derivs * eclDerivs;
   }
 
