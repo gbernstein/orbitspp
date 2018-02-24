@@ -40,7 +40,7 @@ Trajectory::span(double tdbMin, double tdbMax) const {
     for (int i=xfwd.size(); i<=nfwd; i++, tdb+=dt) {
       // Leap frog forward
       xfwd.push_back( xfwd.back() + dt * vfwd.back() );
-      vfwd.push_back( vfwd.back() + dt * deltaV(xfwd.back(), tdb));
+      vfwd.push_back( vfwd.back() + deltaV(xfwd.back(), tdb));
     }
   }
 
@@ -50,7 +50,7 @@ Trajectory::span(double tdbMin, double tdbMax) const {
     for (int i=xbwd.size(); i<=nbwd; i++, tdb-=dt) {
       // Leap frog backward
       xbwd.push_back( xbwd.back() - dt * vbwd.back() );
-      vbwd.push_back( vbwd.back() - dt * deltaV(xbwd.back(), tdb));
+      vbwd.push_back( vbwd.back() - deltaV(xbwd.back(), tdb));
     }
   }
 }
@@ -62,7 +62,7 @@ Trajectory::position(const linalg::Vector<double>& tdb) const {
   if (grav==INERTIAL) {
     // Inertial motion is just linear algebra
     for (int i=0; i<tdb.size(); i++)
-      out.subMatrix(0,3,i,i) = x0 + (tdb[i]-tdb0)*v0;
+      out.col(i) = x0 + (tdb[i]-tdb0)*v0;
   } else {
     // Grow the integration of the orbit
     span(tdb[0], tdb[tdb.size()-1]);
@@ -75,13 +75,13 @@ Trajectory::position(const linalg::Vector<double>& tdb) const {
     int i;
     for (i=0 ;tsteps[i]<0 && i<tsteps.size(); i++) {
       int i0 = static_cast<int> (-floor(tsteps[i])); // Index of time before
-      out.subMatrix(0,3,i,i) = xbwd[i0] + (i0+tsteps[i])*dt*vbwd[i0-1];
+      out.col(i) = xbwd[i0] + (i0+tsteps[i])*dt*vbwd[i0-1];
     }
 
     // Now forward ones
     for ( ; i<tsteps.size(); i++) {
       int i0 = static_cast<int> (floor(tsteps[i])); // Index of time before
-      out.subMatrix(0,3,i,i) = xfwd[i0] + (tsteps[i]-i0)*dt*vbwd[i0];
+      out.col(i) = xfwd[i0] + (tsteps[i]-i0)*dt*vfwd[i0];
     }
   }
   return out;
@@ -106,7 +106,7 @@ Trajectory::deltaV(const Vector3& x, double tdb) const {
   } else if (grav==GIANTS) {
     // Sum over Sun and giants
     static vector<double> gm = {JupiterGM, SaturnGM, UranusGM, NeptuneGM,
-				GM + MercuryGM + VenusGM + EarthMoonGM};
+				GM + MercuryGM + VenusGM + EarthMoonGM + MarsGM};
     static vector<int> bodies = {orbits::JUPITER, orbits::SATURN, orbits::URANUS,
 				 orbits::NEPTUNE, orbits::SUN};
     for (int i=0; i<bodies.size(); i++) {
