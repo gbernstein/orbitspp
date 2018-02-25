@@ -45,12 +45,16 @@ namespace orbits {
     Gravity grav;
     // Caches for positions and velocities at time steps
     // after and before initial state.
-    // Linear interpolation between these.
+    // And accelerations, to make quadratic interp easy.
     mutable std::vector<astrometry::Vector3> xfwd;
     mutable std::vector<astrometry::Vector3> xbwd;
     mutable std::vector<astrometry::Vector3> vfwd;
     mutable std::vector<astrometry::Vector3> vbwd;
-
+    mutable std::vector<astrometry::Vector3> afwd;
+    mutable std::vector<astrometry::Vector3> abwd;
+    mutable astrometry::Vector3 vnext_fwd;
+    mutable astrometry::Vector3 vnext_bwd;
+    
     // Acceleration calculator - return a*dt
     astrometry::Vector3 deltaV(const astrometry::Vector3& x, double tdb) const;
     // Extend integration to include this time range
