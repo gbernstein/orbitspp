@@ -37,12 +37,12 @@ namespace orbits {
     static const int TOP=5; // Time of perihelion passage
   };
 
-  class Observation {
+  class MPCObservation {
   public:
-    astrometry::Vector2 theta;    // Angular coordinates, in chosen projection
-    astrometry::Matrix22 invcov;  // Inverse covariance of measurement error
-    double tdb;  // TDB of observation
-    astrometry::Vector3 xe;  // Position of observatory in chosen frame
+    MPCObservation() {}
+    MPCObservation(const string& line); // Parse input string
+    astrometry::SphericalICRS radec;
+    double mjd;  // UTC MJD of observation
     int obscode; // MPC observatory code
   };
 
