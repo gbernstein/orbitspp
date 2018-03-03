@@ -6,40 +6,31 @@
 using namespace orbits;
 
 MPCObservation::MPCObservation(const string& line) {
-  auto fields = stringstuff::split(line,' ');
-  // Clean & strip the list
-  for (auto i = fields.begin(); i!=fields.end(); ) {
-    stringstuff::stripWhite(*i);
-    if (i->size()==0) {
-      i = fields.erase(i);
-    } else {
-      ++i;
-    }
-  }
+  auto fields = stringstuff::split(line);
   auto wordPtr = fields.begin();
-  if (fields.size() < 4) {
+  if (fields.size() < 5) {
     // No way this is enough info
     throw std::runtime_error("Insufficient info on MPCObservation: " + line);
   }
   {
     // First field is indicator of time
-    double jd;
+    double mjd_in;
     bool fail = false;
     string word = *wordPtr;
     istringstream iss(word);
-    iss >> jd;
+    iss >> mjd_in;
     if (!iss.eof() || iss.fail()) {
       throw std::runtime_error("Bad date/time in MPCObservation: " + line);
     }
 
-    if (jd < 10000.) {
+    if (mjd_in < 10000.) {
       // This is probably a year.
       // Try YYYY MM DD.DDDD
-      int yr = static_cast<int> (floor(jd));
+      int yr = static_cast<int> (floor(mjd_in));
       int mo;
       float day;
-      if (abs(jd-yr) > 1e-7) {
-	// Was no integral year
+      if (abs(mjd_in-yr) > 1e-7) {
+	// Was not integral year
 	throw std::runtime_error("Bad date/time in MPCObservation: " + line);
       }
       ++wordPtr;
@@ -71,31 +62,35 @@ MPCObservation::MPCObservation(const string& line) {
 
       double jdint = floor(365.25*yr);  /* truncates */
       double inter = floor(30.6001*mo);
-      mjd = jdint + inter + day + 1720982 - 0.5;
+      mjd = jdint + inter + day + 1720982 - 0.5 - MJD0;
       
-    } else if (jd < 300000) {
+    } else if (mjd_in < 300000) {
       // It's an MJD
-      mjd = jd;
+      mjd = mjd_in;
     } else {
       // It's a JD
-      mjd = jd - MJD0;
+      mjd = mjd_in - MJD0;
     }
-    wordPtr++;
+    ++wordPtr;
   }
-  // Now get RA, Dec, obscode
+  // Now get RA, Dec, sigma, obscode
   if (wordPtr==fields.end())
     throw std::runtime_error("Insufficient info on MPCObservation: " + line);
-  ++wordPtr;
   string raWord = *wordPtr;
 
+  ++wordPtr;
   if (wordPtr==fields.end())
     throw std::runtime_error("Insufficient info on MPCObservation: " + line);
-  ++wordPtr;
   string decWord = *wordPtr;
 
+  ++wordPtr;
   if (wordPtr==fields.end())
     throw std::runtime_error("Insufficient info on MPCObservation: " + line);
+  string sigWord = *wordPtr;
+
   ++wordPtr;
+  if (wordPtr==fields.end())
+    throw std::runtime_error("Insufficient info on MPCObservation: " + line);
   string obscodeWord = *wordPtr;
 
   {
@@ -103,6 +98,13 @@ MPCObservation::MPCObservation(const string& line) {
     iss >> radec;
     if (!iss.eof() || iss.fail()) {
       throw std::runtime_error("Bad RA/Dec in MPCObservation: " + line);
+    }
+  }
+  {
+    istringstream iss(sigWord);
+    iss >> sigma;
+    if (!iss.eof() || iss.fail()) {
+      throw std::runtime_error("Bad sigma in MPCObservation: " + line);
     }
   }
   {

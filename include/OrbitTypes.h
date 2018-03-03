@@ -40,9 +40,10 @@ namespace orbits {
   class MPCObservation {
   public:
     MPCObservation() {}
-    MPCObservation(const string& line); // Parse input string
+    MPCObservation(const string& line); // Parse MPC style input string
     astrometry::SphericalICRS radec;
     double mjd;  // UTC MJD of observation
+    double sigma; // Position uncertainty per component
     int obscode; // MPC observatory code
   };
 
