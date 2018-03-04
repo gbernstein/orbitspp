@@ -18,10 +18,13 @@ namespace orbits {
     // Ingest a sequence of MPC-style observations from stream
     void readObservations(istream& is);
 
+    // Set reference frame to the one given
     void setFrame(const Frame& f_);
 
-    // Set reference frame to the one given
-    void chooseFrame();
+    // Choose a reference frame as the location and direction of
+    // the chosen observation.  If negative number,
+    // nearest observation to mean MJD is used.
+    void chooseFrame(int obsNumber = 0);
     
     // Choose a good reference frame from observations
     void orbitDerivatives();
@@ -34,6 +37,7 @@ namespace orbits {
 
     Frame f;   // Reference frame for our coordinates
     Vector tdb;    // TDB's of observations
+    Vector dt;    //  TDB difference from reference time
     Vector thetaX; // Observed angles in our frame
     Vector thetaY; // Observed angles in our frame
     Vector invcovXX; // Inverse cov matrix of observations
