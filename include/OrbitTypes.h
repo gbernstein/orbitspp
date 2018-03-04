@@ -24,7 +24,16 @@ namespace orbits {
     const int ADOT=3;
     const int BDOT=4;
     const int GDOT=5;
-    ABG(const State& s) {} //???
+    typedef linalg::SVector<double,6> Base;
+    ABG(const State& s) {
+      (*this)[A] = s.x[0]/s.x[2];
+      (*this)[B] = s.x[1]/s.x[2];
+      (*this)[G] = 1./s.x[2];
+      (*this)[ADOT] = s.v[0]/s.x[2];
+      (*this)[BDOT] = s.v[1]/s.x[2];
+      (*this)[GDOT] = s.v[2]/s.x[2];
+    }
+    ABG(): linalg::SVector<double,6>(0.) { (*this)[G]=0.03;}
   };
 
   class Elements: public linalg::SVector<double,6> {
@@ -51,6 +60,11 @@ namespace orbits {
   
   class Frame: public astrometry::ReferenceFrame {
   public:
+    Frame(const astrometry::CartesianCoords& origin,
+	  const astrometry::Orientation& orient,
+	  const double tdb): ReferenceFrame(origin,orient),
+			     tdb0(tdb) {}
+    Frame(): ReferenceFrame(), tdb0(0.) {}
     double tdb0;  // Time coordinate origin
   };
 
