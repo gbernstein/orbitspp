@@ -39,7 +39,6 @@ Fitter::setFrame(const Frame& f_) {
   // Put observations into time order.
   std::sort(observations.begin(), observations.end(),
 	    observationTimeOrder);
-  /**/cerr << "resizing" << endl;
   tdb.resize(n);
   dt.resize(n);
   thetaX.resize(n);
@@ -82,12 +81,11 @@ Fitter::setFrame(const Frame& f_) {
 	     << " " << setprecision(4) << xE(2,i)
 	     << endl;
   }
-  /**/cerr << "Done" << endl;
 }
 
 void
 Fitter::chooseFrame(int obsNumber) {
-  if (obsNumber >= observations.size()) 
+  if (obsNumber >= static_cast<int> (observations.size())) 
     throw runtime_error("Request for nonexistent obsNumber in Fitter::chooseFrame()");
   if (observations.empty())
     throw runtime_error("Must have observations to call Fitter::chooseFrame()");
@@ -99,9 +97,9 @@ Fitter::chooseFrame(int obsNumber) {
     double target = mjd0 + tsum / observations.size();
     double minDT = 1e9;
     for (int i=0; i<observations.size(); i++) {
-      if (abs(observations[i].mjd-mjd0)<minDT) {
+      if (abs(observations[i].mjd-target)<minDT) {
 	obsNumber = i;
-	minDT = abs(observations[i].mjd-mjd0);
+	minDT = abs(observations[i].mjd-target);
       }
     }
   }

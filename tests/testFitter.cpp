@@ -17,7 +17,7 @@ int main(int argc,
     fit.readObservations(ifs);
     ifs.close();
     
-    fit.chooseFrame();
+    fit.chooseFrame(-1);
   } catch (std::runtime_error& e) {
     quit(e);
   }
