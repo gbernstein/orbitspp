@@ -26,11 +26,20 @@ namespace orbits {
     // nearest observation to mean MJD is used.
     void chooseFrame(int obsNumber = 0);
     
-    // Choose a good reference frame from observations
     void orbitDerivatives();
+
+    // Set abg with simple linear fit: inertial orbit, fixed distance, gdot=0
     void setLinearOrbit();
+
+    // Place a Gaussian prior on gamma with the given mean and sigma.
+    // sigg<=0 will disable prior.
+    void setGammaConstraint(double g, double sigg) {
+      gamma0=g;
+      gammaPriorSigma = sigg;
+    }
     
-    
+    ABG abg;         // Orbit in abg basis
+
   private:
     vector<MPCObservation> observations;
     void setupObservations();  // Calculate projected positions, Earth posns
@@ -46,7 +55,6 @@ namespace orbits {
     Matrix xE;    // Earth positions in our ref frame
     Matrix xGrav; // Gravitational component of motion in our frame
     const Ephemeris& eph; // Solar system Ephemeris
-    ABG abg;         // Orbit in abg basis
     Vector b;  // First derivs of chisq wrt abg
     Matrix A; // 2nd derivs of chisq wrt abg.
     Trajectory* inertialTrajectory;

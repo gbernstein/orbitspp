@@ -114,5 +114,53 @@ Fitter::chooseFrame(int obsNumber) {
   setFrame(Frame(origin, orient, tdb0));
 }
 
+void
+Fitter::setLinearOrbit() {
 
-    
+  // Create derivatives of signal wrt abg
+  int n = thetaX.size();
+  Vector ones(n,1.);
+  Matrix dxdp(n,5,0.);
+  Matrix dydp(n,5,0.);
+  /**/cerr << "here 1" << endl;
+  dxdp.col(ABG::A) = ones;
+  dxdp.col(ABG::ADOT) = dt;
+  dxdp.col(ABG::G) = -xE.row(0).transpose();
+  dydp.col(ABG::B) = ones;
+  dydp.col(ABG::BDOT) = dt;
+  dydp.col(ABG::G) = -xE.row(1).transpose();
+
+  /**/cerr << "here 2" << endl;
+  // Create A matrix, b vector
+  Matrix tmpx = invcovXX.asDiagonal() * dxdp + invcovXY.asDiagonal() * dydp;
+  Matrix tmpy = invcovXY.asDiagonal() * dxdp + invcovYY.asDiagonal() * dydp;
+  Vector blin = tmpx.transpose() * thetaX + tmpy.transpose() * thetaY;
+  Matrix Alin = dxdp.transpose() * tmpx + dydp.transpose() * tmpy;
+  
+  /**/cerr << "here 3" << endl;
+  // Add gamma constraint, if any
+  if (gammaPriorSigma > 0.) {
+    double w = pow(gammaPriorSigma, -2);
+    blin[ABG::G] += w * gamma0;
+    Alin(ABG::G,ABG::G) += w;
+  }
+  
+  /**/cerr << "here 4" << endl;
+  // Solve (check degeneracies??)
+  auto llt = Alin.llt();
+  Vector answer = llt.solve(blin);
+  /**/cerr << "here 5" << endl;
+  abg[ABG::A] = answer[ABG::A];
+  abg[ABG::B] = answer[ABG::B];
+  abg[ABG::G] = answer[ABG::G];
+  abg[ABG::ADOT] = answer[ABG::ADOT];
+  abg[ABG::BDOT] = answer[ABG::BDOT];
+  abg[ABG::GDOT] = 0.;
+
+  /**/
+  Matrix cov = Alin.inverse();
+  Vector sigma = cov.diagonal().cwiseSqrt();
+  Matrix corr = cov.cwiseQuotient( sigma * sigma.transpose());
+  /**/cerr << scientific << "sigmas:\n" << sigma << endl;
+  /**/cerr << "solution covariance:\n" << corr << endl;
+}
