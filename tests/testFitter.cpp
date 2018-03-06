@@ -18,6 +18,10 @@ int main(int argc,
     ifs.close();
     
     fit.chooseFrame(-1);
+
+    fit.setLinearOrbit();
+    cerr << "ABG:\n" << fit.abg << endl;
+    cerr << "distance: " << 1./fit.abg[ABG::G] << endl;
   } catch (std::runtime_error& e) {
     quit(e);
   }

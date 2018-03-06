@@ -18,12 +18,12 @@ namespace orbits {
 
   class ABG: public linalg::SVector<double,6> {
   public:
-    const int A=0;
-    const int B=1;
-    const int G=2;
-    const int ADOT=3;
-    const int BDOT=4;
-    const int GDOT=5;
+    static const int A=0;
+    static const int B=1;
+    static const int G=2;
+    static const int ADOT=3;
+    static const int BDOT=4;
+    static const int GDOT=5;
     typedef linalg::SVector<double,6> Base;
     ABG(const State& s) {
       (*this)[A] = s.x[0]/s.x[2];
