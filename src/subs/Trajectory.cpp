@@ -81,7 +81,7 @@ Trajectory::position(const linalg::Vector<double>& tdb) const {
     linalg::Vector<double> tsteps = tdb;
     for (int i=0; i<tsteps.size(); i++)
       tsteps[i] = (tsteps[i]-tdb0) / dt;
-    
+    /**/cerr << "tsteps: " << tsteps << endl;
     int i;
     for (i=0 ;tsteps[i]<0 && i<tsteps.size(); i++) {
       int i0 = static_cast<int> (floor(tsteps[i])); // Index of time before

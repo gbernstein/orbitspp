@@ -41,9 +41,13 @@ namespace orbits {
       gamma0=g;
       gammaPriorSigma = sigg;
     }
+
+    void newtonFit(double chisqTolerance=0.01);
     
     ABG abg;         // Orbit in abg basis
     linalg::SMatrix<double,6,6> abgInvCov; // Inverse covariance of abg
+    double getChisq() const {return chisq;}  // Chisq at current abg
+    Matrix getInvCovarABG() const {return A;}  // Inverse covariance of ABG from last fit
     
   private:
     const Ephemeris& eph; // Solar system Ephemeris
@@ -66,9 +70,9 @@ namespace orbits {
     Frame f;   // Reference frame for our coordinates
 
     // Observational information:
-    Vector tdb;    // TDB's of observations
-    Vector dt;    // TDB's of observations, relative to Frame's reference time
-    Vector tEmit;    //  TDB at time of light emission per observation
+    Vector tObs;  // Times of observations, in Julian years since reference time
+    Vector tEmit; // Times of light emission, in Julian years since reference time
+    Vector tdbEmit; // TDB at time of light emission per observation, years since J2000 TDB 
     Vector thetaX; // Observed angles in our frame
     Vector thetaY; // Observed angles in our frame
     Vector invcovXX; // Inverse cov matrix of observations
