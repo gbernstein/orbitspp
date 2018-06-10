@@ -45,22 +45,27 @@ Fitter::setFrame(const Frame& f_) {
   tEmit.resize(n);
   thetaX.resize(n);
   thetaY.resize(n);
+  thetaXModel.resize(n);
+  thetaYModel.resize(n);
   invcovXX.resize(n);
   invcovXY.resize(n);
   invcovYY.resize(n);
-  xE.resize(3,n);
-  xGrav.resize(3,n);
-  dThetaXdABG.resize(6,n);
-  dThetaYdABG.resize(6,n);
+  xE.resize(n,3);
+  xGrav.resize(n,3);
+  dThetaXdABG.resize(n,6);
+  dThetaYdABG.resize(n,6);
 
-  astrometry::Gnomonic projection(f.orient, true);  // share Orientation
+  astrometry::Gnomonic projection(f.orient);  
   astrometry::CartesianCustom projection3d(f);
   for (int i=0; i<n; i++) {
     const Observation& obs = observations[i];
+    // Set up time variables.  Set light travel time to zero
     tdb[i] = obs.tdb;
     dt[i] = tdb[i] - f.tdb0;
-    astrometry::Matrix22 partials(0.);
+    tEmit = tdb;
+    
     // Convert angles to our frame and get local partials for covariance
+    astrometry::Matrix22 partials(0.);
     projection.convertFrom(obs.radec, partials);
     double x,y;
     projection.getLonLat(x,y);
@@ -80,8 +85,11 @@ Fitter::setFrame(const Frame& f_) {
     // Get observatory position in our frame.
     astrometry::CartesianICRS obspos = obs.observer;
     projection3d.convertFrom(obspos);
-    xE.col(i) = projection3d.getVector();
+    xE.row(i) = projection3d.getVector();
 
+    // Initialize gravitational effect to zero
+    xGrav.setZero();
+    
     /**cerr << i << " " << std::fixed << setprecision(4) << dt[i]
 	     << " " << setprecision(4) << xE(0,i) 
 	     << " " << setprecision(4) << xE(1,i) 
@@ -121,6 +129,63 @@ Fitter::chooseFrame(int obsNumber) {
   double tdb0 = obs.tdb;
   astrometry::CartesianICRS origin = obs.observer;
   setFrame(Frame(origin, orient, tdb0));
+}
+
+void
+Fitter::calculateOrbitDerivatives() {
+  int nobs = observations.size();
+
+  // Calculate positions
+  Vector denom = Vector(nobs,1.) + abg[ABG::GDOT]*tEmit
+    + abg[ABG::G]*(xGrav.col(2) - xE.col(2));
+  // ??? add TMV version
+  denom = denom.cwiseInverse();  // Denom is now 1/(z*gamma)
+  thetaXModel = abg[ABG::ADOT]*tEmit
+    + abg[ABG::G]*(xGrav.col(0) - xE.col(0));
+  thetaXModel.array() += abg[ABG::A];
+  thetaYModel = abg[ABG::BDOT]*tEmit
+    + abg[ABG::G]*(xGrav.col(1) - xE.col(1));
+  thetaYModel.array() += abg[ABG::B];
+  thetaXModel.array() *= denom.array();
+  thetaYModel.array() *= denom.array();
+
+  // Calculate derivatives
+  dThetaXdABG.setZero();
+  dThetaYdABG.setZero();
+  dThetaXdABG.col(ABG::A).setOnes();
+  dThetaYdABG.col(ABG::B).setOnes();
+  dThetaXdABG.col(ABG::ADOT) = tEmit;
+  dThetaYdABG.col(ABG::BDOT) = tEmit;
+  dThetaXdABG.col(ABG::G) = xGrav.col(0) - xE.col(0)
+    + thetaXModel.cwiseProduct(xE.col(2)-xGrav.col(2));
+  dThetaYdABG.col(ABG::G) = xGrav.col(1) - xE.col(1)
+    + thetaYModel.cwiseProduct(xE.col(2)-xGrav.col(2));
+  dThetaXdABG.col(ABG::GDOT) -= thetaXModel.cwiseProduct(tEmit);
+  dThetaYdABG.col(ABG::GDOT) -= thetaYModel.cwiseProduct(tEmit);
+
+  dThetaXdABG.applyOnTheLeft(denom.asDiagonal());
+  dThetaYdABG.applyOnTheLeft(denom.asDiagonal());
+
+  return;
+}
+
+void
+Fitter::iterateTimeDelay() {
+  // Use current orbit to update light-travel time
+  int nobs = observations.size();
+  // Light-travel time is distance/(speed of light)
+
+  // Do TMV version??
+  Matrix xyz(nobs, 3, 0.);
+  xyz.col(0).array() = abg[ABG::ADOT]*tEmit.array() + abg[ABG::A];
+  xyz.col(1).array() = abg[ABG::BDOT]*tEmit.array() + abg[ABG::B];
+  xyz.col(2).array() = abg[ABG::GDOT]*tEmit.array() + 1.;
+  xyz *= 1./abg[ABG::G];
+  xyz += xGrav - xE;
+  // Get sqrt(xyz.xyz):
+  Vector dist = xyz.cwiseProduct(xyz).rowwise().sum().cwiseSqrt();
+  tEmit.array() = dt - dist/SpeedOfLightAU;
+  return;
 }
 
 void
@@ -166,7 +231,3 @@ Fitter::setLinearOrbit(double nominalGamma) {
   // And inverse covariance ???
 }
 
-void
-Fitter::orbitDerivatives() {
-  // 
-}
