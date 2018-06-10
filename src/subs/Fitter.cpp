@@ -16,31 +16,39 @@ Fitter::Fitter(const Ephemeris& eph_): eph(eph_),
 				       energyConstraintFactor(0.),
 				       gammaPriorSigma(0.) {}
 void
-Fitter::readObservations(istream& is) {
+Fitter::readMPCObservations(istream& is) {
   string line;
   while (stringstuff::getlineNoComment(is, line)) {
-    observations.push_back( MPCObservation(line));
+    /**/cerr << "mpc is <" << line << ">" << endl;
+    auto obs = mpc2Observation(MPCObservation(line),eph);
+    /**/cerr << "..have obs" << endl;
+    observations.push_back(obs);
+    /**/cerr << "..done" << endl;
   };
 }
 
 // Routine used to put observations into time order
 bool
-observationTimeOrder(const MPCObservation& m1,
-		     const MPCObservation& m2)
+observationTimeOrder(const Observation& m1,
+		     const Observation& m2)
 {
-  return m1.mjd < m2.mjd;
+  return m1.tdb < m2.tdb;
 }
 
 void
 Fitter::setFrame(const Frame& f_) {
+  /**/cerr << "Setting frame" << endl;
   f = f_;
   // Recalculate all coordinates in this frame;
   int n = observations.size();
   // Put observations into time order.
+  /**/cerr << "n=" << n << endl;
   std::sort(observations.begin(), observations.end(),
-	    observationTimeOrder);
+    observationTimeOrder);
+  /**/cerr << "Resizing" << endl;
   tdb.resize(n);
   dt.resize(n);
+  tEmit.resize(n);
   thetaX.resize(n);
   thetaY.resize(n);
   invcovXX.resize(n);
@@ -48,12 +56,16 @@ Fitter::setFrame(const Frame& f_) {
   invcovYY.resize(n);
   xE.resize(3,n);
   xGrav.resize(3,n);
+  dThetaXdABG.resize(6,n);
+  dThetaYdABG.resize(6,n);
 
+  /**/cerr << "resized" << endl;
   astrometry::Gnomonic projection(f.orient, true);  // share Orientation
   astrometry::CartesianCustom projection3d(f);
   for (int i=0; i<n; i++) {
-    const MPCObservation& obs = observations[i];
-    tdb[i] = eph.mjd2tdb(obs.mjd);
+    /**/cerr << "Processing observation " << i << endl;
+    const Observation& obs = observations[i];
+    tdb[i] = obs.tdb;
     dt[i] = tdb[i] - f.tdb0;
     astrometry::Matrix22 partials(0.);
     // Convert angles to our frame and get local partials for covariance
@@ -62,16 +74,19 @@ Fitter::setFrame(const Frame& f_) {
     projection.getLonLat(x,y);
     thetaX[i] = x;
     thetaY[i] = y;
+    // Alter the partials for the cos(dec) factor in derivatives
+    obs.radec.getLonLat(x,y);
+    partials(0,0) /= cos(y);
+    partials(1,0) /= cos(y);
     // Get inverse covariance
-    astrometry::Matrix22 cov(0.);
-    cov(1,1) = cov(0,0) = pow(obs.sigma*ARCSEC,2);
+    astrometry::Matrix22 cov = partials * obs.cov * partials.transpose();
     double det = cov(0,0)*cov(1,1) - cov(0,1)*cov(1,0);
     invcovXX[i] = cov(1,1)/det;
     invcovXY[i] = -cov(1,0)/det;
     invcovYY[i] = cov(0,0)/det;
 
     // Get observatory position in our frame.
-    astrometry::CartesianICRS obspos = eph.observatory(obs.obscode, tdb[i]);
+    astrometry::CartesianICRS obspos = obs.observer;
     projection3d.convertFrom(obspos);
     xE.col(i) = projection3d.getVector();
 
@@ -79,7 +94,9 @@ Fitter::setFrame(const Frame& f_) {
 	     << " " << setprecision(4) << xE(0,i) 
 	     << " " << setprecision(4) << xE(1,i) 
 	     << " " << setprecision(4) << xE(2,i)
+	     << " partials: " << partials
 	     << endl;
+    /**/cerr << " Cov: " << std::scientific << cov << endl;
   }
 }
 
@@ -90,39 +107,38 @@ Fitter::chooseFrame(int obsNumber) {
   if (observations.empty())
     throw runtime_error("Must have observations to call Fitter::chooseFrame()");
   if (obsNumber < 0) {
-    double mjd0 = observations.front().mjd;
+    double tdb0 = observations.front().tdb;
     double tsum=0;
     for (auto& obs : observations)
-      tsum += obs.mjd - mjd0;
-    double target = mjd0 + tsum / observations.size();
+      tsum += obs.tdb - tdb0;
+    double target = tdb0 + tsum / observations.size();
     double minDT = 1e9;
     for (int i=0; i<observations.size(); i++) {
-      if (abs(observations[i].mjd-target)<minDT) {
+      if (abs(observations[i].tdb-target)<minDT) {
 	obsNumber = i;
-	minDT = abs(observations[i].mjd-target);
+	minDT = abs(observations[i].tdb-target);
       }
     }
   }
-  /**/cerr << "Chose observation number " << obsNumber << endl;
-
+  /**/cerr << "Reference at observation " << obsNumber << endl;
+  
   // Now construct ecliptic-aligned frame and set up all observations
-  const MPCObservation& obs = observations[obsNumber];
+  const Observation& obs = observations[obsNumber];
   astrometry::Orientation orient(obs.radec);
   orient.alignToEcliptic();
-  double tdb0 = eph.mjd2tdb(obs.mjd);
-  astrometry::CartesianICRS origin = eph.observatory(obs.obscode,tdb0);
+  double tdb0 = obs.tdb;
+  astrometry::CartesianICRS origin = obs.observer;
   setFrame(Frame(origin, orient, tdb0));
 }
 
 void
-Fitter::setLinearOrbit() {
+Fitter::setLinearOrbit(double nominalGamma) {
 
   // Create derivatives of signal wrt abg
   int n = thetaX.size();
   Vector ones(n,1.);
   Matrix dxdp(n,5,0.);
   Matrix dydp(n,5,0.);
-  /**/cerr << "here 1" << endl;
   dxdp.col(ABG::A) = ones;
   dxdp.col(ABG::ADOT) = dt;
   dxdp.col(ABG::G) = -xE.row(0).transpose();
@@ -130,14 +146,12 @@ Fitter::setLinearOrbit() {
   dydp.col(ABG::BDOT) = dt;
   dydp.col(ABG::G) = -xE.row(1).transpose();
 
-  /**/cerr << "here 2" << endl;
   // Create A matrix, b vector
   Matrix tmpx = invcovXX.asDiagonal() * dxdp + invcovXY.asDiagonal() * dydp;
   Matrix tmpy = invcovXY.asDiagonal() * dxdp + invcovYY.asDiagonal() * dydp;
   Vector blin = tmpx.transpose() * thetaX + tmpy.transpose() * thetaY;
   Matrix Alin = dxdp.transpose() * tmpx + dydp.transpose() * tmpy;
   
-  /**/cerr << "here 3" << endl;
   // Add gamma constraint, if any
   if (gammaPriorSigma > 0.) {
     double w = pow(gammaPriorSigma, -2);
@@ -145,11 +159,11 @@ Fitter::setLinearOrbit() {
     Alin(ABG::G,ABG::G) += w;
   }
   
-  /**/cerr << "here 4" << endl;
   // Solve (check degeneracies??)
   auto llt = Alin.llt();
   Vector answer = llt.solve(blin);
-  /**/cerr << "here 5" << endl;
+
+  // Transfer answer to instance members
   abg[ABG::A] = answer[ABG::A];
   abg[ABG::B] = answer[ABG::B];
   abg[ABG::G] = answer[ABG::G];
@@ -157,10 +171,10 @@ Fitter::setLinearOrbit() {
   abg[ABG::BDOT] = answer[ABG::BDOT];
   abg[ABG::GDOT] = 0.;
 
-  /**/
-  Matrix cov = Alin.inverse();
-  Vector sigma = cov.diagonal().cwiseSqrt();
-  Matrix corr = cov.cwiseQuotient( sigma * sigma.transpose());
-  /**/cerr << scientific << "sigmas:\n" << sigma << endl;
-  /**/cerr << "solution covariance:\n" << corr << endl;
+  // And inverse covariance ???
+}
+
+void
+Fitter::orbitDerivatives() {
+  // 
 }

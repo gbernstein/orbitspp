@@ -7,6 +7,11 @@
 #include "Ephemeris.h"
 #include "Trajectory.h"
 
+// Need to following to make a vector containing structures with fixed-size
+// Eigen arrays
+#ifdef USE_EIGEN
+#include <Eigen/StdVector>
+#endif
 namespace orbits {
 
   class Fitter {
@@ -16,7 +21,7 @@ namespace orbits {
     Fitter(const Ephemeris& eph_);
 
     // Ingest a sequence of MPC-style observations from stream
-    void readObservations(istream& is);
+    void readMPCObservations(istream& is);
 
     // Set reference frame to the one given
     void setFrame(const Frame& f_);
@@ -28,8 +33,8 @@ namespace orbits {
     
     void orbitDerivatives();
 
-    // Set abg with simple linear fit: inertial orbit, fixed distance, gdot=0
-    void setLinearOrbit();
+    // Set abg with simple linear fit: inertial orbit, nominal gamma, gdot=0
+    void setLinearOrbit(double nominalGamma=-1.);
 
     // Place a Gaussian prior on gamma with the given mean and sigma.
     // sigg<=0 will disable prior.
@@ -39,14 +44,28 @@ namespace orbits {
     }
     
     ABG abg;         // Orbit in abg basis
-
+    linalg::SMatrix<double,6,6> abgInvCov; // Inverse covariance of abg
+    
   private:
-    vector<MPCObservation> observations;
+    const Ephemeris& eph; // Solar system Ephemeris
+
+#ifdef USE_EIGEN
+    vector<Observation, Eigen::aligned_allocator<Observation> > observations;
+#else
+    vector<Observation> observations;
+#endif
+    
     void setupObservations();  // Calculate projected positions, Earth posns
+
+    void calculateGravity(); // Calculate non-inertial terms from current ABG
+
+    void calculateChisq(); // Calculate chisq at current abg
+    void calculateChisqDerivs(); // Calculate chisq and derivs wrt abg
 
     Frame f;   // Reference frame for our coordinates
     Vector tdb;    // TDB's of observations
-    Vector dt;    //  TDB difference from reference time
+    Vector dt;    // TDB's of observations, relative to Frame's reference time
+    Vector tEmit;    //  TDB at time of light emission per observation
     Vector thetaX; // Observed angles in our frame
     Vector thetaY; // Observed angles in our frame
     Vector invcovXX; // Inverse cov matrix of observations
@@ -54,7 +73,9 @@ namespace orbits {
     Vector invcovYY;
     Matrix xE;    // Earth positions in our ref frame
     Matrix xGrav; // Gravitational component of motion in our frame
-    const Ephemeris& eph; // Solar system Ephemeris
+    Matrix dThetaXdABG;  // Derivatives of x position wrt abg
+    Matrix dThetaYdABG;  // Derivatives of y position wrt abg
+    double chisq;  // Chisq at current abg
     Vector b;  // First derivs of chisq wrt abg
     Matrix A; // 2nd derivs of chisq wrt abg.
     Trajectory* inertialTrajectory;

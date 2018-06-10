@@ -8,6 +8,12 @@
 #include "Ephemeris.h"
 #include "LinearAlgebra.h"
 
+// Need to following to make a vector containing structures with fixed-size
+// Eigen arrays
+#ifdef USE_EIGEN
+#include <Eigen/StdVector>
+#endif
+
 namespace orbits {
 
   enum Gravity {INERTIAL, BARY, GIANTS};
@@ -43,15 +49,23 @@ namespace orbits {
     double tdb0;
     double dt;
     Gravity grav;
+
+    // Need to use special form for vectors containing static-size
+    // Eigen structures.
+#ifdef USE_EIGEN
+    typedef std::vector<astrometry::Vector3, Eigen::aligned_allocator<astrometry::Vector3> > v3vector;
+#else
+    typedef std::vector<astrometry::Vector3> v3vector;
+#endif
     // Caches for positions and velocities at time steps
     // after and before initial state.
     // And accelerations, to make quadratic interp easy.
-    mutable std::vector<astrometry::Vector3> xfwd;
-    mutable std::vector<astrometry::Vector3> xbwd;
-    mutable std::vector<astrometry::Vector3> vfwd;
-    mutable std::vector<astrometry::Vector3> vbwd;
-    mutable std::vector<astrometry::Vector3> afwd;
-    mutable std::vector<astrometry::Vector3> abwd;
+    mutable v3vector xfwd;
+    mutable v3vector xbwd;
+    mutable v3vector vfwd;
+    mutable v3vector vbwd;
+    mutable v3vector afwd;
+    mutable v3vector abwd;
     mutable astrometry::Vector3 vnext_fwd;
     mutable astrometry::Vector3 vnext_bwd;
     

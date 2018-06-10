@@ -74,6 +74,10 @@ namespace orbits {
     mutable std::map<int, ObsInfo> obsTable;
   };
 
+  // Function to return a standard observation given MPC info
+  extern
+  Observation mpc2Observation(const MPCObservation& mpc, const Ephemeris& ephem);
+    
 } // end namespace orbits
 
 
