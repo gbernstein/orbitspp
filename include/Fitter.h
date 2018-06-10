@@ -23,7 +23,7 @@ namespace orbits {
     // Ingest a sequence of MPC-style observations from stream
     void readMPCObservations(istream& is);
 
-    // Set reference frame to the one given
+    // Set reference frame to the one given, put observations into this frame
     void setFrame(const Frame& f_);
 
     // Choose a reference frame as the location and direction of
@@ -31,8 +31,6 @@ namespace orbits {
     // nearest observation to mean MJD is used.
     void chooseFrame(int obsNumber = 0);
     
-    void orbitDerivatives();
-
     // Set abg with simple linear fit: inertial orbit, nominal gamma, gdot=0
     void setLinearOrbit(double nominalGamma=-1.);
 
@@ -55,14 +53,18 @@ namespace orbits {
     vector<Observation> observations;
 #endif
     
-    void setupObservations();  // Calculate projected positions, Earth posns
-
+    void iterateTimeDelay(); // Update tEmit based on light-travel time in current orbit.
     void calculateGravity(); // Calculate non-inertial terms from current ABG
+
+    // Calculate positions and their derivs wrt ABG
+    void calculateOrbitDerivatives(); 
 
     void calculateChisq(); // Calculate chisq at current abg
     void calculateChisqDerivs(); // Calculate chisq and derivs wrt abg
 
     Frame f;   // Reference frame for our coordinates
+
+    // Observational information:
     Vector tdb;    // TDB's of observations
     Vector dt;    // TDB's of observations, relative to Frame's reference time
     Vector tEmit;    //  TDB at time of light emission per observation
@@ -72,14 +74,20 @@ namespace orbits {
     Vector invcovXY; 
     Vector invcovYY;
     Matrix xE;    // Earth positions in our ref frame
+
+    // Model/fitting information:
+    Trajectory* inertialTrajectory;
+    Trajectory* fullTrajectory;
+    Vector thetaXModel;  // Positions predicted by current ABG
+    Vector thetaYModel;  // Positions predicted by current ABG
     Matrix xGrav; // Gravitational component of motion in our frame
     Matrix dThetaXdABG;  // Derivatives of x position wrt abg
     Matrix dThetaYdABG;  // Derivatives of y position wrt abg
     double chisq;  // Chisq at current abg
     Vector b;  // First derivs of chisq wrt abg
     Matrix A; // 2nd derivs of chisq wrt abg.
-    Trajectory* inertialTrajectory;
-    Trajectory* fullTrajectory;
+
+    // Configuration and prior
     bool useGiants;       // Use giant planets or just SS barycenter?
     double energyConstraintFactor;
     double gamma0;	// Nominal gamma and uncertainty when using gamma prior
