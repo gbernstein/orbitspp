@@ -8,6 +8,7 @@
 #include "AstronomicalConstants.h"
 #include "StringStuff.h"
 #include "Std.h"
+#include <cstring>
 
 /* / cspice files:
 #include "SpiceZdf.h"
@@ -57,10 +58,14 @@ Ephemeris::Ephemeris(const string& kernelFile) {
   if (init)
     throw std::runtime_error("Cannot create two instances of Ephemeris"
 			     " under cspice");
-  // Tell CSPICE not to abort on errors, rather go into "fall-through" mode
-  erract_c("SET",1,"RETURN");
+  // Tell CSPICE not to abort on errors, instead go into "fall-through" mode
+  const int STRING_LENGTH = 256;
+  SpiceChar msg[STRING_LENGTH];
+  strncpy(msg, "RETURN",STRING_LENGTH);
+  erract_c("SET",1,msg);
   // Shut off error message dumping
-  errdev_c("SET",1,"NULL");
+  strncpy(msg, "NULL",STRING_LENGTH);
+  errdev_c("SET",1,msg);
 
   
   if (kernelFile.empty())  {
@@ -208,3 +213,17 @@ Ephemeris::observatory(int obsid,
   // Call with lon/lat/elev
   return observatory( obs.lon, obs.lat, obs.elev, tdb);
 }
+
+Observation
+orbits::mpc2Observation(const MPCObservation& mpc, const Ephemeris& ephem) {
+  Observation out;
+  /**/cerr << "In mpc2";
+  out.radec = mpc.radec;
+  out.tdb = ephem.mjd2tdb(mpc.mjd);
+  /**/cerr << " got tdb " << out.tdb;
+  out.cov(1,1) = out.cov(0,0) = pow(mpc.sigma*ARCSEC,2);
+  out.cov(0,1) = out.cov(1,0) = 0.;
+  out.observer = ephem.observatory(mpc.obscode, out.tdb);
+  /**/cerr << " and earth at " << out.observer << endl;
+  return out;
+};
