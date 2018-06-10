@@ -17,8 +17,6 @@ int main(int argc,
     fit.readMPCObservations(ifs);
     ifs.close();
 
-    /**/cerr << "Ready to choose" << endl;
-    
     fit.chooseFrame(-1);
 
     /**

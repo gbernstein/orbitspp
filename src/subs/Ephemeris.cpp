@@ -217,13 +217,10 @@ Ephemeris::observatory(int obsid,
 Observation
 orbits::mpc2Observation(const MPCObservation& mpc, const Ephemeris& ephem) {
   Observation out;
-  /**/cerr << "In mpc2";
   out.radec = mpc.radec;
   out.tdb = ephem.mjd2tdb(mpc.mjd);
-  /**/cerr << " got tdb " << out.tdb;
   out.cov(1,1) = out.cov(0,0) = pow(mpc.sigma*ARCSEC,2);
   out.cov(0,1) = out.cov(1,0) = 0.;
   out.observer = ephem.observatory(mpc.obscode, out.tdb);
-  /**/cerr << " and earth at " << out.observer << endl;
   return out;
 };

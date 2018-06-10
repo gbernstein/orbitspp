@@ -19,11 +19,8 @@ void
 Fitter::readMPCObservations(istream& is) {
   string line;
   while (stringstuff::getlineNoComment(is, line)) {
-    /**/cerr << "mpc is <" << line << ">" << endl;
     auto obs = mpc2Observation(MPCObservation(line),eph);
-    /**/cerr << "..have obs" << endl;
     observations.push_back(obs);
-    /**/cerr << "..done" << endl;
   };
 }
 
@@ -37,15 +34,12 @@ observationTimeOrder(const Observation& m1,
 
 void
 Fitter::setFrame(const Frame& f_) {
-  /**/cerr << "Setting frame" << endl;
   f = f_;
   // Recalculate all coordinates in this frame;
   int n = observations.size();
   // Put observations into time order.
-  /**/cerr << "n=" << n << endl;
   std::sort(observations.begin(), observations.end(),
     observationTimeOrder);
-  /**/cerr << "Resizing" << endl;
   tdb.resize(n);
   dt.resize(n);
   tEmit.resize(n);
@@ -59,11 +53,9 @@ Fitter::setFrame(const Frame& f_) {
   dThetaXdABG.resize(6,n);
   dThetaYdABG.resize(6,n);
 
-  /**/cerr << "resized" << endl;
   astrometry::Gnomonic projection(f.orient, true);  // share Orientation
   astrometry::CartesianCustom projection3d(f);
   for (int i=0; i<n; i++) {
-    /**/cerr << "Processing observation " << i << endl;
     const Observation& obs = observations[i];
     tdb[i] = obs.tdb;
     dt[i] = tdb[i] - f.tdb0;
@@ -90,13 +82,14 @@ Fitter::setFrame(const Frame& f_) {
     projection3d.convertFrom(obspos);
     xE.col(i) = projection3d.getVector();
 
-    /**/cerr << i << " " << std::fixed << setprecision(4) << dt[i]
+    /**cerr << i << " " << std::fixed << setprecision(4) << dt[i]
 	     << " " << setprecision(4) << xE(0,i) 
 	     << " " << setprecision(4) << xE(1,i) 
 	     << " " << setprecision(4) << xE(2,i)
 	     << " partials: " << partials
 	     << endl;
-    /**/cerr << " Cov: " << std::scientific << cov << endl;
+    /**cerr << " Cov: " << std::scientific << cov << endl;
+    /**/
   }
 }
 
@@ -120,7 +113,6 @@ Fitter::chooseFrame(int obsNumber) {
       }
     }
   }
-  /**/cerr << "Reference at observation " << obsNumber << endl;
   
   // Now construct ecliptic-aligned frame and set up all observations
   const Observation& obs = observations[obsNumber];
