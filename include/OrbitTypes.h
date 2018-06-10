@@ -36,8 +36,31 @@ namespace orbits {
       (*this)[BDOT] = s.v[1]/s.x[2];
       (*this)[GDOT] = s.v[2]/s.x[2];
     }
-    ABG(): linalg::SVector<double,6>(0.) { (*this)[G]=0.03;}
-    
+    ABG(): Base(0.) { (*this)[G]=0.03;}
+
+    void getState(double t,
+		  astrometry::Vector3& x,
+		  astrometry::Vector3& v) const {
+      // Calculate state vector in reference system at given time for inertial motion
+      x[0] = (*this)[ADOT]*t + (*this)[A];
+      x[1] = (*this)[BDOT]*t + (*this)[B];
+      x[2] = (*this)[GDOT]*t + 1.;
+      x /= (*this)[G];
+      v[0] = (*this)[ADOT] / (*this)[G];
+      v[1] = (*this)[BDOT] / (*this)[G];
+      v[2] = (*this)[GDOT] / (*this)[G];
+      return;
+    }
+
+    astrometry::DMatrix getXYZ(const astrometry::DVector& t) const {
+      // Calculate inertial XYZ positions at an array of times, return n x 3 matrix
+      astrometry::DMatrix xyz(t.size(), 3, 0.);
+      xyz.col(0).array() = (*this)[ADOT]*t.array() + (*this)[A];
+      xyz.col(1).array() = (*this)[BDOT]*t.array() + (*this)[B];
+      xyz.col(2).array() = (*this)[GDOT]*t.array() + 1.;
+      xyz *= 1./(*this)[G];
+      return xyz;
+    }
   };
 
   class Elements: public linalg::SVector<double,6> {

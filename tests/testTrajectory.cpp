@@ -27,7 +27,7 @@ main(int argc,
     s.v[2] = 9.874446157718628E-04/DAY;
 
     // Create Trajectory
-    orbits::Trajectory qb(eph, s, 1.18*DAY, orbits::GIANTS);
+    orbits::Trajectory qb(eph, s, orbits::GIANTS, 1.18*DAY);
     
     // single future point
     auto x = qb.position((2459322.75-JD2000)*DAY);

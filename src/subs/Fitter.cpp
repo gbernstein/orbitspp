@@ -9,12 +9,14 @@
 using namespace std;
 using namespace orbits;
 
-Fitter::Fitter(const Ephemeris& eph_): eph(eph_),
-				       inertialTrajectory(nullptr),
-				       fullTrajectory(nullptr),
-				       useGiants(false),
-				       energyConstraintFactor(0.),
-				       gammaPriorSigma(0.) {}
+Fitter::Fitter(const Ephemeris& eph_,
+	       Gravity grav_): eph(eph_),
+			       fullTrajectory(nullptr),
+			       grav(grav_),
+			       energyConstraintFactor(0.),
+			       gammaPriorSigma(0.),
+			       b(6),
+			       A(6,6) {}
 void
 Fitter::readMPCObservations(istream& is) {
   string line;
@@ -175,13 +177,7 @@ Fitter::iterateTimeDelay() {
   int nobs = observations.size();
   // Light-travel time is distance/(speed of light)
 
-  // Do TMV version??
-  Matrix xyz(nobs, 3, 0.);
-  xyz.col(0).array() = abg[ABG::ADOT]*tEmit.array() + abg[ABG::A];
-  xyz.col(1).array() = abg[ABG::BDOT]*tEmit.array() + abg[ABG::B];
-  xyz.col(2).array() = abg[ABG::GDOT]*tEmit.array() + 1.;
-  xyz *= 1./abg[ABG::G];
-  xyz += xGrav - xE;
+  Matrix xyz = abg.getXYZ(tEmit) + xGrav - xE;
   // Get sqrt(xyz.xyz):
   Vector dist = xyz.cwiseProduct(xyz).rowwise().sum().cwiseSqrt();
   tEmit.array() = dt - dist/SpeedOfLightAU;
@@ -189,25 +185,71 @@ Fitter::iterateTimeDelay() {
 }
 
 void
+Fitter::calculateGravity() {
+  // Calculate the non-inertial terms in trajectory of object
+  // using current ABG and gravity settings
+  if (grav==Gravity::INERTIAL) {
+    xGrav.setZero();
+    return;
+  }
+  // Kill any old trajectory
+  if (fullTrajectory) {
+    delete fullTrajectory;
+    fullTrajectory = nullptr;
+  }
+  // Get initial condition for integrator from abg
+  astrometry::Vector3 x0;
+  astrometry::Vector3 v0;
+  abg.getState(0., x0, v0);
+
+  // Rotate to ICRS for integrator
+  State s0;
+  s0.x = astrometry::CartesianICRS(f.orient.m().transpose() * x0
+				   + f.origin.getVector());
+  s0.v = astrometry::CartesianICRS(f.orient.m().transpose() * v0);
+  s0.tdb = f.tdb0;
+  
+  // Integrate - Trajectory returns 3xN matrix
+  fullTrajectory = new Trajectory(eph, s0, grav);
+  astrometry::DMatrix xyz = fullTrajectory->position(tEmit);
+  // Convert back to Fitter reference frame and subtract inertial motion
+  xyz.colwise() -= f.origin.getVector();  // ?? Problem mixing static size with dynamic ??
+  xGrav = (f.orient.m() * xyz).transpose() - abg.getXYZ(tEmit);
+  return;
+}
+
+void
+Fitter::calculateChisqDerivatives() {
+  // Assumes that model values are up to date
+  Vector dx = thetaX - thetaXModel;
+  Vector dy = thetaY - thetaYModel;
+  chisq = dx.transpose() * (invcovXX.asDiagonal() * dx);
+  chisq += 2.* dx.transpose() * (invcovXY.asDiagonal() * dy);
+  chisq += dy.transpose() * (invcovYY.asDiagonal() * dy);
+  Matrix tmp = invcovXX.asDiagonal() * dThetaXdABG;
+  b = tmp.transpose() * dx;
+  A = dThetaXdABG.transpose() * tmp;
+  tmp = invcovXY.asDiagonal() * dThetaXdABG;
+  b += tmp.transpose() * dy;
+  A += dThetaYdABG.transpose() * tmp;
+  tmp = invcovXY.asDiagonal() * dThetaYdABG;
+  b += tmp.transpose() * dx;
+  A += dThetaXdABG.transpose() * tmp;
+  tmp = invcovYY.asDiagonal() * dThetaYdABG;
+  b += tmp.transpose() * dy;
+  A += dThetaYdABG.transpose() * tmp;
+}
+  
+void
 Fitter::setLinearOrbit(double nominalGamma) {
 
-  // Create derivatives of signal wrt abg
-  int n = thetaX.size();
-  Vector ones(n,1.);
-  Matrix dxdp(n,5,0.);
-  Matrix dydp(n,5,0.);
-  dxdp.col(ABG::A) = ones;
-  dxdp.col(ABG::ADOT) = dt;
-  dxdp.col(ABG::G) = -xE.row(0).transpose();
-  dydp.col(ABG::B) = ones;
-  dydp.col(ABG::BDOT) = dt;
-  dydp.col(ABG::G) = -xE.row(1).transpose();
+  // Assume that current gravity is good (probably zero)
+  calculateOrbitDerivatives();
+  calculateChisqDerivatives();
 
-  // Create A matrix, b vector
-  Matrix tmpx = invcovXX.asDiagonal() * dxdp + invcovXY.asDiagonal() * dydp;
-  Matrix tmpy = invcovXY.asDiagonal() * dxdp + invcovYY.asDiagonal() * dydp;
-  Vector blin = tmpx.transpose() * thetaX + tmpy.transpose() * thetaY;
-  Matrix Alin = dxdp.transpose() * tmpx + dydp.transpose() * tmpy;
+  // Extract parameters other than GDOT, which we assume is last
+  Vector blin = b.subVector(0, ABG::GDOT);
+  Matrix Alin = A.subMatrix(0, ABG::GDOT, 0, ABG::GDOT);
   
   // Add gamma constraint, if any
   if (gammaPriorSigma > 0.) {
@@ -221,13 +263,7 @@ Fitter::setLinearOrbit(double nominalGamma) {
   Vector answer = llt.solve(blin);
 
   // Transfer answer to instance members
-  abg[ABG::A] = answer[ABG::A];
-  abg[ABG::B] = answer[ABG::B];
-  abg[ABG::G] = answer[ABG::G];
-  abg[ABG::ADOT] = answer[ABG::ADOT];
-  abg[ABG::BDOT] = answer[ABG::BDOT];
+  abg.subVector(0,ABG::GDOT) += answer;
   abg[ABG::GDOT] = 0.;
-
-  // And inverse covariance ???
 }
 
