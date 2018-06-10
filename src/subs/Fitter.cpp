@@ -42,9 +42,9 @@ Fitter::setFrame(const Frame& f_) {
   // Put observations into time order.
   std::sort(observations.begin(), observations.end(),
     observationTimeOrder);
-  tdb.resize(n);
-  dt.resize(n);
+  tObs.resize(n);
   tEmit.resize(n);
+  tdbEmit.resize(n);
   thetaX.resize(n);
   thetaY.resize(n);
   thetaXModel.resize(n);
@@ -62,9 +62,9 @@ Fitter::setFrame(const Frame& f_) {
   for (int i=0; i<n; i++) {
     const Observation& obs = observations[i];
     // Set up time variables.  Set light travel time to zero
-    tdb[i] = obs.tdb;
-    dt[i] = tdb[i] - f.tdb0;
-    tEmit = tdb;
+    tObs[i] = obs.tdb - f.tdb0;
+    tEmit[i] = tObs[i];
+    tdbEmit[i] = obs.tdb;
     
     // Convert angles to our frame and get local partials for covariance
     astrometry::Matrix22 partials(0.);
@@ -180,7 +180,8 @@ Fitter::iterateTimeDelay() {
   Matrix xyz = abg.getXYZ(tEmit) + xGrav - xE;
   // Get sqrt(xyz.xyz):
   Vector dist = xyz.cwiseProduct(xyz).rowwise().sum().cwiseSqrt();
-  tEmit.array() = dt - dist/SpeedOfLightAU;
+  tEmit = tObs - dist/SpeedOfLightAU;
+  tdbEmit.array() = tEmit.array() + f.tdb0;
   return;
 }
 
@@ -211,8 +212,9 @@ Fitter::calculateGravity() {
   
   // Integrate - Trajectory returns 3xN matrix
   fullTrajectory = new Trajectory(eph, s0, grav);
-  astrometry::DMatrix xyz = fullTrajectory->position(tEmit);
+  astrometry::DMatrix xyz = fullTrajectory->position(tdbEmit);
   // Convert back to Fitter reference frame and subtract inertial motion
+
   xyz.colwise() -= f.origin.getVector();  // ?? Problem mixing static size with dynamic ??
   xGrav = (f.orient.m() * xyz).transpose() - abg.getXYZ(tEmit);
   return;
@@ -226,6 +228,7 @@ Fitter::calculateChisqDerivatives() {
   chisq = dx.transpose() * (invcovXX.asDiagonal() * dx);
   chisq += 2.* dx.transpose() * (invcovXY.asDiagonal() * dy);
   chisq += dy.transpose() * (invcovYY.asDiagonal() * dy);
+  /**/cerr << "dx,dy,chisq:" << dx << dy << chisq << endl;
   Matrix tmp = invcovXX.asDiagonal() * dThetaXdABG;
   b = tmp.transpose() * dx;
   A = dThetaXdABG.transpose() * tmp;
@@ -238,6 +241,14 @@ Fitter::calculateChisqDerivatives() {
   tmp = invcovYY.asDiagonal() * dThetaYdABG;
   b += tmp.transpose() * dy;
   A += dThetaYdABG.transpose() * tmp;
+
+  // Add gamma constraint, if any
+  if (gammaPriorSigma > 0.) {
+    double w = pow(gammaPriorSigma, -2);
+    b[ABG::G] += w * (gamma0-abg[ABG::G]);
+    A(ABG::G,ABG::G) += w;
+  }
+  // Add derivatives from binding prior ??
 }
   
 void
@@ -251,19 +262,59 @@ Fitter::setLinearOrbit(double nominalGamma) {
   Vector blin = b.subVector(0, ABG::GDOT);
   Matrix Alin = A.subMatrix(0, ABG::GDOT, 0, ABG::GDOT);
   
-  // Add gamma constraint, if any
-  if (gammaPriorSigma > 0.) {
-    double w = pow(gammaPriorSigma, -2);
-    blin[ABG::G] += w * gamma0;
-    Alin(ABG::G,ABG::G) += w;
-  }
   
   // Solve (check degeneracies??)
   auto llt = Alin.llt();
   Vector answer = llt.solve(blin);
+  /**/cerr << "Linear adjustment: " << answer << endl;
 
   // Transfer answer to instance members
   abg.subVector(0,ABG::GDOT) += answer;
   abg[ABG::GDOT] = 0.;
 }
 
+void
+Fitter::newtonFit(double chisqTolerance) {
+  // Assuming that we are coming into this with a good starting point
+  iterateTimeDelay();
+  calculateGravity();
+  calculateChisqDerivatives();
+  const int MAX_ITERATIONS = 20;
+
+  // Do a series of iterations with time delay and gravity fixed
+  int iterations = 0;
+  double oldChisq;
+  do {
+    oldChisq = chisq;
+    // Solve (check degeneracies??)
+    auto llt = A.llt();
+    abg += llt.solve(b);
+    /**/cerr << "Linear adjustment: " << llt.solve(b) << endl;
+    
+    calculateChisqDerivatives();
+    /**/cerr << "iteration " << iterations << " chisq " << chisq << endl;
+    iterations++;
+  } while (iterations < MAX_ITERATIONS && abs(chisq-oldChisq) > chisqTolerance);
+  if (iterations >= MAX_ITERATIONS)
+    throw std::runtime_error("Fitter::newtonFit exceeded max iterations");
+   
+  // Then converge with time delay and gravity recalculated
+  iterateTimeDelay();
+  calculateGravity();
+  calculateChisqDerivatives();
+  iterations = 0;
+  do {
+    oldChisq = chisq;
+    // Solve (check degeneracies??)
+    auto llt = A.llt();
+    abg += llt.solve(b);
+    iterateTimeDelay();
+    calculateGravity();
+    calculateChisqDerivatives();
+    /**/cerr << "iteration " << iterations << " chisq " << chisq << endl;
+    iterations++;
+  } while (iterations < MAX_ITERATIONS && abs(chisq-oldChisq) > chisqTolerance);
+  if (iterations >= MAX_ITERATIONS)
+    throw std::runtime_error("Fitter::newtonFit exceeded max fine iterations");
+  return;
+}
