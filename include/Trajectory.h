@@ -27,8 +27,8 @@ namespace orbits {
   public:
     Trajectory(const Ephemeris& ephem_,
 	       const State& s0,
-	       double dt_=20*DAY,
-	       Gravity grav_ = GIANTS);
+	       Gravity grav_ = GIANTS,
+	       double dt_=20*DAY);
     // dt will be time step for integrators.  All positions are in
     // ICRS barycentric coordinates, all times are TDB, units are AU and
     // years.

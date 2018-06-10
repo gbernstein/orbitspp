@@ -18,7 +18,8 @@ namespace orbits {
     typedef linalg::Vector<double> Vector;
     typedef linalg::Matrix<double> Matrix;
   public:
-    Fitter(const Ephemeris& eph_);
+    Fitter(const Ephemeris& eph_, Gravity grav_=Gravity::GIANTS);
+    // Initialize fitter with ephemeris and choice of gravity approximation
 
     // Ingest a sequence of MPC-style observations from stream
     void readMPCObservations(istream& is);
@@ -60,7 +61,7 @@ namespace orbits {
     void calculateOrbitDerivatives(); 
 
     void calculateChisq(); // Calculate chisq at current abg
-    void calculateChisqDerivs(); // Calculate chisq and derivs wrt abg
+    void calculateChisqDerivatives(); // Calculate chisq and derivs wrt abg
 
     Frame f;   // Reference frame for our coordinates
 
@@ -76,7 +77,6 @@ namespace orbits {
     Matrix xE;    // Earth positions in our ref frame
 
     // Model/fitting information:
-    Trajectory* inertialTrajectory;
     Trajectory* fullTrajectory;
     Vector thetaXModel;  // Positions predicted by current ABG
     Vector thetaYModel;  // Positions predicted by current ABG
@@ -84,11 +84,11 @@ namespace orbits {
     Matrix dThetaXdABG;  // Derivatives of x position wrt abg
     Matrix dThetaYdABG;  // Derivatives of y position wrt abg
     double chisq;  // Chisq at current abg
-    Vector b;  // First derivs of chisq wrt abg
-    Matrix A; // 2nd derivs of chisq wrt abg.
+    Vector b;  // -1/2 d(chisq)/d(abg)
+    Matrix A; // 1/2 d^2(chisq)/d(abg)^2
 
     // Configuration and prior
-    bool useGiants;       // Use giant planets or just SS barycenter?
+    Gravity grav;       // Use giant planets, SS barycenter, or no gravity?
     double energyConstraintFactor;
     double gamma0;	// Nominal gamma and uncertainty when using gamma prior
     double gammaPriorSigma;

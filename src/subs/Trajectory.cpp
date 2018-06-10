@@ -9,13 +9,13 @@ using namespace astrometry;
 
 Trajectory::Trajectory (const Ephemeris& ephem_,
 			const State& s0,
-			double dt_,
-			Gravity grav_): ephem(ephem_),
-					x0(s0.x.getVector()),
-					v0(s0.v.getVector()),
-					tdb0(s0.tdb),
-					dt(dt_),
-					grav(grav_)
+			Gravity grav_,
+			double dt_): ephem(ephem_),
+				     x0(s0.x.getVector()),
+				     v0(s0.v.getVector()),
+				     tdb0(s0.tdb),
+				     dt(dt_),
+				     grav(grav_)
 {
   if (grav != INERTIAL) {
     // Put initial positions in caches
