@@ -44,6 +44,12 @@ namespace orbits {
       gammaPriorSigma = sigg;
     }
 
+    // Place prior of f * (v/v_esc)^2, mild push to zero velocity away from escaping.
+    // Parabolic orbit will get chisq penalty = f.
+    void setBindingConstraint(double f=1.) {
+      bindingConstraintFactor = f;
+    }
+
     void newtonFit(double chisqTolerance=0.01);
 
     // Print residuals (in arcsec) and chisq contributions per point
@@ -100,7 +106,7 @@ namespace orbits {
 
     // Configuration and prior
     Gravity grav;       // Use giant planets, SS barycenter, or no gravity?
-    double energyConstraintFactor;
+    double bindingConstraintFactor;  // Chisq penalty for marginally unbound orbit
     double gamma0;	// Nominal gamma and uncertainty when using gamma prior
     double gammaPriorSigma;
   };

@@ -23,7 +23,7 @@ Fitter::Fitter(const Ephemeris& eph_,
 	       Gravity grav_): eph(eph_),
 			       fullTrajectory(nullptr),
 			       grav(grav_),
-			       energyConstraintFactor(0.),
+			       bindingConstraintFactor(0.),
 			       gammaPriorSigma(0.),
 			       b(6),
 			       A(6,6) {}
@@ -218,6 +218,7 @@ Fitter::calculateGravity() {
   
   // Integrate - Trajectory returns 3xN matrix
   fullTrajectory = new Trajectory(eph, s0, grav);
+  
   astrometry::DMatrix xyz = fullTrajectory->position(tdbEmit);
   // Convert back to Fitter reference frame and subtract inertial motion
   // Note Frame and Trajectory use 3 x n, we are using n x 3 here.
@@ -231,7 +232,7 @@ Fitter::calculateGravity() {
 	   << " " << xGrav(i,0) << " " << xGrav(i,1) << " " << xGrav(i,2)
 	   << endl;
     cerr << "Done" << endl;
-    } **/
+    } /**/
   return;
 }
 
@@ -265,12 +266,18 @@ Fitter::calculateChisqDerivatives() {
     A(ABG::G,ABG::G) += w;
   }
 
-  // Add derivatives from binding prior - crude one on GDTO??
-  {
-    const double BIND_PRIOR = 1.; // Adjust penalty for high velocity
-    double w = BIND_PRIOR / (2. * GM * pow(abg[ABG::G],3.));
-    chisq += abg[ABG::GDOT] * w * abg[ABG::GDOT];
+  // Add derivatives from binding prior - crude one
+  // which pushes to v=0, plunging perihelion.
+  if (bindingConstraintFactor > 0.) {
+    double w = bindingConstraintFactor / (2. * GM * pow(abg[ABG::G],3.));
+    chisq += w * (abg[ABG::ADOT] * abg[ABG::ADOT]
+		  + abg[ABG::BDOT] * abg[ABG::BDOT]
+		  + abg[ABG::GDOT] * abg[ABG::GDOT]);
+    b[ABG::ADOT] += -w * abg[ABG::ADOT];
+    b[ABG::BDOT] += -w * abg[ABG::BDOT];
     b[ABG::GDOT] += -w * abg[ABG::GDOT];
+    A(ABG::ADOT,ABG::ADOT) += w;
+    A(ABG::BDOT,ABG::BDOT) += w;
     A(ABG::GDOT,ABG::GDOT) += w;
   }
 }
@@ -384,11 +391,20 @@ Fitter::printResiduals(std::ostream& os) const {
 void
 Fitter::printCovariance(std::ostream& os) const {
   stringstuff::StreamSaver ss(os);
-  os << "# ABG Covariance " << endl << std::scientific << std::setprecision(4) << std::showpos;
   Matrix c = A.inverse();
+  astrometry::DVector sd = c.diagonal().cwiseSqrt();
+  os << "# ABG std deviations: " << endl
+     << std::scientific << std::setprecision(3);
+  for (int i=0; i<6; i++) 
+    os << sd[i] << " ";
+  os << endl;
+  // Calculate correlation matrix
+  sd = sd.cwiseInverse();
+  c = sd.asDiagonal() * c * sd.asDiagonal();
+  os << std::fixed << std::showpos;
   for (int i=0; i<6; i++) {
     for (int j=0; j<6; j++)
-      os << std::setw(10) << c(i,j) << " ";
+      os << std::setw(6) << c(i,j) << " ";
     os << endl;
   }
 }

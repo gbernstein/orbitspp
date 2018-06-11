@@ -9,7 +9,7 @@
 #include "Elements.h"
 
 namespace orbits {
-  linalg::SMatrix<double,6,6>
+  Matrix66
   aei_derivs( const orbits::State& xv, bool heliocentric)
   {
     double x,y,z,xdot,ydot,zdot;
@@ -49,7 +49,7 @@ namespace orbits {
     double E2cube=pow(E2,3);
 
     // Create output
-    linalg::SMatrix<double,6,6> derivs;
+    Matrix66 derivs;
     /* ax is del a by del x */
     derivs(0,0) = (2*x)/(r3*E2sq);
     derivs(0,1) = (2*y)/(r3*E2sq);
@@ -2375,7 +2375,7 @@ namespace orbits {
 	  1.5);
  
     // Need to include derivatives between ecliptic and ICRS states!
-    linalg::SMatrix<double,6,6> eclDerivs(0.);
+    Matrix66 eclDerivs(0.);
     eclDerivs.subMatrix(0,3,0,3) = partials;
     eclDerivs.subMatrix(3,6,3,6) = partials;
 
