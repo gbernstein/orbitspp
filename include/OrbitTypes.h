@@ -9,6 +9,9 @@
 
 namespace orbits {
 
+  typedef linalg::SVector<double,6> Vector6;
+  typedef linalg::SMatrix<double,6,6> Matrix66;
+  
   class State {
     /* State vector for solar system body */
   public:
@@ -17,7 +20,7 @@ namespace orbits {
     double tdb;                    // TDB for which it applies, Julian yrs since J2000
   };
 
-  class ABG: public linalg::SVector<double,6> {
+  class ABG: public Vector6 {
     /* Alpha-beta-gamma basis used for Bernstein-Khushalani */
   public:
     // Indices for components:
@@ -27,7 +30,7 @@ namespace orbits {
     static const int ADOT=3;
     static const int BDOT=4;
     static const int GDOT=5;
-    typedef linalg::SVector<double,6> Base;
+    typedef Vector6 Base;
     ABG(const State& s) {
       (*this)[A] = s.x[0]/s.x[2];
       (*this)[B] = s.x[1]/s.x[2];
@@ -58,7 +61,7 @@ namespace orbits {
     void writeTo(std::ostream& os, int precision=6) const;
   };
 
-  class Elements: public linalg::SVector<double,6> {
+  class Elements: public Vector6 {
     // Keplerian elements for elliptical orbit
   public:
     static const int A=0;
@@ -91,7 +94,7 @@ namespace orbits {
     int obscode; // MPC observatory code
   };
 
-  typedef linalg::SMatrix<double,6,6> ABGCovar;
+  typedef Matrix66 ABGCovar;
   
   class Frame: public astrometry::ReferenceFrame {
     // Coordinate reference frame, including

@@ -21,7 +21,7 @@ namespace orbits {
 
   // Get derivative matrix of State->Elements
   extern
-  linalg::SMatrix<double,6,6>
+  Matrix66
   aei_derivs( const orbits::State& xv, bool heliocentric=false);
 
 } // end namespace orbits

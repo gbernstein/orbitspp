@@ -11,8 +11,10 @@ int main(int argc,
   try {
     Ephemeris eph;
 
-    Fitter fit(eph, Gravity::BARY);
-
+    //Fitter fit(eph, Gravity::BARY);
+    Fitter fit(eph, Gravity::GIANTS);
+    fit.setBindingConstraint(1.);
+    
     ifstream ifs(argv[1]);
     fit.readMPCObservations(ifs);
     ifs.close();
