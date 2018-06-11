@@ -25,10 +25,10 @@ Trajectory::Trajectory (const Ephemeris& ephem_,
     auto dv = deltaV(x0, tdb0);
     vnext_fwd = v0 + 0.5*dv;
     vnext_bwd = v0 - 0.5*dv;
-    vfwd.push_back(v0);
-    vbwd.push_back(v0);
-    afwd.push_back(dv);
-    abwd.push_back(dv);
+    vfwd.push_back(v0*dt);
+    vbwd.push_back(v0*dt);
+    afwd.push_back(dv*0.5*dt);
+    abwd.push_back(dv*0.5*dt);
   }
 }
 
@@ -81,7 +81,6 @@ Trajectory::position(const linalg::Vector<double>& tdb) const {
     linalg::Vector<double> tsteps = tdb;
     for (int i=0; i<tsteps.size(); i++)
       tsteps[i] = (tsteps[i]-tdb0) / dt;
-    /**/cerr << "tsteps: " << tsteps << endl;
     int i;
     for (i=0 ;tsteps[i]<0 && i<tsteps.size(); i++) {
       int i0 = static_cast<int> (floor(tsteps[i])); // Index of time before
@@ -95,7 +94,13 @@ Trajectory::position(const linalg::Vector<double>& tdb) const {
       int i0 = static_cast<int> (floor(tsteps[i])); // Index of time before
       double f = tsteps[i]-i0;
       out.col(i) = xfwd[i0] + f*(vfwd[i0] + f*afwd[i0]);
-    }
+      /**cerr << "i " << i << " tstep " << tsteps[i] << " i0 " << i0 << " f " << f << endl;
+      cerr << "  xfwd: " << xfwd[i0][0] << " " << xfwd[i0][1] << " " << xfwd[i0][2] << endl;
+      cerr << "  vfwd: " << vfwd[i0][0] << " " << vfwd[i0][1] << " " << vfwd[i0][2] << endl;
+      cerr << "  afwd: " << afwd[i0][0] << " " << afwd[i0][1] << " " << afwd[i0][2] << endl;
+      cerr << "   out: " << out(0,i) << " " << out(1,i) << " " << out(2,i) << endl;
+      /**/
+    } 
   }
   return out;
 }

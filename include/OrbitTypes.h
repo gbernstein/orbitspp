@@ -6,6 +6,7 @@
 
 #include "LinearAlgebra.h"
 #include "Astrometry.h"
+#include "StringStuff.h"
 
 namespace orbits {
 
@@ -60,6 +61,15 @@ namespace orbits {
       xyz.col(2).array() = (*this)[GDOT]*t.array() + 1.;
       xyz *= 1./(*this)[G];
       return xyz;
+    }
+
+    void writeTo(std::ostream& os, int precision=6) const {
+      // Write ABG on one line
+      stringstuff::StreamSaver ss(os);  // Cache stream state
+      os << std::fixed << std::showpos << std::setprecision(precision);
+      for (int i=0; i<6; i++)
+	os << (*this)[i] << " ";
+      return;  // Stream state restored on destruction of ss
     }
   };
 
