@@ -6,7 +6,6 @@
 
 #include "LinearAlgebra.h"
 #include "Astrometry.h"
-#include "StringStuff.h"
 
 namespace orbits {
 
@@ -53,24 +52,10 @@ namespace orbits {
       return;
     }
 
-    astrometry::DMatrix getXYZ(const astrometry::DVector& t) const {
+    astrometry::DMatrix getXYZ(const astrometry::DVector& t) const;
       // Calculate inertial XYZ positions at an array of times, return n x 3 matrix
-      astrometry::DMatrix xyz(t.size(), 3, 0.);
-      xyz.col(0).array() = (*this)[ADOT]*t.array() + (*this)[A];
-      xyz.col(1).array() = (*this)[BDOT]*t.array() + (*this)[B];
-      xyz.col(2).array() = (*this)[GDOT]*t.array() + 1.;
-      xyz *= 1./(*this)[G];
-      return xyz;
-    }
 
-    void writeTo(std::ostream& os, int precision=6) const {
-      // Write ABG on one line
-      stringstuff::StreamSaver ss(os);  // Cache stream state
-      os << std::fixed << std::showpos << std::setprecision(precision);
-      for (int i=0; i<6; i++)
-	os << (*this)[i] << " ";
-      return;  // Stream state restored on destruction of ss
-    }
+    void writeTo(std::ostream& os, int precision=6) const;
   };
 
   class Elements: public linalg::SVector<double,6> {
@@ -113,6 +98,7 @@ namespace orbits {
     // 3d coords of origin,
     // orientation of axes,
     // and TDB of temporal origin.
+    // This inherited class adds bulk coordinate transforms via Eigen.
   public:
     Frame(const astrometry::CartesianCoords& origin,
 	  const astrometry::Orientation& orient,
@@ -120,6 +106,18 @@ namespace orbits {
 			     tdb0(tdb) {}
     Frame(): ReferenceFrame(), tdb0(0.) {}
     double tdb0;  // Time coordinate origin
+
+    // Transform positions, or a 3xN array of positions,
+    // to or from this Frame from or to ICRS.
+    // isVelocity=true will 
+    astrometry::Vector3 toICRS(const astrometry::Vector3& x,
+			       bool isVelocity=false) const;
+    astrometry::Vector3 fromICRS(const astrometry::Vector3& x,
+			       bool isVelocity=false) const;
+    astrometry::DMatrix toICRS(const astrometry::DMatrix& x,
+			       bool isVelocity=false) const;
+    astrometry::DMatrix fromICRS(const astrometry::DMatrix& x,
+			       bool isVelocity=false) const;
   };
 
 } // end namespace orbits

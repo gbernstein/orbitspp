@@ -26,14 +26,16 @@ namespace orbits {
 
     // Set reference frame to the one given, put observations into this frame
     void setFrame(const Frame& f_);
+    const Frame& getFrame() const {return f;}
 
     // Choose a reference frame as the location and direction of
     // the chosen observation.  If negative number,
     // nearest observation to mean MJD is used.
     void chooseFrame(int obsNumber = 0);
     
-    // Set abg with simple linear fit: inertial orbit, nominal gamma, gdot=0
-    void setLinearOrbit(double nominalGamma=-1.);
+    // Set abg with simple linear fit: inertial orbit, gdot=0, 1 Newton iteration
+    // from current starting point.
+    void setLinearOrbit();
 
     // Place a Gaussian prior on gamma with the given mean and sigma.
     // sigg<=0 will disable prior.

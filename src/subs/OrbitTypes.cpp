@@ -5,6 +5,66 @@
 
 using namespace orbits;
 
+astrometry::DMatrix
+ABG::getXYZ(const astrometry::DVector& t) const {
+  // Calculate inertial XYZ positions at an array of times, return n x 3 matrix
+  astrometry::DMatrix xyz(t.size(), 3, 0.);
+  xyz.col(0).array() = (*this)[ADOT]*t.array() + (*this)[A];
+  xyz.col(1).array() = (*this)[BDOT]*t.array() + (*this)[B];
+  xyz.col(2).array() = (*this)[GDOT]*t.array() + 1.;
+  xyz *= 1./(*this)[G];
+  return xyz;
+}
+
+void
+ABG::writeTo(std::ostream& os, int precision) const {
+  // Write ABG on one line
+  stringstuff::StreamSaver ss(os);  // Cache stream state
+  os << std::fixed << std::showpos << std::setprecision(precision);
+  for (int i=0; i<6; i++)
+    os << (*this)[i] << " ";
+  return;  // Stream state restored on destruction of ss
+}
+
+astrometry::Vector3
+Frame::toICRS(const astrometry::Vector3& x,
+	      bool isVelocity) const {
+  astrometry::Vector3 out = orient.m().transpose() * x;
+  if (!isVelocity) {
+    out += origin.getVector();
+  }
+  return out;
+}
+
+astrometry::Vector3
+Frame::fromICRS(const astrometry::Vector3& x,
+		bool isVelocity) const {
+  if (isVelocity)
+    return orient.m() * x;
+  else
+    return orient.m() * (x - origin.getVector());
+}
+
+astrometry::DMatrix
+Frame::toICRS(const astrometry::DMatrix& x,
+	      bool isVelocity) const {
+  astrometry::DMatrix out = orient.m() * x;
+  if (!isVelocity)
+    out.colwise() += origin.getVector();
+  return out;
+}
+
+astrometry::DMatrix
+Frame::fromICRS(const astrometry::DMatrix& x,
+		bool isVelocity) const {
+  if (isVelocity) {
+    return orient.m() * x;
+  } else {
+    astrometry::DMatrix tmp = x.colwise() - origin.getVector();
+    return orient.m() * tmp;
+  }
+}
+
 MPCObservation::MPCObservation(const string& line) {
   auto fields = stringstuff::split(line);
   auto wordPtr = fields.begin();
