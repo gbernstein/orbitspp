@@ -9,7 +9,6 @@
 using namespace std;
 using namespace orbits;
 
-/**/
 template<class T>
 void
 write6(const T& v, std::ostream& os, int precision=6) {
@@ -69,7 +68,6 @@ Fitter::setFrame(const Frame& f_) {
   dThetaYdABG.resize(n,6);
 
   astrometry::Gnomonic projection(f.orient);  
-  astrometry::CartesianCustom projection3d(f);
   for (int i=0; i<n; i++) {
     const Observation& obs = observations[i];
     // Set up time variables.  Set light travel time to zero
@@ -96,9 +94,7 @@ Fitter::setFrame(const Frame& f_) {
     invcovYY[i] = cov(0,0)/det;
 
     // Get observatory position in our frame.
-    astrometry::CartesianICRS obspos = obs.observer;
-    projection3d.convertFrom(obspos);
-    xE.row(i) = projection3d.getVector();
+    xE.row(i) = f.fromICRS(obs.observer.getVector());
 
     // Initialize gravitational effect to zero
     xGrav.setZero();
@@ -216,18 +212,16 @@ Fitter::calculateGravity() {
 
   // Rotate to ICRS for integrator
   State s0;
-  s0.x = astrometry::CartesianICRS(f.orient.m().transpose() * x0
-				   + f.origin.getVector());
-  s0.v = astrometry::CartesianICRS(f.orient.m().transpose() * v0);
+  s0.x = astrometry::CartesianICRS(f.toICRS(x0));
+  s0.v = astrometry::CartesianICRS(f.toICRS(v0,true));
   s0.tdb = f.tdb0;
   
   // Integrate - Trajectory returns 3xN matrix
   fullTrajectory = new Trajectory(eph, s0, grav);
   astrometry::DMatrix xyz = fullTrajectory->position(tdbEmit);
   // Convert back to Fitter reference frame and subtract inertial motion
-
-  xyz.colwise() -= f.origin.getVector();  // ?? Problem mixing static size with dynamic ??
-  xGrav = (f.orient.m() * xyz).transpose() - abg.getXYZ(tEmit);
+  // Note Frame and Trajectory use 3 x n, we are using n x 3 here.
+  xGrav = f.fromICRS(xyz).transpose() - abg.getXYZ(tEmit);
   /**{
     stringstuff::StreamSaver ss(cerr);
     cerr << std::fixed << std::showpos << std::setprecision(4);
@@ -282,7 +276,7 @@ Fitter::calculateChisqDerivatives() {
 }
   
 void
-Fitter::setLinearOrbit(double nominalGamma) {
+Fitter::setLinearOrbit() {
 
   // Assume that current gravity is good (probably zero)
   calculateOrbitDerivatives();
@@ -305,7 +299,7 @@ Fitter::setLinearOrbit(double nominalGamma) {
 void
 Fitter::newtonFit(double chisqTolerance) {
   // Assuming that we are coming into this with a good starting point
-  //**iterateTimeDelay();
+  iterateTimeDelay();
   calculateGravity();
   calculateOrbitDerivatives();
   calculateChisqDerivatives();
@@ -324,7 +318,7 @@ Fitter::newtonFit(double chisqTolerance) {
       auto dd = llt.solve(b);
       cerr << " change: ";
       write6(dd,cerr);
-      cerr << endl << " abg: ";
+      cerr << endl << " abg:    ";
       write6(abg,cerr);
     }
     calculateOrbitDerivatives();
@@ -336,7 +330,7 @@ Fitter::newtonFit(double chisqTolerance) {
     throw std::runtime_error("Fitter::newtonFit exceeded max iterations");
    
   // Then converge with time delay and gravity recalculated
-  //**iterateTimeDelay();
+  iterateTimeDelay();
   calculateGravity();
   calculateOrbitDerivatives();
   calculateChisqDerivatives();
@@ -351,11 +345,11 @@ Fitter::newtonFit(double chisqTolerance) {
       auto dd = llt.solve(b);
       cerr << " change: ";
       write6(dd,cerr);
-      cerr << endl << " abg: ";
+      cerr << endl << " abg:    ";
       write6(abg,cerr);
       cerr << endl;
     }
-    //**iterateTimeDelay();
+    iterateTimeDelay();
     calculateGravity();
     calculateOrbitDerivatives();
     calculateChisqDerivatives();
@@ -370,16 +364,16 @@ Fitter::newtonFit(double chisqTolerance) {
 void
 Fitter::printResiduals(std::ostream& os) const {
   stringstuff::StreamSaver ss(os);
-  os << "# Residuals: " << endl << std::fixed << std::setprecision(1);
+  os << "# Residuals: " << endl << std::fixed << std::setprecision(2);
   double chitot = 0;
   double chi;
   Vector dx = thetaX - thetaXModel;
   Vector dy = thetaY - thetaYModel;
-  os << "# N   T    dx    dy   chisq" << endl;
-  os << "#   (days) (arcsecond)   " << endl;
+  os << "# N    T     dx     dy    chisq" << endl;
+  os << "#    (days)  (arcsecond)   " << endl;
   for (int i=0; i<dx.size(); i++) {
     chi = dx[i]*dx[i]*invcovXX[i] + 2.*dx[i]*dy[i]*invcovXY[i] + dy[i]*dy[i]*invcovYY[i];
-    os << std::setw(3) << i << "  " << std::showpos << std::setw(6) << tObs[i]/DAY
+    os << std::setw(3) << i << "  " << std::showpos << std::setw(7) << tObs[i]/DAY
        << " " << dx[i]/ARCSEC << " " << dy[i]/ARCSEC
        << std::noshowpos << " " << chi << endl;
     chitot += chi;
