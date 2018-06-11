@@ -43,6 +43,11 @@ namespace orbits {
     }
 
     void newtonFit(double chisqTolerance=0.01);
+
+    // Print residuals (in arcsec) and chisq contributions per point
+    void printResiduals(std::ostream& os) const;
+    // Print ABG covariance matrix
+    void printCovariance(std::ostream& os) const;
     
     ABG abg;         // Orbit in abg basis
     linalg::SMatrix<double,6,6> abgInvCov; // Inverse covariance of abg

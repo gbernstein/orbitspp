@@ -9,6 +9,17 @@
 using namespace std;
 using namespace orbits;
 
+/**/
+template<class T>
+void
+write6(const T& v, std::ostream& os, int precision=6) {
+  stringstuff::StreamSaver ss(os);  // Cache stream state
+  os << std::fixed << std::showpos << std::setprecision(precision);
+  for (int i=0; i<6; i++)
+    os << v[i] << " ";
+  return;  // Stream state restored on destruction of ss
+};
+  
 Fitter::Fitter(const Ephemeris& eph_,
 	       Gravity grav_): eph(eph_),
 			       fullTrajectory(nullptr),
@@ -217,6 +228,16 @@ Fitter::calculateGravity() {
 
   xyz.colwise() -= f.origin.getVector();  // ?? Problem mixing static size with dynamic ??
   xGrav = (f.orient.m() * xyz).transpose() - abg.getXYZ(tEmit);
+  /**{
+    stringstuff::StreamSaver ss(cerr);
+    cerr << std::fixed << std::showpos << std::setprecision(4);
+    for (int i=0; i<xGrav.rows(); i++)
+      cerr << i << " " << tEmit[i]
+	   << " " << xE(i,0) << " " << xE(i,1) << " " << xE(i,2)
+	   << " " << xGrav(i,0) << " " << xGrav(i,1) << " " << xGrav(i,2)
+	   << endl;
+    cerr << "Done" << endl;
+    } **/
   return;
 }
 
@@ -228,7 +249,6 @@ Fitter::calculateChisqDerivatives() {
   chisq = dx.transpose() * (invcovXX.asDiagonal() * dx);
   chisq += 2.* dx.transpose() * (invcovXY.asDiagonal() * dy);
   chisq += dy.transpose() * (invcovYY.asDiagonal() * dy);
-  /**/cerr << "dx,dy,chisq:" << dx << dy << chisq << endl;
   Matrix tmp = invcovXX.asDiagonal() * dThetaXdABG;
   b = tmp.transpose() * dx;
   A = dThetaXdABG.transpose() * tmp;
@@ -245,10 +265,20 @@ Fitter::calculateChisqDerivatives() {
   // Add gamma constraint, if any
   if (gammaPriorSigma > 0.) {
     double w = pow(gammaPriorSigma, -2);
-    b[ABG::G] += w * (gamma0-abg[ABG::G]);
+    double dg = (gamma0-abg[ABG::G]);
+    chisq += dg * w * dg;
+    b[ABG::G] += w * dg;
     A(ABG::G,ABG::G) += w;
   }
-  // Add derivatives from binding prior ??
+
+  // Add derivatives from binding prior - crude one on GDTO??
+  {
+    const double BIND_PRIOR = 1.; // Adjust penalty for high velocity
+    double w = BIND_PRIOR / (2. * GM * pow(abg[ABG::G],3.));
+    chisq += abg[ABG::GDOT] * w * abg[ABG::GDOT];
+    b[ABG::GDOT] += -w * abg[ABG::GDOT];
+    A(ABG::GDOT,ABG::GDOT) += w;
+  }
 }
   
 void
@@ -266,7 +296,6 @@ Fitter::setLinearOrbit(double nominalGamma) {
   // Solve (check degeneracies??)
   auto llt = Alin.llt();
   Vector answer = llt.solve(blin);
-  /**/cerr << "Linear adjustment: " << answer << endl;
 
   // Transfer answer to instance members
   abg.subVector(0,ABG::GDOT) += answer;
@@ -276,8 +305,9 @@ Fitter::setLinearOrbit(double nominalGamma) {
 void
 Fitter::newtonFit(double chisqTolerance) {
   // Assuming that we are coming into this with a good starting point
-  iterateTimeDelay();
+  //**iterateTimeDelay();
   calculateGravity();
+  calculateOrbitDerivatives();
   calculateChisqDerivatives();
   const int MAX_ITERATIONS = 20;
 
@@ -289,18 +319,26 @@ Fitter::newtonFit(double chisqTolerance) {
     // Solve (check degeneracies??)
     auto llt = A.llt();
     abg += llt.solve(b);
-    /**/cerr << "Linear adjustment: " << llt.solve(b) << endl;
-    
+    /**/{
+      /**/cerr << "Iteration " << iterations <<endl;
+      auto dd = llt.solve(b);
+      cerr << " change: ";
+      write6(dd,cerr);
+      cerr << endl << " abg: ";
+      write6(abg,cerr);
+    }
+    calculateOrbitDerivatives();
     calculateChisqDerivatives();
-    /**/cerr << "iteration " << iterations << " chisq " << chisq << endl;
+    /**/cerr << endl << " New chisq: " << chisq << endl;
     iterations++;
   } while (iterations < MAX_ITERATIONS && abs(chisq-oldChisq) > chisqTolerance);
   if (iterations >= MAX_ITERATIONS)
     throw std::runtime_error("Fitter::newtonFit exceeded max iterations");
    
   // Then converge with time delay and gravity recalculated
-  iterateTimeDelay();
+  //**iterateTimeDelay();
   calculateGravity();
+  calculateOrbitDerivatives();
   calculateChisqDerivatives();
   iterations = 0;
   do {
@@ -308,13 +346,55 @@ Fitter::newtonFit(double chisqTolerance) {
     // Solve (check degeneracies??)
     auto llt = A.llt();
     abg += llt.solve(b);
-    iterateTimeDelay();
+    /**/{
+      /**/cerr << "Gravity iteration " << iterations <<endl;
+      auto dd = llt.solve(b);
+      cerr << " change: ";
+      write6(dd,cerr);
+      cerr << endl << " abg: ";
+      write6(abg,cerr);
+      cerr << endl;
+    }
+    //**iterateTimeDelay();
     calculateGravity();
+    calculateOrbitDerivatives();
     calculateChisqDerivatives();
-    /**/cerr << "iteration " << iterations << " chisq " << chisq << endl;
+    /**/cerr << endl << " New chisq: " << chisq << endl;
     iterations++;
   } while (iterations < MAX_ITERATIONS && abs(chisq-oldChisq) > chisqTolerance);
   if (iterations >= MAX_ITERATIONS)
     throw std::runtime_error("Fitter::newtonFit exceeded max fine iterations");
   return;
+}
+
+void
+Fitter::printResiduals(std::ostream& os) const {
+  stringstuff::StreamSaver ss(os);
+  os << "# Residuals: " << endl << std::fixed << std::setprecision(1);
+  double chitot = 0;
+  double chi;
+  Vector dx = thetaX - thetaXModel;
+  Vector dy = thetaY - thetaYModel;
+  os << "# N   T    dx    dy   chisq" << endl;
+  os << "#   (days) (arcsecond)   " << endl;
+  for (int i=0; i<dx.size(); i++) {
+    chi = dx[i]*dx[i]*invcovXX[i] + 2.*dx[i]*dy[i]*invcovXY[i] + dy[i]*dy[i]*invcovYY[i];
+    os << std::setw(3) << i << "  " << std::showpos << std::setw(6) << tObs[i]/DAY
+       << " " << dx[i]/ARCSEC << " " << dy[i]/ARCSEC
+       << std::noshowpos << " " << chi << endl;
+    chitot += chi;
+  }
+  os << " chisq w/o priors " << chitot << " w/priors: " << chisq << endl;
+}
+
+void
+Fitter::printCovariance(std::ostream& os) const {
+  stringstuff::StreamSaver ss(os);
+  os << "# ABG Covariance " << endl << std::scientific << std::setprecision(4) << std::showpos;
+  Matrix c = A.inverse();
+  for (int i=0; i<6; i++) {
+    for (int j=0; j<6; j++)
+      os << std::setw(10) << c(i,j) << " ";
+    os << endl;
+  }
 }
