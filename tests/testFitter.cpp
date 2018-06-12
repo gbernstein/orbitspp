@@ -1,5 +1,7 @@
 // Trial runs for the Fitter
 #include "Fitter.h"
+#include "Elements.h"
+
 #include <iostream>
 
 using namespace std;
@@ -19,7 +21,8 @@ int main(int argc,
     fit.readMPCObservations(ifs);
     ifs.close();
 
-    fit.chooseFrame(-1);
+    //**    fit.chooseFrame(-1);
+    fit.chooseFrame(0);
 
     fit.setLinearOrbit();
     cerr << "First ABG:";
@@ -34,6 +37,16 @@ int main(int argc,
     cerr << "distance: " << 1./fit.abg[ABG::G] << endl;
     fit.printCovariance(cerr);
     cerr << endl;
+
+    // Calculate orbital elements:
+    cerr << "Elements: " << endl;
+    cerr << fit.getElements();
+    cerr << endl;
+    cerr << "Covariance: " << endl;
+    cerr << fit.getElementCovariance();
+    cerr << endl;
+    
+    
   } catch (std::runtime_error& e) {
     quit(e);
   }
