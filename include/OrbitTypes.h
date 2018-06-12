@@ -55,8 +55,12 @@ namespace orbits {
       return;
     }
 
+    Matrix66 getStateDerivatives() const;
+    // Return d(state vector) / d (ABG)
+    // State is in reference system, at reference epoch
+
     astrometry::DMatrix getXYZ(const astrometry::DVector& t) const;
-      // Calculate inertial XYZ positions at an array of times, return n x 3 matrix
+    // Calculate inertial XYZ positions at an array of times, return n x 3 matrix
 
     void writeTo(std::ostream& os, int precision=6) const;
   };

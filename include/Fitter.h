@@ -57,10 +57,12 @@ namespace orbits {
     // Print ABG covariance matrix
     void printCovariance(std::ostream& os) const;
     
+    // Obtain fitting results
     ABG abg;         // Orbit in abg basis
-    linalg::SMatrix<double,6,6> abgInvCov; // Inverse covariance of abg
     double getChisq() const {return chisq;}  // Chisq at current abg
     Matrix getInvCovarABG() const {return A;}  // Inverse covariance of ABG from last fit
+    Elements getElements() const;
+    Matrix66 getElementCovariance() const;
     
   private:
     const Ephemeris& eph; // Solar system Ephemeris
@@ -101,8 +103,8 @@ namespace orbits {
     Matrix dThetaXdABG;  // Derivatives of x position wrt abg
     Matrix dThetaYdABG;  // Derivatives of y position wrt abg
     double chisq;  // Chisq at current abg
-    Vector b;  // -1/2 d(chisq)/d(abg)
-    Matrix A; // 1/2 d^2(chisq)/d(abg)^2
+    Vector6 b;  // -1/2 d(chisq)/d(abg)
+    Matrix66 A; // 1/2 d^2(chisq)/d(abg)^2
 
     // Configuration and prior
     Gravity grav;       // Use giant planets, SS barycenter, or no gravity?

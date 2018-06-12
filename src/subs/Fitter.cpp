@@ -3,6 +3,7 @@
 #include "Fitter.h"
 #include "StringStuff.h"
 #include "AstronomicalConstants.h"
+#include "Elements.h"
 
 #include <iomanip>
 
@@ -24,9 +25,9 @@ Fitter::Fitter(const Ephemeris& eph_,
 			       fullTrajectory(nullptr),
 			       grav(grav_),
 			       bindingConstraintFactor(0.),
-			       gammaPriorSigma(0.),
+			       gammaPriorSigma(0.) {} /*,
 			       b(6),
-			       A(6,6) {}
+			       A(6,6) {}*/
 void
 Fitter::readMPCObservations(istream& is) {
   string line;
@@ -408,3 +409,44 @@ Fitter::printCovariance(std::ostream& os) const {
     os << endl;
   }
 }
+
+Elements
+Fitter::getElements() const {
+  astrometry::Vector3 x0;
+  astrometry::Vector3 v0;
+  // Get state in our Frame:
+  abg.getState(f.tdb0,x0,v0);
+  // Convert to ICRS
+  State s;
+  s.x = astrometry::CartesianICRS(f.toICRS(x0));
+  s.v = astrometry::CartesianICRS(f.toICRS(v0,true));
+  s.tdb = f.tdb0;
+  return orbits::getElements(s);
+}
+
+Matrix66
+Fitter::getElementCovariance() const {
+  // Derivative of state vector in reference frame:
+  Matrix66 dSdABG_frame = abg.getStateDerivatives();
+  // Rotate x and v derivatives into ICRS
+  Matrix66 dSdABG;
+  astrometry::DMatrix tmp = dSdABG_frame.subMatrix(0,3,0,6);
+  dSdABG.subMatrix(0,3,0,6) = f.toICRS(tmp , true);
+  tmp = dSdABG_frame.subMatrix(3,6,0,6);
+  dSdABG.subMatrix(3,6,0,6) = f.toICRS(tmp, true);
+  
+  // Get state in our Frame:
+  astrometry::Vector3 x0;
+  astrometry::Vector3 v0;
+  abg.getState(f.tdb0,x0,v0);
+  // Convert to ICRS
+  State s;
+  s.x = astrometry::CartesianICRS(f.toICRS(x0));
+  s.v = astrometry::CartesianICRS(f.toICRS(v0,true));
+  s.tdb = f.tdb0;
+  // Get element derivatives
+  Matrix66 dEdABG = aei_derivs(s) * dSdABG;
+
+  return dEdABG * A.inverse() * dEdABG.transpose();
+}
+  

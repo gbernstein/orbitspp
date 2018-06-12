@@ -16,6 +16,24 @@ ABG::getXYZ(const astrometry::DVector& t) const {
   return xyz;
 }
 
+Matrix66
+ABG::getStateDerivatives() const {
+  Matrix66 out(0.);
+  double invG = 1. / (*this)[G];
+  out(0, A) = invG;
+  out(0, G) = -(*this)[A]*invG*invG;
+  out(1, B) = invG;
+  out(1, G) = -(*this)[B]*invG*invG;
+  out(2, G) = -invG*invG;
+  out(3, ADOT) = invG;
+  out(3, G) = -(*this)[ADOT]*invG*invG;
+  out(4, BDOT) = invG;
+  out(4, G) = -(*this)[BDOT]*invG*invG;
+  out(5, GDOT) = invG;
+  out(5, G) = -(*this)[GDOT]*invG*invG;
+  return out;
+}
+  
 void
 ABG::writeTo(std::ostream& os, int precision) const {
   // Write ABG on one line
