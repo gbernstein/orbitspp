@@ -15,14 +15,14 @@ int main(int argc,
 
     //Fitter fit(eph, Gravity::BARY);
     Fitter fit(eph, Gravity::GIANTS);
-    fit.setBindingConstraint(1.);
-    
+    /**/fit.setBindingConstraint(1.);
+    /**/fit.setGammaConstraint(0.0274,0.0001);
     ifstream ifs(argv[1]);
     fit.readMPCObservations(ifs);
     ifs.close();
 
-    //**    fit.chooseFrame(-1);
-    fit.chooseFrame(0);
+    fit.chooseFrame(-1);
+    //**fit.chooseFrame(0);
 
     fit.setLinearOrbit();
     cerr << "First ABG:";

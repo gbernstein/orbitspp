@@ -1,6 +1,7 @@
 To do on the orbit-fitting software:
 
-* Astrometry caches transform matrices for ecliptic, invariable
+* aeiderivs are not right for TOP are wrong.  Try again.... Disagree with old results?
+* Prediction code for list of times
 * Get rid of need for YAML code to compile orbits (i.e. optional for Astrometry)
 * Get rid of old astrometry/Ephemeris
 * test programs for ephemeris
