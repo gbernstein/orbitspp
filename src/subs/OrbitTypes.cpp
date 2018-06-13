@@ -66,7 +66,7 @@ Frame::fromICRS(const astrometry::Vector3& x,
 astrometry::DMatrix
 Frame::toICRS(const astrometry::DMatrix& x,
 	      bool isVelocity) const {
-  astrometry::DMatrix out = orient.m() * x;
+  astrometry::DMatrix out = orient.m().transpose() * x;
   if (!isVelocity)
     out.colwise() += origin.getVector();
   return out;

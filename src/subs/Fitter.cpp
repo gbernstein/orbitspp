@@ -428,12 +428,15 @@ Matrix66
 Fitter::getElementCovariance() const {
   // Derivative of state vector in reference frame:
   Matrix66 dSdABG_frame = abg.getStateDerivatives();
+  /**/cerr << "dSdABG_frame: " << endl << dSdABG_frame << endl;
   // Rotate x and v derivatives into ICRS
   Matrix66 dSdABG;
   astrometry::DMatrix tmp = dSdABG_frame.subMatrix(0,3,0,6);
   dSdABG.subMatrix(0,3,0,6) = f.toICRS(tmp , true);
   tmp = dSdABG_frame.subMatrix(3,6,0,6);
   dSdABG.subMatrix(3,6,0,6) = f.toICRS(tmp, true);
+
+  /**/cerr << "dSdABG: " << endl << dSdABG << endl;
   
   // Get state in our Frame:
   astrometry::Vector3 x0;
@@ -446,7 +449,7 @@ Fitter::getElementCovariance() const {
   s.tdb = f.tdb0;
   // Get element derivatives
   Matrix66 dEdABG = aei_derivs(s) * dSdABG;
-
+  /**/cerr << "dEdABG: " << endl << dEdABG << endl;
   return dEdABG * A.inverse() * dEdABG.transpose();
 }
   
