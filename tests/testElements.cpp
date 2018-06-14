@@ -36,7 +36,8 @@ void printElements(const orbits::Elements& e) {
 
 bool testDerivs(const orbits::State& s) {
   bool fail = false;
-  auto derivs = orbits::aei_derivs(s);
+  //  auto derivs = orbits::aei_derivs(s);
+  auto derivs = orbits::getElementDerivatives(s);
   cout << derivs << endl;
 
   for (int i=0; i<6; i++) {

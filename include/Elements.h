@@ -22,8 +22,8 @@ namespace orbits {
   // Get derivative matrix of State->Elements
   extern
   Matrix66
-  aei_derivs( const orbits::State& xv, bool heliocentric=false);
-
+  getElementDerivatives( const orbits::State& xv, bool heliocentric=false);
+  
 } // end namespace orbits
 
 #endif // ELEMENTS_H
