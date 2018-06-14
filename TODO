@@ -1,6 +1,7 @@
 To do on the orbit-fitting software:
 
-* aeiderivs are not right for TOP are wrong.  Try again.... Disagree with old results?
+* Fix sun motion for heliocentric Elements calculations.
+* E covariances disagree with old code for qb1.
 * Prediction code for list of times
 * Get rid of need for YAML code to compile orbits (i.e. optional for Astrometry)
 * Get rid of old astrometry/Ephemeris
@@ -12,8 +13,3 @@ hard-wired things that should be configurable:
 *integrator time step
 
 Outlier rejection in fits
-
-unsafe string operations
-
-SVD decompositions of covariance matrices as better
-test for degeneracies and more numerical stability.

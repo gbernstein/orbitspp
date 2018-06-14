@@ -23,7 +23,7 @@ namespace orbits {
 
     Vector3 R = CartesianEcliptic(s.x).getVector();
     Vector3 V = CartesianEcliptic(s.v).getVector();
-  
+
     double rMagnitude, velSquare, radVelDotProduct;
     Vector3 eccentricityVector, angularMomentum, ascendingNode;
     double semimajor, eccentricity, inclination, longitudeOfAscendingNode;
@@ -187,6 +187,8 @@ namespace orbits {
   class ScalarDerivative {
   public:
     typedef linalg::SMatrix<double,1,6> Deriv;
+    EIGEN_NEW
+
     ScalarDerivative(double s_, const Deriv& ds_): s(s_), ds(ds_) {}
     ScalarDerivative(): s(0.), ds(0.) {}
 
@@ -234,7 +236,8 @@ namespace orbits {
   public:
     // A vector and its derivative wrt state
     typedef     linalg::SMatrix<double,3,6> Deriv;
-
+    EIGEN_NEW
+    
     Vector3 v;
     Deriv dv;
 
@@ -288,7 +291,7 @@ namespace orbits {
     VectorDerivative out;
     out.v = v.cross(rhs.v);
     for (int i=0; i<6; i++)
-      out.dv.col(i) = v.cross(rhs.dv.col(i)) - rhs.v.cross(dv.col(i));
+      out.dv.col(i) = v.cross(rhs.dv.col(i)) + dv.col(i).cross(rhs.v);
     return out;
     }
 
@@ -322,15 +325,22 @@ namespace orbits {
     double tdb = s.tdb;
 
     Matrix66 out;
+#ifdef CHECK
     Elements elements;
+#endif
+    
+    // Rotate into ecliptic system
+    CartesianEcliptic ecliptic;
+    astrometry::Matrix33 icrs2ecliptic;
+    ecliptic.convertFrom(s.x, icrs2ecliptic);
+    VectorDerivative x;
+    x.v = ecliptic.getVector();
+    x.dv.subMatrix(0,3,0,3) = icrs2ecliptic;
 
-    VectorDerivative x,v;
-    x.v = s.x.getVector();
-    x.dv.setZero();
-    x.dv(0,0) = x.dv(1,1) = x.dv(2,2) = 1.;
-    v.v = s.v.getVector();
-    v.dv.setZero();
-    v.dv(0,3) = x.dv(1,4) = x.dv(2,5) = 1.;
+    ecliptic.convertFrom(s.v, icrs2ecliptic);
+    VectorDerivative v;
+    v.v = ecliptic.getVector();
+    v.dv.subMatrix(0,3,3,6) = icrs2ecliptic;
 
     // The z unit vector:
     VectorDerivative z;
@@ -358,29 +368,39 @@ namespace orbits {
     ScalarDerivative stmp =  rInverse * 2. - v.dot(v) / mass;
     auto a = stmp.inverse();
     out.row(Elements::A) = a.ds;
+#ifdef CHECK
     elements[Elements::A] = a.s;
+#endif
 
     // Eccentricity
     auto e = evec.magnitude();
     out.row(Elements::E) = e.ds;
+#ifdef CHECK
     elements[Elements::E] = e.s;
+#endif
 
     // Inclination:
     stmp = h[2] * h.magnitude().inverse();
     auto inc = acos(stmp);
     out.row(Elements::I) = inc.ds;
+#ifdef CHECK
     elements[Elements::I] = inc.s;
+#endif
 
     // Ascending node:
     stmp = atan2( ascendingNode[1], ascendingNode[0]);
     out.row(Elements::LAN) = stmp.ds;
+#ifdef CHECK
     elements[Elements::LAN] = stmp.s;
+#endif
 
     // Argument of Perihelion:
     stmp = ascendingNode.dot(evec) / (ascendingNode.magnitude() * e);
     ScalarDerivative aop = evec.v[2]<0. ? -acos(stmp) : acos(stmp);
     out.row(Elements::AOP) = aop.ds;
+#ifdef CHECK
     elements(Elements::AOP) = aop.s;
+#endif
 
     // Now the manipulations to get mean anomaly
     auto xBar = (p-r)/e;
@@ -393,13 +413,15 @@ namespace orbits {
     // And the final element, time of perhelion passage:
     auto top = -meanAnomaly * pow(a,1.5) / sqrt(mass) + tdb;
     out.row(Elements::TOP) = top.ds;
+#ifdef CHECK
     elements(Elements::TOP) = top.s;
 
     /**/cerr << "New vs old:" << endl;
     auto oldel = getElements(s,heliocentric);
     for (int i=0; i<6; i++)
       cerr << i << " " << elements[i] << " -- " << oldel[i] << endl;
-
+#endif
+    
     return out;
   }
 

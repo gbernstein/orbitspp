@@ -448,7 +448,7 @@ Fitter::getElementCovariance() const {
   s.v = astrometry::CartesianICRS(f.toICRS(v0,true));
   s.tdb = f.tdb0;
   // Get element derivatives
-  Matrix66 dEdABG = aei_derivs(s) * dSdABG;
+  Matrix66 dEdABG = getElementDerivatives(s) * dSdABG;
   /**/cerr << "dEdABG: " << endl << dEdABG << endl;
   return dEdABG * A.inverse() * dEdABG.transpose();
 }
