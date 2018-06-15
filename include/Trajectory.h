@@ -33,12 +33,14 @@ namespace orbits {
     // ICRS barycentric coordinates, all times are TDB, units are AU and
     // years.
 
-    linalg::Matrix<double> position(const linalg::Vector<double>& tdb) const;
+    linalg::Matrix<double> position(const linalg::Vector<double>& tdb,
+				    linalg::Matrix<double>* velocity=nullptr) const;
     // Return 3 x N matrix of object positions at TDB's given in input array.
-    // Will assume that times are in ascending order in array.
+    // If a pointer to velocity array is given, it is resized to 3xN and filled with v.
 
-    astrometry::CartesianICRS position(double tdb) const;
-    // Return position at a single time.
+    astrometry::CartesianICRS position(double tdb,
+				       astrometry::CartesianICRS* velocity=nullptr) const;
+    // Return position at a single time. Velocity is put into 2nd arg if given.
 
     EIGEN_NEW
     
@@ -71,8 +73,8 @@ namespace orbits {
     
     // Acceleration calculator - return a*dt
     astrometry::Vector3 deltaV(const astrometry::Vector3& x, double tdb) const;
-    // Extend integration to include this time range
-    void span(double tdbMin, double tdbMax) const;
+    // Extend integration to include this time
+    void span(double tdb) const;
   };
 
 } // end namespace orbits
