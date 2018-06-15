@@ -453,3 +453,102 @@ Fitter::getElementCovariance() const {
   return dEdABG * A.inverse() * dEdABG.transpose();
 }
   
+// Forecast position using current fit.  Cov matrix elements given if filled:
+void
+Fitter::predict(const Vector& t_obs,    // Time of observations, relative to tdb0
+		const Matrix& earth,  // Observation coordinates, in our frame, Nx3
+		Vector* xOut,         // Angular coordinates, in our frame
+		Vector* yOut,
+		Vector* covXX,        // Covar matrix of coordinates
+		Vector* covXY,
+		Vector* covYY) const {
+
+  // Resize arrays if necessary
+  int nobs = t_obs.rows();
+  if (earth.cols()!=3 || earth.rows()!=nobs)
+    throw std::runtime_error("Wrong dimensions for earth positions in Fitter::predict");
+  if (!xOut || !yOut)
+    throw std::runtime_error("Must provide output xOut and yOut arrays for Fitter::predict");
+
+  bool doDerivs = covXX || covXY || covYY;
+  if (doDerivs && (!covXX || !covXY || !covYY))
+    throw std::runtime_error("Fitter::predict did not get arrays for all three covariance elements");
+
+  // Iterate 3d position determination and time delay.
+  // Use inertial orbit if there is no trajectory.
+  Matrix target;
+  if (fullTrajectory) {
+    // Derive positions from the trajectory, place into our frame
+    // Note the Trajectory takes full TDB, not referred to our tdb0:
+    Vector tEphem = t_obs.array() + f.tdb0;
+    target = f.fromICRS(fullTrajectory->position(tEphem)).transpose();
+  } else {
+    target = abg.getXYZ(t_obs);
+  }
+  // Light-time correction and refine - first iteration
+  Matrix dx = target - earth;
+  Vector distance = dx.cwiseProduct(dx).rowwise().sum().cwiseSqrt();
+  Vector t_emit = t_obs - distance / SpeedOfLightAU;
+  if (fullTrajectory) {
+    Vector tEphem = t_emit.array() + f.tdb0;
+    target = f.fromICRS(fullTrajectory->position(tEphem)).transpose();
+  } else {
+    target = abg.getXYZ(t_emit);
+  }
+  // One more light-travel iteration
+  dx = target - earth;
+  distance = dx.cwiseProduct(dx).rowwise().sum().cwiseSqrt();
+  t_emit = t_obs - distance / SpeedOfLightAU;
+  // Final calculation of 3d positions.  Save gravity contribution
+  Matrix gravity(nobs,3,0.);
+  if (fullTrajectory) {
+    Vector tEphem = t_emit.array() + f.tdb0;
+    target = f.fromICRS(fullTrajectory->position(tEphem)).transpose();
+    // Subtract inertial motion to get gravity
+    gravity = target - abg.getXYZ(t_emit);
+  } else {
+    target = abg.getXYZ(t_emit);
+    // Gravity contribution remains zero in this case.
+  }
+
+  // Now calculate angular positions
+  Vector denom = Vector(nobs,1.) + abg[ABG::GDOT]*t_emit
+    + abg[ABG::G]*(gravity.col(2) - earth.col(2));
+  denom = denom.cwiseInverse();  // Denom is now 1/(z*gamma)
+  *xOut = abg[ABG::ADOT]*t_emit + abg[ABG::G]*(gravity.col(0) - earth.col(0));
+  xOut->array() += abg[ABG::A];
+  *yOut = abg[ABG::BDOT]*t_emit + abg[ABG::G]*(gravity.col(1) - earth.col(1));
+  yOut->array() += abg[ABG::B];
+  xOut->array() *= denom.array();
+  yOut->array() *= denom.array();
+
+  if (doDerivs) {
+    // Calculate derivatives wrt ABG, using just inertial part
+    Matrix dX(nobs, 6, 0.);
+    Matrix dY(nobs, 6, 0.);
+    dX.col(ABG::A).setOnes();
+    dY.col(ABG::B).setOnes();
+    dX.col(ABG::ADOT) = t_emit;
+    dY.col(ABG::BDOT) = t_emit;
+    dX.col(ABG::G) = gravity.col(0) - earth.col(0)
+      + xOut->cwiseProduct(earth.col(2)-gravity.col(2));
+    dY.col(ABG::G) = gravity.col(1) - earth.col(1)
+      + yOut->cwiseProduct(earth.col(2)-gravity.col(2));
+    dX.col(ABG::GDOT) -= xOut->cwiseProduct(t_emit);
+    dY.col(ABG::GDOT) -= yOut->cwiseProduct(t_emit);
+
+    // Now contract with the ABG covariance to get position covariance
+    Matrix66 cov = A.inverse();
+    *covXX = dX * cov * dX.transpose();
+    *covXY = dX * cov * dY.transpose();
+    *covYY = dY * cov * dY.transpose();
+
+    // We left off a factor of denom in dX, dY;
+    // It's faster to put these in at the end:
+    denom.array() *= denom.array();  // Square this
+    covXX->array() *= denom.array();
+    covXY->array() *= denom.array();
+    covYY->array() *= denom.array();
+  }  
+  return;
+}

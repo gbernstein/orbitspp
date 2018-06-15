@@ -15,9 +15,10 @@
 namespace orbits {
 
   class Fitter {
+  public:
     typedef linalg::Vector<double> Vector;
     typedef linalg::Matrix<double> Matrix;
-  public:
+
     Fitter(const Ephemeris& eph_, Gravity grav_=Gravity::GIANTS);
     // Initialize fitter with ephemeris and choice of gravity approximation
 
@@ -63,6 +64,16 @@ namespace orbits {
     Matrix getInvCovarABG() const {return A;}  // Inverse covariance of ABG from last fit
     Elements getElements() const;
     Matrix66 getElementCovariance() const;
+
+    // Forecast position using current fit.  Cov matrix elements given if filled:
+    void predict(const Vector& t_obs,    // Time of observations, relative to tdb0
+		 const Matrix& earth,  // Observation coordinates, in our frame
+		 Vector* xOut,         // Angular coordinates, in our frame
+		 Vector* yOut,
+		 Vector* covXX = nullptr,   // Covar matrix of coordinates
+		 Vector* covXY = nullptr,   // (not computed if nullptrs)
+		 Vector* covYY = nullptr) const;
+		 
     
   private:
     const Ephemeris& eph; // Solar system Ephemeris
