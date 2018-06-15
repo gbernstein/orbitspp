@@ -220,7 +220,13 @@ main(int argc,
     xx.push_back( 3.179306902864494E+01);
     yy.push_back( 2.395826219011573E+01);
     zz.push_back( 1.150540347107284E+01);
-
+    mjd.push_back(2458114.5);  // 2017-Dec-27 00:00:00.0000 TDB
+    xx.push_back( 3.358384441110039E+01);
+    yy.push_back( 2.170192732308413E+01);
+    zz.push_back( 1.042392372599419E+01);
+    astrometry::CartesianICRS vv(-1.524127150690516E-03/DAY,  // Horizons velocity for this date
+				 2.070340276060543E-03/DAY,
+				 9.923832708824847E-04/DAY);
     cout << endl;
     cout << "---Difference against Horizons (km) ---" << endl;
     cout << " DT (yrs)     x         y       z " << endl;
@@ -231,7 +237,9 @@ main(int argc,
     linalg::Vector<double> future(mjd.size());
     for (int i=0; i<future.size(); i++)
       future[i] = (mjd[i] - JD2000)*DAY;
-    auto m = qb.position(future);
+
+    linalg::DMatrix velocity;
+    auto m = qb.position(future, &velocity);
     for (int i=0; i<future.size(); i++) {
       cout << std::fixed << std::setprecision(3) << std::setw(8) << future[i] - s.tdb
 	   << " " << std::setw(8) << std::setprecision(2) <<  (m(0,i) - xx[i]) / (1000.*METER)
@@ -245,6 +253,74 @@ main(int argc,
     }
     if (fail)
       cerr << "***FAILURE: Difference from horizons > " << tolerance/(1000*METER) << " km" << endl;
+
+
+    const double velocity_tolerance = 0.001 ; // v tolerance in m/s.
+    {
+      bool vfail = false;
+      // Check last velocity of those extracted in bulk:
+      int i = mjd.size() - 1;
+      cout << "--- Velocity difference (m/s) ---" << endl;
+      cout << " DT (yrs)     x         y       z " << endl;
+      cout << future[i] << std::setprecision(4);
+      for (int j=0; j<3; j++) {
+	double diff = (velocity(j,i) - vv[j])*SECOND/METER;
+	cout << "  " << diff;
+	if (abs(diff) > velocity_tolerance) vfail = true;
+      }
+      cout << endl;
+
+      if (vfail) {
+	fail = true;
+	cerr << "***FAILURE: Velocity difference from horizons***" << endl;
+      }
+    }
+    
+    // Get state at single time point, compare to horizons
+    {
+      double mjd1 = 2454466.5000; // = A.D. 2008-Jan-01 00:00:00.0000 TDB
+      double tdb1 = (mjd1-JD2000)*DAY;
+      astrometry::CartesianICRS x_horizons(3.815011333177522E+01,
+			       1.361184665408451E+01,
+			       6.545469772482830E+00);
+      astrometry::CartesianICRS v_horizons(-9.655441061360712E-04/DAY,
+			       2.345073633226195E-03/DAY,
+			       1.124404442419986E-03/DAY);
+      astrometry::CartesianICRS v_us;
+      auto x_us = qb.position(tdb1, &v_us);
+
+      x_us -= x_horizons;
+      v_us -= v_horizons;
+      v_us *= SECOND/METER;  // Convert to m/s
+      {
+	bool vfail = false;
+	// Check last velocity of those extracted in bulk:
+	cout << "--- Single-epoch position (km) and velocity (m/s) ---" << endl;
+	cout << " DT (yrs)     x         y       z " << endl;
+	cout << std::setprecision(2) << tdb1-s.tdb << std::setprecision(4) << " x:";
+	for (int j=0; j<3; j++) {
+	  double diff = x_us.getVector()[j];
+	  cout << "  " << diff / (1e3*METER);
+	  if (abs(diff) > tolerance) vfail = true;
+	}
+	cout << endl;
+	cout << std::setprecision(2) << tdb1-s.tdb << std::setprecision(4) << " v:";
+	for (int j=0; j<3; j++) {
+	  double diff = v_us.getVector()[j];
+	  cout << "  " << diff;
+	  if (abs(diff) > velocity_tolerance) vfail = true;
+	}
+	cout << endl;
+
+	if (vfail) {
+	  fail = true;
+	  cerr << "***FAILURE: Posn/velocity difference from horizons***" << endl;
+	}
+      }
+    
+    }
+      
+
   } catch (std::runtime_error& e) {
     cerr << e.what() << endl;
     exit(1);
