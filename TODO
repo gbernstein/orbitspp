@@ -1,9 +1,9 @@
 To do on the orbit-fitting software:
 
+* Inertial Trajectory crashing.
 * Spawn new Fitter that's updated with a new observation.
 * start putting in OpenMP guards for multithreading: Ephemeris and Trajectory have internal states.
 Fitter should be single-threaded too, make new Fitters for different threads if re-fitting.
-* Fix sun motion for heliocentric Elements calculations.
 * E covariances disagree with old code for qb1.
 * Prediction code for list of times
 * Get rid of need for YAML code to compile orbits (i.e. optional for Astrometry)

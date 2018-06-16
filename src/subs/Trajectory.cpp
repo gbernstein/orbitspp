@@ -141,7 +141,6 @@ astrometry::CartesianICRS
 Trajectory::position(double tdb,
 		     astrometry::CartesianICRS* velocity) const {
   linalg::Vector<double> tvec(1,tdb);
-  /**/cerr << "TDB " << tvec[0] << endl;
   if (velocity) {
     linalg::Matrix<double> vmat(3,1);
     auto m = position(tvec, &vmat);
