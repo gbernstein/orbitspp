@@ -4,6 +4,7 @@
 #include "OrbitTypes.h"
 #include "AstronomicalConstants.h"
 #include "Astrometry.h"
+#include "Ephemeris.h"
 
 #include "Eigen/Geometry"     // For curl operation
 
@@ -12,9 +13,11 @@ using namespace astrometry;
 namespace orbits {
 
   Elements
-  getElements(const State& s, bool heliocentric) {
+  getElements(const State& s,
+	      bool heliocentric=false, const Ephemeris* ephem=nullptr) {
     // Return orbital elements for state vector.
-    // Use solar mass if heliocentric=true, else full solar system mass
+    // Use solar mass and Sun if heliocentric=true, else full solar system
+    // mass and barycenter.
     // The incoming state is assumed ICRS so we will convert to ecliptic
     // to get ecliptic J2000 elements.
   
@@ -23,6 +26,14 @@ namespace orbits {
 
     Vector3 R = CartesianEcliptic(s.x).getVector();
     Vector3 V = CartesianEcliptic(s.v).getVector();
+
+    if (heliocentric) {
+      if (!ephem)
+	throw runtime_error("Need an Ephemeris for heliocentric getElements");
+      auto sun = ephem->state(orbits::SUN, tdb);
+      R -= sun.x.getVector();
+      V -= sun.v.getVector();
+    }
 
     double rMagnitude, velSquare, radVelDotProduct;
     Vector3 eccentricityVector, angularMomentum, ascendingNode;
@@ -100,7 +111,8 @@ namespace orbits {
   } 
 
   State
-  getState(const Elements& el, double tdb, bool heliocentric) {
+  getState(const Elements& el, double tdb,
+	   bool heliocentric=false, const Ephemeris* ephem=nullptr) {
     Vector3  r0, v0, r1, v1, r2, v2;
     double eccentricAnomaly;
     double meanAnomaly;
@@ -178,9 +190,30 @@ namespace orbits {
     out.x = CartesianICRS(x);
     out.v = CartesianICRS(v);
     out.tdb = tdb;
+
+    if (heliocentric) {
+      if (!ephem)
+	throw runtime_error("Need an Ephemeris for heliocentric getState");
+      auto sun = ephem->state(orbits::SUN, tdb);
+      out.x += sun.x.getVector();
+      out.v += sun.v.getVector();
+    }
   
     return out;
   }
+
+  Elements
+  heliocentric2barycentric(const Elements& el, double tdb, const Ephemeris& ephem) {
+    State s = getState(el, tdb, true, &ephem);
+    return getElements(s);
+  }
+
+  Elements
+  barycentric2heliocentric(const Elements& el, double tdb, const Ephemeris& ephem) {
+    State s = getState(el, tdb);
+    return getElements(s, true, &ephem);
+  }
+
 
 
   // For calculation of orbit derivatives wrt state vector, define these units:
@@ -319,9 +352,9 @@ namespace orbits {
   }
   
   Matrix66
-  getElementDerivatives(const State& s, bool heliocentric) {
+  getElementDerivatives(const State& s) {
 
-    double mass = heliocentric ? GM : SolarSystemGM;
+    double mass = SolarSystemGM;
     double tdb = s.tdb;
 
     Matrix66 out;

@@ -477,28 +477,33 @@ Fitter::predict(const Vector& t_obs,    // Time of observations, relative to tdb
   // Iterate 3d position determination and time delay.
   // Use inertial orbit if there is no trajectory.
   Matrix target;
+  Matrix velocity(nobs,3);
   if (fullTrajectory) {
     // Derive positions from the trajectory, place into our frame
     // Note the Trajectory takes full TDB, not referred to our tdb0:
     Vector tEphem = t_obs.array() + f.tdb0;
-    target = f.fromICRS(fullTrajectory->position(tEphem)).transpose();
+    Matrix v_ICRS;
+    target = f.fromICRS(fullTrajectory->position(tEphem),&v_ICRS).transpose();
+    // Transform body velocity too
+    velocity = f.fromICRS(v_ICRS,true).transpose();
   } else {
     target = abg.getXYZ(t_obs);
+    astrometry::Vector3 x,v;
+    // For an inertial orbit, the velocity is constant:
+    abg.getState(0., x, v);
+    velocity.rowwise() = v.transpose();
   }
-  // Light-time correction and refine - first iteration
+  // Light-time correction.  This approximation holds for the
+  // case when acceleration during the light travel can be ignored:
+  // light-travel time = d / (c + v_los)
+  // where d is distance at time of observation and v_los is
+  // line-of-sight velocity.  
+
   Matrix dx = target - earth;
   Vector distance = dx.cwiseProduct(dx).rowwise().sum().cwiseSqrt();
-  Vector t_emit = t_obs - distance / SpeedOfLightAU;
-  if (fullTrajectory) {
-    Vector tEphem = t_emit.array() + f.tdb0;
-    target = f.fromICRS(fullTrajectory->position(tEphem)).transpose();
-  } else {
-    target = abg.getXYZ(t_emit);
-  }
-  // One more light-travel iteration
-  dx = target - earth;
-  distance = dx.cwiseProduct(dx).rowwise().sum().cwiseSqrt();
-  t_emit = t_obs - distance / SpeedOfLightAU;
+  Vector vlos = (velocity.array()*dx.array()).rowwise().sum() / distance.array();
+  Vector t_emit = t_obs.array() - distance.array() / (vlos.array() + SpeedOfLightAU);
+
   // Final calculation of 3d positions.  Save gravity contribution
   Matrix gravity(nobs,3,0.);
   if (fullTrajectory) {
