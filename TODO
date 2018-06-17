@@ -1,6 +1,6 @@
 To do on the orbit-fitting software:
 
-* Inertial Trajectory crashing.
+* Inertial Trajectory crashing
 * Spawn new Fitter that's updated with a new observation.
 * start putting in OpenMP guards for multithreading: Ephemeris and Trajectory have internal states.
 Fitter should be single-threaded too, make new Fitters for different threads if re-fitting.

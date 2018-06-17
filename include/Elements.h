@@ -8,11 +8,11 @@
 namespace orbits {
 
   /**  Return orbital elements in J2000 ecliptic
-       given an ICRS state vector.  The state vector is always
+       given an ICRS state vector.  The state vector is **always**
        barycentric.  The heliocentric flag tells whether elements
        that are returned are osculating heliocentric (solar mass
-       is used) or barycentric (in which case full solar system 
-       mass is used).
+       is used and solar motion is removed from state) or 
+       barycentric (in which case full solar system mass is used).
        If heliocentric is chosen, we need an Ephemeris.
   **/
   extern
@@ -23,7 +23,7 @@ namespace orbits {
       tdb is dynamical barycentric time, in years past J2000 TDB.
       Again elements are either barycentric, total SS mass, or
       they are osculating heliocentric with solar mass.  The
-      State returned is always barycentric ICRS. 
+      State returned is **always** barycentric ICRS. 
       If heliocentric is chosen, we need an Ephemeris.
   **/
   extern 

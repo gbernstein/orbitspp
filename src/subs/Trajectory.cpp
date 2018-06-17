@@ -4,6 +4,7 @@
 #include "Ephemeris.h"
 #include "Trajectory.h"
 
+
 using namespace orbits;
 using namespace astrometry;
 
@@ -44,7 +45,13 @@ Trajectory::Trajectory (const Ephemeris& ephem_,
 				     dt(dt_),
 				     grav(grav_)
 {
-  if (grav != INERTIAL) {
+  if (grav == INERTIAL) {
+    return;
+  } else if (grav==WRONG) {
+    // In this wrong model, we want the heliocentric
+    // elements at initial state vector
+    el = getElements(s0, true, &ephem);
+  } else {
     // Put initial positions in caches
     xfwd.push_back(x0);
     xbwd.push_back(x0);
@@ -105,7 +112,20 @@ Trajectory::position(const linalg::Vector<double>& tdb,
     // Inertial motion is just linear algebra
     for (int i=0; i<tdb.size(); i++)
       out.col(i) = x0 + (tdb[i]-tdb0)*v0;
-    velocity->colwise() = v0;
+    if (velocity)
+      velocity->colwise() = v0;
+  } else if (grav==WRONG) {
+    // In this model we incorrectly use elliptical orbit
+    // centered on the Sun, so we need to get state from
+    // the heliocentric ellipse, and add solar coordinates
+    // back because ellipse moves with the Sun.
+    for (int i=0; i<tdb.size(); i++) {
+      State s = getState(el, tdb[i], true, &ephem);
+      State sSun = ephem.state(orbits::SUN, tdb[i]);
+      if (velocity)
+	velocity->col(i) = s.v.getVector() + sSun.v.getVector();
+      out.col(i) = s.x.getVector() + sSun.x.getVector();
+    }
   } else {
     // Grow the integration of the orbit
     span(tdb.minCoeff());
@@ -175,3 +195,20 @@ Trajectory::deltaV(const Vector3& x, double tdb) const {
   return out;
 }
       
+// Return observed astrometric position from observer position/time.
+astrometry::SphericalICRS
+Trajectory::observe(double tdbObserve,
+		    const astrometry::CartesianICRS& observer) {
+  double tEmit = tdbObserve;
+  // Get the light-travel time
+  CartesianICRS velocity;
+  CartesianICRS target = position(tEmit, &velocity);
+  target -= observer;
+  double v_los = velocity.getVector().dot(target.getVector()) / target.radius();
+  tEmit = tdbObserve - target.radius() / (SpeedOfLightAU + v_los);
+  
+  // Final position:
+  target = position(tEmit);
+  target -= observer;
+  return SphericalICRS(target);
+}
