@@ -7,6 +7,7 @@
 #include "OrbitTypes.h"
 #include "Ephemeris.h"
 #include "LinearAlgebra.h"
+#include "Elements.h"
 
 // Need to following to make a vector containing structures with fixed-size
 // Eigen arrays
@@ -16,12 +17,16 @@
 
 namespace orbits {
 
-  enum Gravity {INERTIAL, BARY, GIANTS};
+  enum Gravity {INERTIAL, BARY, GIANTS, WRONG};
   // INERTIAL = no gravity (inertial)
   // BARY = gravity from point mass at solar system barycenter with mass
   //       of all 8 planets
   // GIANTS = gravity from giant planets considered distinctly, terrestrials
   //       are placed with the Sun.
+  // WRONG = trajectory is an ellipse relative to the Sun (not barycenter).
+  //       This is not a valid model but is what PyEphem does.  The
+  //       code for this will be slow, redoing the ellipse calculations
+  //       every time.
 
   class Trajectory {
   public:
@@ -42,6 +47,9 @@ namespace orbits {
 				       astrometry::CartesianICRS* velocity=nullptr) const;
     // Return position at a single time. Velocity is put into 2nd arg if given.
 
+    // Return observed astrometric position from observer position/time.
+    astrometry::SphericalICRS observe(double tdbObserve,
+				      const astrometry::CartesianICRS& observer);
     EIGEN_NEW
     
   private:
@@ -51,7 +59,7 @@ namespace orbits {
     double tdb0;
     double dt;
     Gravity grav;
-
+    Elements el;            //  For the WRONG model.
     // Need to use special form for vectors containing static-size
     // Eigen structures.
 #ifdef USE_EIGEN

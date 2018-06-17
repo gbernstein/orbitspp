@@ -24,15 +24,21 @@ namespace orbits {
     double mass = heliocentric ? GM : SolarSystemGM;
     double tdb = s.tdb;
 
-    Vector3 R = CartesianEcliptic(s.x).getVector();
-    Vector3 V = CartesianEcliptic(s.v).getVector();
-
+    // Convert state to ecliptic
+    Vector3 R, V;
     if (heliocentric) {
+      // Remove solar motion from state
       if (!ephem)
 	throw runtime_error("Need an Ephemeris for heliocentric getElements");
       auto sun = ephem->state(orbits::SUN, tdb);
-      R -= sun.x.getVector();
-      V -= sun.v.getVector();
+      auto net = s;
+      net.x -= sun.x;
+      net.v -= sun.v;
+      R = CartesianEcliptic(net.x).getVector();
+      V = CartesianEcliptic(net.v).getVector();
+    } else {
+      R = CartesianEcliptic(s.x).getVector();
+      V = CartesianEcliptic(s.v).getVector();
     }
 
     double rMagnitude, velSquare, radVelDotProduct;

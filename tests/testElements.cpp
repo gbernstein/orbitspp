@@ -137,7 +137,17 @@ main(int argc,
     s.v[1] =  2.504643884337053E-03/DAY;
     s.v[2] =  1.201121986118657E-03/DAY;
     s.tdb = eph.utc2tdb("1995-Apr-18 00:00:00") - 61.185610*SECOND;
-    auto qb = getElements(s, true);
+
+    // Horizons gave heliocentric state vector, our Elements always want
+    // barycentric state vectors:
+    /**/
+    orbits::State sun = eph.state(orbits::SUN, s.tdb);
+    cerr << "Adding " << sun.v << endl;
+    s.x += sun.x;
+    s.v += sun.v; /***/
+    cerr << " R, V: " << s.x << " " << s.v << endl;
+    
+    auto qb = getElements(s, true, &eph);
     printElements(qb);
     {
       /** Compare to these elements from horizons:
@@ -160,16 +170,18 @@ main(int argc,
 	  abs(qb[Elements::AOP]-truth[Elements::AOP]) > tolerance ||
 	  abs(qb[Elements::TOP]-truth[Elements::TOP]) > DAY) {
 	fail = true;
-	cout << "***FAILURE: QB1 elements mismatch" << endl;
+	cout << "***FAILURE: QB1 elements mismatch, truth is:" << endl;
 	printElements(truth);
       }
     }  
     
     cout << endl;
-    cout << "------ Rotate LAN by 10 degrees -----" << endl;
+    cout << "------ Rotate barycentric LAN by 10 degrees -----" << endl;
+    // Get barycentric elements for this state:
+    qb = getElements(s);
     spinIt(s,10.*DEGREE);
     double oldLAN = qb[Elements::LAN];
-    qb = getElements(s, true);
+    qb = getElements(s);
     printElements(qb);
     double diff = qb[Elements::LAN] - oldLAN - 10*DEGREE;
     if (diff > PI) diff -= 2*PI; // Correct any wraps
