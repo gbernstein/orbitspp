@@ -60,7 +60,7 @@ Trajectory::Trajectory (const Ephemeris& ephem_,
     vnext_fwd = v0 + 0.5*dv;
     vnext_bwd = v0 - 0.5*dv;
     vfwd.push_back(v0*dt);
-    vbwd.push_back(v0*dt);
+    vbwd.push_back(-v0*dt);
     afwd.push_back(dv*0.5*dt);
     abwd.push_back(dv*0.5*dt);
   }
@@ -142,12 +142,14 @@ Trajectory::position(const linalg::Vector<double>& tdb,
       if (tstep[i]<0.) {
 	// Use backward integration
 	out.col(i) = xbwd[i0] + f[i]*(vbwd[i0] + f[i]*abwd[i0]);
+	//**/cerr << "tstep " << i << " bwd " << i0 << " f " << f[i] << " vbwd " << vbwd[i0] << endl;
 	if (velocity)
 	  // Negate the velocity because LUT is function of (-t)
 	  velocity->col(i) = -(vbwd[i0] + (2.*f[i])*abwd[i0]);
       } else {
 	// Use forward integration
 	out.col(i) = xfwd[i0] + f[i]*(vfwd[i0] + f[i]*afwd[i0]);
+	//**/cerr << "tstep " << i << " fwd " << i0 << " f " << f[i] << " vfwd " << vfwd[i0] << endl;
 	if (velocity)
 	  velocity->col(i) = vfwd[i0] + (2.*f[i])*afwd[i0];
       } 
