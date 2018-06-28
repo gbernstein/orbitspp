@@ -221,19 +221,22 @@ Fitter::calculateGravity() {
   fullTrajectory = new Trajectory(eph, s0, grav);
   
   astrometry::DMatrix xyz = fullTrajectory->position(tdbEmit);
+
   // Convert back to Fitter reference frame and subtract inertial motion
   // Note Frame and Trajectory use 3 x n, we are using n x 3 here.
   xGrav = f.fromICRS(xyz).transpose() - abg.getXYZ(tEmit);
-  /**{
+  if (false) /**/{
+    astrometry::DMatrix x1 = f.fromICRS(xyz).transpose();
+    astrometry::DMatrix x2 = abg.getXYZ(tEmit);
     stringstuff::StreamSaver ss(cerr);
     cerr << std::fixed << std::showpos << std::setprecision(4);
-    for (int i=0; i<xGrav.rows(); i++)
-      cerr << i << " " << tEmit[i]
-	   << " " << xE(i,0) << " " << xE(i,1) << " " << xE(i,2)
-	   << " " << xGrav(i,0) << " " << xGrav(i,1) << " " << xGrav(i,2)
-	   << endl;
-    cerr << "Done" << endl;
+    for (int i=0; i<xGrav.rows(); i++) {
+      cerr << i << ": " << tEmit[i] << endl;
+      cerr << " " << x1(i,0) << " " << x1(i,1) << " " << x1(i,2) << endl;
+      cerr << " " << x2(i,0) << " " << x2(i,1) << " " << x2(i,2) << endl;
+      cerr << " " << xGrav(i,0) << " " << xGrav(i,1) << " " << xGrav(i,2) << endl;
     } /**/
+  }
   return;
 }
 
@@ -270,13 +273,15 @@ Fitter::calculateChisqDerivatives() {
   // Add derivatives from binding prior - crude one
   // which pushes to v=0, plunging perihelion.
   if (bindingConstraintFactor > 0.) {
-    double w = bindingConstraintFactor / (2. * GM * pow(abg[ABG::G],3.));
+    // Do not allow negative chisq:
+    /**/ double dampFactor = 0.5;
+    double w = bindingConstraintFactor / (2. * GM * pow(abs(abg[ABG::G]),3.));
     chisq += w * (abg[ABG::ADOT] * abg[ABG::ADOT]
 		  + abg[ABG::BDOT] * abg[ABG::BDOT]
 		  + abg[ABG::GDOT] * abg[ABG::GDOT]);
-    b[ABG::ADOT] += -w * abg[ABG::ADOT];
-    b[ABG::BDOT] += -w * abg[ABG::BDOT];
-    b[ABG::GDOT] += -w * abg[ABG::GDOT];
+    b[ABG::ADOT] += -w * abg[ABG::ADOT] * dampFactor;
+    b[ABG::BDOT] += -w * abg[ABG::BDOT] * dampFactor;
+    b[ABG::GDOT] += -w * abg[ABG::GDOT] * dampFactor; //****!!
     A(ABG::ADOT,ABG::ADOT) += w;
     A(ABG::BDOT,ABG::BDOT) += w;
     A(ABG::GDOT,ABG::GDOT) += w;
@@ -305,7 +310,7 @@ Fitter::setLinearOrbit() {
 }
 
 void
-Fitter::newtonFit(double chisqTolerance) {
+Fitter::newtonFit(double chisqTolerance, bool dump) {
   // Assuming that we are coming into this with a good starting point
   iterateTimeDelay();
   calculateGravity();
@@ -321,8 +326,8 @@ Fitter::newtonFit(double chisqTolerance) {
     // Solve (check degeneracies??)
     auto llt = A.llt();
     abg += llt.solve(b);
-    /**/{
-      /**/cerr << "Iteration " << iterations <<endl;
+    if (dump) {
+      cerr << "Iteration " << iterations <<endl;
       auto dd = llt.solve(b);
       cerr << " change: ";
       write6(dd,cerr);
@@ -331,7 +336,7 @@ Fitter::newtonFit(double chisqTolerance) {
     }
     calculateOrbitDerivatives();
     calculateChisqDerivatives();
-    /**/cerr << endl << " New chisq: " << chisq << endl;
+    if (dump) cerr << endl << " New chisq: " << chisq << endl;
     iterations++;
   } while (iterations < MAX_ITERATIONS && abs(chisq-oldChisq) > chisqTolerance);
   if (iterations >= MAX_ITERATIONS)
@@ -348,8 +353,8 @@ Fitter::newtonFit(double chisqTolerance) {
     // Solve (check degeneracies??)
     auto llt = A.llt();
     abg += llt.solve(b);
-    /**/{
-      /**/cerr << "Gravity iteration " << iterations <<endl;
+    if (dump) {
+      cerr << "Gravity iteration " << iterations <<endl;
       auto dd = llt.solve(b);
       cerr << " change: ";
       write6(dd,cerr);
@@ -361,7 +366,7 @@ Fitter::newtonFit(double chisqTolerance) {
     calculateGravity();
     calculateOrbitDerivatives();
     calculateChisqDerivatives();
-    /**/cerr << endl << " New chisq: " << chisq << endl;
+    if (dump) cerr << endl << " New chisq: " << chisq << endl;
     iterations++;
   } while (iterations < MAX_ITERATIONS && abs(chisq-oldChisq) > chisqTolerance);
   if (iterations >= MAX_ITERATIONS)

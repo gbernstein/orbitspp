@@ -25,6 +25,14 @@ namespace orbits {
     // Ingest a sequence of MPC-style observations from stream
     void readMPCObservations(istream& is);
 
+    // Add an Observation
+    void addObservation(const Observation& obs) {
+      observations.push_back(obs);
+    }
+
+    // Number of observations
+    int nObservations() const {return observations.size();}
+
     // Set reference frame to the one given, put observations into this frame
     void setFrame(const Frame& f_);
     const Frame& getFrame() const {return f;}
@@ -51,7 +59,7 @@ namespace orbits {
       bindingConstraintFactor = f;
     }
 
-    void newtonFit(double chisqTolerance=0.01);
+    void newtonFit(double chisqTolerance=0.01, bool dump=false);
 
     // Print residuals (in arcsec) and chisq contributions per point
     void printResiduals(std::ostream& os) const;
