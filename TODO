@@ -4,11 +4,11 @@ To do on the orbit-fitting software:
 * Spawn new Fitter that's updated with a new observation.
 * start putting in OpenMP guards for multithreading: Ephemeris and Trajectory have internal states.
 Fitter should be single-threaded too, make new Fitters for different threads if re-fitting.
-* E covariances disagree with old code for qb1.
 * Prediction code for list of times
 * Get rid of need for YAML code to compile orbits (i.e. optional for Astrometry)
 * Get rid of old astrometry/Ephemeris
 * test programs for ephemeris
+* Makefile should work without FITSIO info.
 
 ---old todo's:
 hard-wired things that should be configurable:
