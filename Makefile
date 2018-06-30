@@ -57,9 +57,27 @@ else
 $(error Require YAML_DIR in environment)
 endif
 
+ifdef CFITSIO_DIR
+INCLUDES += -I $(CFITSIO_DIR)/include
+LIBS += -L $(CFITSIO_DIR)/lib -lcfitsio
+else
+$(error Require CFITSIO_DIR in environment)
+endif
+
+ifdef GBFITS_DIR
+INCLUDES += -I $(GBFITS_DIR)
+EXTDIRS += $(GBFITS_DIR)
+else
+$(error Require GBFITS_DIR in environment)
+endif
+
 # Object files found in external packages:
 EXTOBJS =$(GBUTIL_OBJ)/StringStuff.o $(GBUTIL_OBJ)/Table.o $(GBUTIL_OBJ)/Pset.o \
-	$(ASTROMETRY_OBJ)/Astrometry.o 
+	$(GBUTIL_OBJ)/Expressions.o \
+	$(ASTROMETRY_OBJ)/Astrometry.o \
+	$(GBFITS_DIR)/FITS.o $(GBFITS_DIR)/Header.o $(GBFITS_DIR)/Hdu.o $(GBFITS_DIR)/FitsTable.o \
+	$(GBFITS_DIR)/FTable.o $(GBFITS_DIR)/FTableExpression.o \
+	$(GBFITS_DIR)/Image.o $(GBFITS_DIR)/FitsImage.o
 
 ##### 
 BINDIR = bin

@@ -274,14 +274,15 @@ Fitter::calculateChisqDerivatives() {
   // which pushes to v=0, plunging perihelion.
   if (bindingConstraintFactor > 0.) {
     // Do not allow negative chisq:
-    /**/ double dampFactor = 0.5;
     double w = bindingConstraintFactor / (2. * GM * pow(abs(abg[ABG::G]),3.));
     chisq += w * (abg[ABG::ADOT] * abg[ABG::ADOT]
 		  + abg[ABG::BDOT] * abg[ABG::BDOT]
 		  + abg[ABG::GDOT] * abg[ABG::GDOT]);
+    double dampFactor = 0.5; // This adjustment prevents the solution from oscillating
+    // due to the energy constraint.
     b[ABG::ADOT] += -w * abg[ABG::ADOT] * dampFactor;
     b[ABG::BDOT] += -w * abg[ABG::BDOT] * dampFactor;
-    b[ABG::GDOT] += -w * abg[ABG::GDOT] * dampFactor; //****!!
+    b[ABG::GDOT] += -w * abg[ABG::GDOT] * dampFactor;
     A(ABG::ADOT,ABG::ADOT) += w;
     A(ABG::BDOT,ABG::BDOT) += w;
     A(ABG::GDOT,ABG::GDOT) += w;
