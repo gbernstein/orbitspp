@@ -116,7 +116,7 @@ namespace orbits {
 
     // Transform positions, or a 3xN array of positions,
     // to or from this Frame from or to ICRS.
-    // isVelocity=true will 
+    // isVelocity=true will skip translation of origin
     astrometry::Vector3 toICRS(const astrometry::Vector3& x,
 			       bool isVelocity=false) const;
     astrometry::Vector3 fromICRS(const astrometry::Vector3& x,
