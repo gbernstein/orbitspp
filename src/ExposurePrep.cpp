@@ -50,7 +50,17 @@ main(int argc, char *argv[]) {
     columnsToKeep.push_back("cov");
     columnsToKeep.push_back("covwarn");
     
-    exposureTable = ff.extract(0,-1, columnsToKeep);
+    auto tmp = ff.extract(0,-1, columnsToKeep);
+    // Keep only the first entry for each expnum
+    std::vector<bool> keep(tmp.nrows(), false);
+    std::vector<int> expnum;
+    tmp.readCells(expnum,"expnum");
+    
+    keep[0] = true;
+    for (int i=1; i<keep.size(); i++)
+      keep[i] = expnum[i]!=expnum[i-1];
+    exposureTable = tmp.extractRows(keep);
+    
   } catch (std::runtime_error& m) {
     cerr << "Error reading exposure table" << endl;
     quit(m);

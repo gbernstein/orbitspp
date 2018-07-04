@@ -5,13 +5,13 @@
 using namespace orbits;
 
 std::vector<Exposure>
-selectExposures(const Frame& frame,   // Starting coordinates, time
-		const Ephemeris& ephem,  
-		double gamma0,        // Center and width of range 
-		double dGamma,        // of gamma to cover
-		double searchRadius,  // Range of starting coords to cover
-		string exposureFile,
-		double fieldRadius) { // Circumscribed field radius (degrees)
+orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
+			const Ephemeris& ephem,  
+			double gamma0,        // Center and width of range 
+			double dGamma,        // of gamma to cover
+			double searchRadius,  // Range of starting coords to cover
+			string exposureFile,
+			double fieldRadius) { 
 
 
   std::vector<Exposure> out;  // This will be the returned array

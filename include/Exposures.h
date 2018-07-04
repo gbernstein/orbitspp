@@ -29,7 +29,7 @@ namespace orbits {
 		  double gamma0,        // Center and width of range 
 		  double dGamma,        // of gamma to cover
 		  double searchRadius,  // Range of starting coords to cover
-		  string exposureFile="y4a1.exposure.positions.fits",  // File of exposure data
+		  string exposureFile="data/y4a1.exposure.positions.fits",  // File of exposure data
 		  double fieldRadius = 1.1); // Circumscribed field radius (degrees)
   // ?? Allow exclusion of filters??
   // ?? Add CCD corners, detections ??
