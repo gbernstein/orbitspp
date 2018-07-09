@@ -9,6 +9,10 @@
 
 # MKL_DIR (optional, used with Eigen)
 
+# orbits code is NOT being written to support TMV linear algebra.
+# So make sure not to use it.
+unexport TMV_DIR
+
 INCLUDES := 
 
 LIBS := -lm

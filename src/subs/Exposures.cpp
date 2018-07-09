@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "Exposures.h"
 #include "FitsTable.h"
 #include "Trajectory.h"
@@ -121,4 +122,104 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
   }
 
   return out;
+}
+
+////////////////////////////////////////////////////////////////////////
+/* kD-tree nodes */
+////////////////////////////////////////////////////////////////////////
+
+// Tree-wide static variables:
+double
+Node::speed;
+
+double
+Node::fieldRadius;
+
+Node::Node(dataIter _begin, dataIter _end): begin(_begin), end(_end),
+					    left(nullptr), right(nullptr),
+					    splitOn(TIME)
+{
+  // Determine bounds of member exposures
+  lower = (*begin)->axis;
+  upper = (*begin)->axis;
+  tStart = (*begin)->tdb; // ??? reference to tdb0??
+  auto last = end;
+  --last;
+  tStop = (*end)->tdb; // ??? assumes buffer is time-ordered
+  for (auto i=begin; i!=end; ++i) {
+    lower[0] = min(lower[0], (*i)->axis[0]);
+    upper[0] = max(upper[0], (*i)->axis[0]);
+    lower[1] = min(lower[1], (*i)->axis[1]);
+    upper[1] = max(upper[1], (*i)->axis[1]);
+  }
+}
+
+// Unary predicates for partitioning the exposures
+class TimeSplit {
+public:
+  TimeSplit(double value_): value(value_) {}
+  bool operator()(const Exposure* exptr) const {
+    return exptr->tdb < value;
+  }
+private:
+  double value;
+};
+class XSplit {
+public:
+  XSplit(double value_): value(value_) {}
+  bool operator()(const Exposure* exptr) const {
+    return exptr->axis[0] < value;
+  }
+private:
+  double value;
+};
+class YSplit {
+public:
+  YSplit(double value_): value(value_) {}
+  bool operator()(const Exposure* exptr) const {
+    return exptr->axis[1] < value;
+  }
+private:
+  double value;
+};
+
+void
+Node::split() {
+  // Find largest dimension
+  double dx = upper[0] - lower[0];
+  double dy = upper[1] - lower[1];
+  double dt = (tStop-tStart)*speed;
+  double splittingThreshold = 0.5 * fieldRadius;
+  if (dx < splittingThreshold
+      && dy < splittingThreshold
+      && dt < splittingThreshold)
+    return; // No need for further splits; leaf node.
+  
+  // Now split, including stable partition of parent array such
+  // that leaf nodes remain in time order.
+  if (dt > dx && dt > dy) {
+    splitOn = TIME;
+    splitValue = 0.5*(tStart + tStop);
+    TimeSplit splitter(splitValue);
+    auto mid = stable_partition(begin, end, splitter);
+    left = new Node(begin,mid);
+    right = new Node(mid, end);
+  } else if (dx > dy) {
+    splitOn = X;
+    splitValue = 0.5*(lower[0]+upper[0]);
+    XSplit splitter(splitValue);
+    auto mid = stable_partition(begin, end, splitter);
+    left = new Node(begin,mid);
+    right = new Node(mid, end);
+  } else {
+    splitOn = Y;
+    splitValue = 0.5*(lower[1]+upper[1]);
+    YSplit splitter(splitValue);
+    auto mid = stable_partition(begin, end, splitter);
+    left = new Node(begin,mid);
+    right = new Node(mid, end);
+  }
+  // Recursive split of children
+  left->split();
+  right->split();
 }
