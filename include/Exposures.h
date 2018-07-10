@@ -56,10 +56,9 @@ namespace orbits {
     dataIter end;
     Node* left;	// Children (nullptrs if leaf node)
     Node* right;
-    Point lower;  // Corners of the node
-    Point upper;
     double tStart;  // Time (relative to reference frame tdb0) of
     double tStop;   // first and last exposure in set
+    DMatrix corners;  // Node bounding box, 4x2 matrix with (LL, LU, UU, UL) in rows.
 
     Coordinate splitOn;  // Which coordinate does the split happen on?
     double splitValue;   // Value for split
