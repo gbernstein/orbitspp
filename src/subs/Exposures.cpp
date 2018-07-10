@@ -146,21 +146,29 @@ Node::Node(dataIter _begin, dataIter _end,
 				left(nullptr), right(nullptr),
 				splitOn(TIME),
 				tobs(3,0.),
-				earth(3,3,0.)
+				earth(3,3,0.),
+				corners(4,2,0.)
 {
-  // Determine bounds of member exposures
-  lower = (*begin)->axis;
-  upper = (*begin)->axis;
-  tStart = (*begin)->tdb; // ??? reference to tdb0??
+  // Determine bounds of member exposures.
+  // Rows 0 and 2 of corners are lower and upper bounds
+  corners.row(0) = (*begin)->axis.transpose();
+  corners.row(2) = (*begin)->axis.transpose();
+  tStart = (*begin)->tobs;
   auto last = end;
   --last;
-  tStop = (*end)->tdb; // ??? assumes buffer is time-ordered
+  tStop = (*end)->tobs;  // Time ordering assumed.
   for (auto i=begin; i!=end; ++i) {
-    lower[0] = min(lower[0], (*i)->axis[0]);
-    upper[0] = max(upper[0], (*i)->axis[0]);
-    lower[1] = min(lower[1], (*i)->axis[1]);
-    upper[1] = max(upper[1], (*i)->axis[1]);
+    corners(0,0) = min(corners(0,0), (*i)->axis[0]);
+    corners(2,0) = max(corners(2,0), (*i)->axis[0]);
+    corners(0,1) = min(corners(0,1), (*i)->axis[1]);
+    corners(2,1) = max(corners(2,1), (*i)->axis[1]);
   }
+  // Make the other two corners:
+  corners(1,0) = corners(0,0);
+  corners(1,1) = corners(2,1);
+  corners(3,0) = corners(2,0);
+  corners(3,1) = corners(0,1);
+  
   // Set up the start/middle/end observing times and locations
   tobs[0] = tStart;
   tobs[1] = 0.5*(tStart+tStop);
@@ -208,8 +216,8 @@ void
 Node::split(const Ephemeris& ephem,
 	    const Frame& frame) {
   // Find largest dimension
-  double dx = upper[0] - lower[0];
-  double dy = upper[1] - lower[1];
+  double dx = corners(2,0)-corners(0,0);
+  double dy = corners(2,1)-corners(0,1);
   double dt = (tStop-tStart)*speed;
   double splittingThreshold = 0.5 * fieldRadius;
   if (dx < splittingThreshold
@@ -227,12 +235,12 @@ Node::split(const Ephemeris& ephem,
     mid = stable_partition(begin, end, splitter);
   } else if (dx > dy) {
     splitOn = X;
-    splitValue = 0.5*(lower[0]+upper[0]);
+    splitValue = 0.5*(corners(0,0)+corners(2,0));
     XSplit splitter(splitValue);
     mid = stable_partition(begin, end, splitter);
   } else {
     splitOn = Y;
-    splitValue = 0.5*(lower[1]+upper[1]);
+    splitValue = 0.5*(corners(0,1)+corners(2,1));
     YSplit splitter(splitValue);
     mid = stable_partition(begin, end, splitter);
   }
@@ -250,7 +258,7 @@ Node::find(const Fitter& path) const {
   path.predict(tobs, earth, &x, &y, &covxx, &covyy, &covxy);
 
   // Turn these into a center and radius for search.
-  Vector2 ctr;
+  Point ctr;
   Vector2 motion;
   // Model motion as a quadratic, [xy] = a + bt + ct^2,
   // where t goes from -1 to +1 over time interval
@@ -306,14 +314,29 @@ Node::find(const Fitter& path) const {
   ctr /= DEGREE; 
 
   list<const Exposure*> out;
-  // If no spatial intersection:
-  return out;
+  // If no spatial intersection: (ignoring curved boundaries at corners)
+  if (ctr[0] >= corners(2,0) + matchRadius ||
+      ctr[0] <= corners(0,0) - matchRadius ||
+      ctr[1] >= corners(2,1) + matchRadius ||
+      ctr[1] <= corners(0,1) - matchRadius) {
+    // No intersection, return empty list
+    return out;
+  }
 
-  // If this is a leaf node, return everything as a possibility
+  if (!left) {
+    // If this is a leaf node, return everything as a possibility
+    out.insert(out.end(), begin, end);
+    return out;
+  }
 
-  // If Node is entirely contained in search, return everything
-
-  // If partial coverage, descend tree
+  // If Node is entirely contained in search - check all 4 corners
+  if ( (ctr.distanceSq(corners).array() < (matchRadius*matchRadius)).all()) {
+    // Return all exposures
+    out.insert(out.end(), begin, end);
+    return out;
+  }
+    
+  // If Node is only partially in search region
   out = left->find(path);
   out.splice(out.end(),right->find(path));
 
