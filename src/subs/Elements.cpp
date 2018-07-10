@@ -370,7 +370,7 @@ namespace orbits {
     
     // Rotate into ecliptic system
     CartesianEcliptic ecliptic;
-    astrometry::Matrix33 icrs2ecliptic;
+    Matrix33 icrs2ecliptic;
     ecliptic.convertFrom(s.x, icrs2ecliptic);
     VectorDerivative x;
     x.v = ecliptic.getVector();

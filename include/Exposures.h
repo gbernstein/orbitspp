@@ -16,12 +16,13 @@ namespace orbits {
     double mjd;
     double tdb;
     double tobs;  // Time relative to Frame tdb0
-    astrometry::Vector3 earth;  // Observatory position in Frame
+    Vector3 earth;  // Observatory position in Frame
     Point axis;   // Optical axis coords, in Frame gnomonic, degrees
 
     double detectionDensity; // Density of transients, per sq degree
 
     // ??? Add per-CCD info on boundaries, detection lists.
+    EIGEN_NEW;
   };
 
   class Node {
@@ -74,6 +75,7 @@ namespace orbits {
 	       const Frame& frame);
     // Split all the way down to leaves
 
+    EIGEN_NEW
   };
   
   extern

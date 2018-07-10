@@ -234,11 +234,11 @@ main(int argc,
     // This integration with dt = 1 day should be good to about 1 km
     // over the 16-yr integration above.
     const double tolerance = 3e3 * METER; 
-    linalg::Vector<double> future(mjd.size());
+    orbits::DVector future(mjd.size());
     for (int i=0; i<future.size(); i++)
       future[i] = (mjd[i] - JD2000)*DAY;
 
-    linalg::DMatrix velocity;
+    orbits::DMatrix velocity;
     auto m = qb.position(future, &velocity);
     for (int i=0; i<future.size(); i++) {
       cout << std::fixed << std::setprecision(3) << std::setw(8) << future[i] - s.tdb

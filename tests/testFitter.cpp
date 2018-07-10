@@ -21,7 +21,7 @@ int main(int argc,
     fit.readMPCObservations(ifs);
     ifs.close();
 
-    //**fit.chooseFrame(-1);
+    fit.chooseFrame(-1);
     //**fit.chooseFrame(0);
     /**{
       string line = "56877.1624158 -3:03:03.9501 -41:23:03.0142 0.1 807";
@@ -36,26 +36,26 @@ int main(int argc,
 
     fit.setLinearOrbit();
     cerr << "First ABG:";
-    fit.abg.writeTo(cerr);
-    cerr << "distance: " << 1./fit.abg[ABG::G] << endl;
+    fit.getABG(true).writeTo(cerr);
+    cerr << "distance: " << 1./fit.getABG(true)[ABG::G] << endl;
 
     /** {
-      fit.abg[0] = -0.0125341;
-      fit.abg[1] = 0.0131069;
-      fit.abg[2] = 0.0276466;
-      fit.abg[3] = 0.0209088;
-      fit.abg[4] = -0.0218552;
-      fit.abg[5] = 0.00432035;
+      fit.getABG(true)[0] = -0.0125341;
+      fit.getABG(true)[1] = 0.0131069;
+      fit.getABG(true)[2] = 0.0276466;
+      fit.getABG(true)[3] = 0.0209088;
+      fit.getABG(true)[4] = -0.0218552;
+      fit.getABG(true)[5] = 0.00432035;
       cerr << "Fake ABG:";
-      fit.abg.writeTo(cerr);
+      fit.getABG().writeTo(cerr);
   } /**/
     
     fit.newtonFit();
     fit.printResiduals(cerr);
     cerr << "Final ABG:\n";
-    fit.abg.writeTo(cerr);
+    fit.getABG().writeTo(cerr);
     cerr << endl << "Chisq: " << fit.getChisq() << endl;
-    cerr << "distance: " << 1./fit.abg[ABG::G] << endl;
+    cerr << "distance: " << 1./fit.getABG()[ABG::G] << endl;
     fit.printCovariance(cerr);
     cerr << endl;
 

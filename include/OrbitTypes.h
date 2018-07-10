@@ -9,8 +9,18 @@
 
 namespace orbits {
 
+  // Bring standard vectors, matrices into namespace
+  typedef linalg::SVector<double,2> Vector2;
+  typedef linalg::SVector<double,3> Vector3;
   typedef linalg::SVector<double,6> Vector6;
+  typedef linalg::SMatrix<double,2,2> Matrix22;
+  typedef linalg::SMatrix<double,3,3> Matrix33;
   typedef linalg::SMatrix<double,6,6> Matrix66;
+  typedef linalg::Vector<double> DVector;
+  typedef linalg::Vector<bool> BVector;
+  typedef linalg::Matrix<double> DMatrix;
+
+  // ??? Introduce half-dynamic MatrixN2, MatrixN3?
   
   class State {
     /* State vector for solar system body */
@@ -42,8 +52,8 @@ namespace orbits {
     ABG(): Base(0.) { (*this)[G]=0.03;}
 
     void getState(double t,
-		  astrometry::Vector3& x,
-		  astrometry::Vector3& v) const {
+		  Vector3& x,
+		  Vector3& v) const {
       // Calculate state vector in reference system at given time for inertial motion
       x[0] = (*this)[ADOT]*t + (*this)[A];
       x[1] = (*this)[BDOT]*t + (*this)[B];
@@ -59,7 +69,7 @@ namespace orbits {
     // Return d(state vector) / d (ABG)
     // State is in reference system, at reference epoch
 
-    astrometry::DMatrix getXYZ(const astrometry::DVector& t) const;
+    DMatrix getXYZ(const DVector& t) const;
     // Calculate inertial XYZ positions at an array of times, return n x 3 matrix
 
     void writeTo(std::ostream& os, int precision=6) const;
@@ -83,7 +93,7 @@ namespace orbits {
     Observation() {}
     astrometry::SphericalICRS radec;
     double tdb;  //  TDB of observation, referenced to J2000
-    astrometry::Matrix22 cov; // RA/Dec error covariance matrix, radians
+    Matrix22 cov; // RA/Dec error covariance matrix, radians
     astrometry::CartesianICRS observer;  // ICRS barycentric position of observer
   };
     
@@ -117,14 +127,14 @@ namespace orbits {
     // Transform positions, or a 3xN array of positions,
     // to or from this Frame from or to ICRS.
     // isVelocity=true will skip translation of origin
-    astrometry::Vector3 toICRS(const astrometry::Vector3& x,
-			       bool isVelocity=false) const;
-    astrometry::Vector3 fromICRS(const astrometry::Vector3& x,
-			       bool isVelocity=false) const;
-    astrometry::DMatrix toICRS(const astrometry::DMatrix& x,
-			       bool isVelocity=false) const;
-    astrometry::DMatrix fromICRS(const astrometry::DMatrix& x,
-			       bool isVelocity=false) const;
+    Vector3 toICRS(const Vector3& x,
+		   bool isVelocity=false) const;
+    Vector3 fromICRS(const Vector3& x,
+		     bool isVelocity=false) const;
+    DMatrix toICRS(const DMatrix& x,
+		  bool isVelocity=false) const;
+    DMatrix fromICRS(const DMatrix& x,
+		    bool isVelocity=false) const;
   };
 
 } // end namespace orbits

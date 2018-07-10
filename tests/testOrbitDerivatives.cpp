@@ -5,7 +5,6 @@
 #include "AstronomicalConstants.h"
 
 using namespace orbits;
-using astrometry::Vector3;
 
 const double tdb0 = 1.5;  // Epoch for orbit
 
@@ -93,7 +92,7 @@ int main(int argc,
   Matrix66 dSdABG;
   
   // Analytic:
-  astrometry::DMatrix tmp = dSdABG_frame.subMatrix(0,3,0,6);
+  DMatrix tmp = dSdABG_frame.subMatrix(0,3,0,6);
   dSdABG.subMatrix(0,3,0,6) = f.toICRS(tmp , true);
   tmp = dSdABG_frame.subMatrix(3,6,0,6);
   dSdABG.subMatrix(3,6,0,6) = f.toICRS(tmp, true);
@@ -112,8 +111,8 @@ int main(int argc,
   /**/cerr << "--Numeric: " << endl << numeric << endl;
 
   // Then include orbital element derivatives
-  astrometry::Vector3 x0;
-  astrometry::Vector3 v0;
+  Vector3 x0;
+  Vector3 v0;
   abg.getState(0.,x0,v0);
   State s;
   s.x = astrometry::CartesianICRS(f.toICRS(x0));
@@ -138,14 +137,14 @@ int main(int argc,
   }
   /**/cerr << "--Numeric: " << endl << numeric << endl;
 
-  // A cross check:
+  // A cross check, using a= (2/r - v^2/GM)^{-1}
   Elements el = getElements(s);
   Vector3 x = s.x.getVector();
   double r = sqrt(x.dot(x));
   Vector6 dads;
   dads.subVector(0,3) = 2. * pow(el[Elements::A],2.) * pow(r,-3.) * s.x.getVector();
-  dads.subVector(3,6) = (-2. * pow(el[Elements::A],2.) / GM)* s.v.getVector();
-  /**/cerr << "dads: " << endl << dads << endl;
-  /**/cerr << "dadABG: "  << endl<< dads.transpose() * dSdABG << endl;
+  dads.subVector(3,6) = (2. * pow(el[Elements::A],2.) / GM)* s.v.getVector();
+  //**/cerr << "dads: " << endl << dads << endl;
+  /**/cerr << "dadABG (should match first row above): "  << endl<< dads.transpose() * dSdABG << endl;
   exit(0);
 }

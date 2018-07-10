@@ -101,10 +101,10 @@ Trajectory::span(double tdb) const {
   }
 }
 		      
-linalg::Matrix<double>
-Trajectory::position(const linalg::Vector<double>& tdb,
-		     linalg::Matrix<double>* velocity) const {
-  linalg::Matrix<double> out(3,tdb.size());
+DMatrix
+Trajectory::position(const DVector& tdb,
+		     DMatrix* velocity) const {
+  DMatrix out(3,tdb.size());
   if (velocity)
     velocity->resize(3,tdb.size());
   if (tdb.size()==0) return out;
@@ -132,10 +132,10 @@ Trajectory::position(const linalg::Vector<double>& tdb,
     span(tdb.maxCoeff());
 
     // Interpolate all positions, backward ones first
-    linalg::Vector<double> tstep = (tdb.array()-tdb0)/dt;
+    DVector tstep = (tdb.array()-tdb0)/dt;
     auto tabs = tstep.cwiseAbs();
-    linalg::Vector<double> istep = tabs.array().floor(); // Integer and fraction parts of |tstep|
-    linalg::Vector<double> f = tabs - istep;  
+    DVector istep = tabs.array().floor(); // Integer and fraction parts of |tstep|
+    DVector f = tabs - istep;  
     int i;
     for (i=0 ; i<tstep.size(); i++) {
       int i0 = static_cast<int> (istep[i]); // Index of time step nearer 0
@@ -162,9 +162,9 @@ Trajectory::position(const linalg::Vector<double>& tdb,
 astrometry::CartesianICRS
 Trajectory::position(double tdb,
 		     astrometry::CartesianICRS* velocity) const {
-  linalg::Vector<double> tvec(1,tdb);
+  DVector tvec(1,tdb);
   if (velocity) {
-    linalg::Matrix<double> vmat(3,1);
+    DMatrix vmat(3,1);
     auto m = position(tvec, &vmat);
     *velocity = CartesianICRS(vmat(0,0), vmat(1,0), vmat(2,0));
     return CartesianICRS(m(0,0), m(1,0), m(2,0));
@@ -174,7 +174,7 @@ Trajectory::position(double tdb,
   }
 }
 
-astrometry::Vector3
+Vector3
 Trajectory::deltaV(const Vector3& x, double tdb) const {
   Vector3 out(0.);
   if (grav==INERTIAL) {
@@ -190,7 +190,7 @@ Trajectory::deltaV(const Vector3& x, double tdb) const {
     static vector<int> bodies = {orbits::JUPITER, orbits::SATURN, orbits::URANUS,
 				 orbits::NEPTUNE, orbits::SUN};
     for (int i=0; i<bodies.size(); i++) {
-      astrometry::Vector3 dx = x - ephem.position(bodies[i], tdb).getVector();
+      Vector3 dx = x - ephem.position(bodies[i], tdb).getVector();
       out -= (gm[i] * dt * pow(dx.dot(dx), -1.5)) * dx;
     }
   }

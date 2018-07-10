@@ -105,10 +105,10 @@ main(int argc,
       }
       cout << "ID " << id
 	   << " chisq " << fit.getChisq()
-	   << " distance " << 1./fit.abg[ABG::G]
-	   << " energy " <<  (pow(fit.abg[ABG::ADOT],2.)+
-			     pow(fit.abg[ABG::BDOT],2.)+
-			      pow(fit.abg[ABG::GDOT],2.)) / (2*GM * pow(fit.abg[ABG::G],3.)) - 1
+	   << " distance " << 1./fit.getABG()[ABG::G]
+	   << " energy " <<  (pow(fit.getABG()[ABG::ADOT],2.)+
+			     pow(fit.getABG()[ABG::BDOT],2.)+
+			      pow(fit.getABG()[ABG::GDOT],2.)) / (2*GM * pow(fit.getABG()[ABG::G],3.)) - 1
 			     << endl;
       fit.printResiduals(cout);
       cout << endl;
