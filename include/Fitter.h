@@ -16,19 +16,17 @@ namespace orbits {
 
   class Fitter {
   public:
-    typedef linalg::Vector<double> Vector;
-    typedef linalg::Matrix<double> Matrix;
-
     Fitter(const Ephemeris& eph_, Gravity grav_=Gravity::GIANTS);
     // Initialize fitter with ephemeris and choice of gravity approximation
 
+    // Give Fitter a previous result (can be used for prediction without Observations)
+    void setABG(const ABG& abg_, const ABGCovar& cov_);
+    
+    // Add an Observation
+    void addObservation(const Observation& obs);
+
     // Ingest a sequence of MPC-style observations from stream
     void readMPCObservations(istream& is);
-
-    // Add an Observation
-    void addObservation(const Observation& obs) {
-      observations.push_back(obs);
-    }
 
     // Number of observations
     int nObservations() const {return observations.size();}
@@ -67,20 +65,27 @@ namespace orbits {
     void printCovariance(std::ostream& os) const;
     
     // Obtain fitting results
-    ABG abg;         // Orbit in abg basis
+    const ABG& getABG(bool invalidOK=false) const {
+      if (!abgIsValid && !invalidOK)
+	throw std::runtime_error("ERROR: Fitter::getABG is not getting converged result");
+      return abg;
+    }
     double getChisq() const {return chisq;}  // Chisq at current abg
-    Matrix getInvCovarABG() const {return A;}  // Inverse covariance of ABG from last fit
+    DMatrix getInvCovarABG() const {
+      // Inverse covariance of ABG from last fit
+      if (!abgIsValid) throw std::runtime_error("ERROR: Fitter::getInvCovarABG is not getting converged result");
+      return A;}  
     Elements getElements() const;
     Matrix66 getElementCovariance() const;
 
     // Forecast position using current fit.  Cov matrix elements given if filled:
-    void predict(const Vector& t_obs,    // Time of observations, relative to tdb0
-		 const Matrix& earth,  // Observation coordinates, in our frame
-		 Vector* xOut,         // Angular coordinates, in our frame
-		 Vector* yOut,
-		 Vector* covXX = nullptr,   // Covar matrix of coordinates
-		 Vector* covXY = nullptr,   // (not computed if nullptrs)
-		 Vector* covYY = nullptr) const;
+    void predict(const DVector& t_obs,    // Time of observations, relative to tdb0
+		 const DMatrix& earth,  // Observation coordinates, in our frame
+		 DVector* xOut,         // Angular coordinates, in our frame
+		 DVector* yOut,
+		 DVector* covXX = nullptr,   // Covar matrix of coordinates
+		 DVector* covXY = nullptr,   // (not computed if nullptrs)
+		 DVector* covYY = nullptr) const;
 		 
     
   private:
@@ -104,23 +109,26 @@ namespace orbits {
     Frame f;   // Reference frame for our coordinates
 
     // Observational information:
-    Vector tObs;  // Times of observations, in Julian years since reference time
-    Vector tEmit; // Times of light emission, in Julian years since reference time
-    Vector tdbEmit; // TDB at time of light emission per observation, years since J2000 TDB 
-    Vector thetaX; // Observed angles in our frame
-    Vector thetaY; // Observed angles in our frame
-    Vector invcovXX; // Inverse cov matrix of observations
-    Vector invcovXY; 
-    Vector invcovYY;
-    Matrix xE;    // Earth positions in our ref frame
+    DVector tObs;  // Times of observations, in Julian years since reference time
+    DVector tEmit; // Times of light emission, in Julian years since reference time
+    DVector tdbEmit; // TDB at time of light emission per observation, years since J2000 TDB 
+    DVector thetaX; // Observed angles in our frame
+    DVector thetaY; // Observed angles in our frame
+    DVector invcovXX; // Inverse cov matrix of observations
+    DVector invcovXY; 
+    DVector invcovYY;
+    DMatrix xE;    // Earth positions in our ref frame
 
     // Model/fitting information:
     Trajectory* fullTrajectory;
-    Vector thetaXModel;  // Positions predicted by current ABG
-    Vector thetaYModel;  // Positions predicted by current ABG
-    Matrix xGrav; // Gravitational component of motion in our frame
-    Matrix dThetaXdABG;  // Derivatives of x position wrt abg
-    Matrix dThetaYdABG;  // Derivatives of y position wrt abg
+    DVector thetaXModel;  // Positions predicted by current ABG
+    DVector thetaYModel;  // Positions predicted by current ABG
+    DMatrix xGrav; // Gravitational component of motion in our frame
+    DMatrix dThetaXdABG;  // Derivatives of x position wrt abg
+    DMatrix dThetaYdABG;  // Derivatives of y position wrt abg
+
+    // Fitting results
+    ABG abg;         // Orbit in abg basis
     double chisq;  // Chisq at current abg
     Vector6 b;  // -1/2 d(chisq)/d(abg)
     Matrix66 A; // 1/2 d^2(chisq)/d(abg)^2
@@ -130,6 +138,10 @@ namespace orbits {
     double bindingConstraintFactor;  // Chisq penalty for marginally unbound orbit
     double gamma0;	// Nominal gamma and uncertainty when using gamma prior
     double gammaPriorSigma;
+
+    // Some state indicators
+    bool frameIsSet; // The reference frame has been set.
+    bool abgIsValid; // The ABG is a solution to observations and its (inv) covariance A is valid.
   };
 } // namespace orbits
 #endif

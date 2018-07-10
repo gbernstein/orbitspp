@@ -25,11 +25,29 @@ Fitter::Fitter(const Ephemeris& eph_,
 			       fullTrajectory(nullptr),
 			       grav(grav_),
 			       bindingConstraintFactor(0.),
-			       gammaPriorSigma(0.) {} /*,
-			       b(6),
-			       A(6,6) {}*/
+			       gammaPriorSigma(0.),
+			       frameIsSet(false),
+			       abgIsValid(false) {} 
+
+void
+Fitter::setABG(const ABG& abg_, const ABGCovar& cov_) {
+  if (!frameIsSet)
+    throw std::runtime_error("ERROR: Fitter::setABG called before setFrame");
+  abg = abg_;
+  A = cov_.inverse();
+  abgIsValid = true;
+}
+void
+Fitter::addObservation(const Observation& obs) {
+  if (frameIsSet)
+    throw std::runtime_error("ERROR: Fitter::addObservations called after setFrame");
+      observations.push_back(obs);
+}
+
 void
 Fitter::readMPCObservations(istream& is) {
+  if (frameIsSet)
+    throw std::runtime_error("ERROR: Fitter::readMPCObservations called after setFrame");
   string line;
   while (stringstuff::getlineNoComment(is, line)) {
     auto obs = mpc2Observation(MPCObservation(line),eph);
@@ -47,7 +65,11 @@ observationTimeOrder(const Observation& m1,
 
 void
 Fitter::setFrame(const Frame& f_) {
+  if (frameIsSet)
+    throw std::runtime_error("ERROR: Fitter::setFrame called after already set");
   f = f_;
+  frameIsSet = true;
+  abgIsValid = false;
   // Recalculate all coordinates in this frame;
   int n = observations.size();
   // Put observations into time order.
@@ -77,7 +99,7 @@ Fitter::setFrame(const Frame& f_) {
     tdbEmit[i] = obs.tdb;
     
     // Convert angles to our frame and get local partials for covariance
-    astrometry::Matrix22 partials(0.);
+    Matrix22 partials(0.);
     projection.convertFrom(obs.radec, partials);
     double x,y;
     projection.getLonLat(x,y);
@@ -88,7 +110,7 @@ Fitter::setFrame(const Frame& f_) {
     partials(0,0) /= cos(y);
     partials(1,0) /= cos(y);
     // Get inverse covariance
-    astrometry::Matrix22 cov = partials * obs.cov * partials.transpose();
+    Matrix22 cov = partials * obs.cov * partials.transpose();
     double det = cov(0,0)*cov(1,1) - cov(0,1)*cov(1,0);
     invcovXX[i] = cov(1,1)/det;
     invcovXY[i] = -cov(1,0)/det;
@@ -146,7 +168,7 @@ Fitter::calculateOrbitDerivatives() {
   int nobs = observations.size();
 
   // Calculate positions
-  Vector denom = Vector(nobs,1.) + abg[ABG::GDOT]*tEmit
+  DVector denom = DVector(nobs,1.) + abg[ABG::GDOT]*tEmit
     + abg[ABG::G]*(xGrav.col(2) - xE.col(2));
   // ??? add TMV version
   denom = denom.cwiseInverse();  // Denom is now 1/(z*gamma)
@@ -185,9 +207,9 @@ Fitter::iterateTimeDelay() {
   int nobs = observations.size();
   // Light-travel time is distance/(speed of light)
 
-  Matrix xyz = abg.getXYZ(tEmit) + xGrav - xE;
+  DMatrix xyz = abg.getXYZ(tEmit) + xGrav - xE;
   // Get sqrt(xyz.xyz):
-  Vector dist = xyz.cwiseProduct(xyz).rowwise().sum().cwiseSqrt();
+  DVector dist = xyz.cwiseProduct(xyz).rowwise().sum().cwiseSqrt();
   tEmit = tObs - dist/SpeedOfLightAU;
   tdbEmit.array() = tEmit.array() + f.tdb0;
   return;
@@ -207,8 +229,8 @@ Fitter::calculateGravity() {
     fullTrajectory = nullptr;
   }
   // Get initial condition for integrator from abg
-  astrometry::Vector3 x0;
-  astrometry::Vector3 v0;
+  Vector3 x0;
+  Vector3 v0;
   abg.getState(0., x0, v0);
 
   // Rotate to ICRS for integrator
@@ -220,14 +242,14 @@ Fitter::calculateGravity() {
   // Integrate - Trajectory returns 3xN matrix
   fullTrajectory = new Trajectory(eph, s0, grav);
   
-  astrometry::DMatrix xyz = fullTrajectory->position(tdbEmit);
+  DMatrix xyz = fullTrajectory->position(tdbEmit);
 
   // Convert back to Fitter reference frame and subtract inertial motion
   // Note Frame and Trajectory use 3 x n, we are using n x 3 here.
   xGrav = f.fromICRS(xyz).transpose() - abg.getXYZ(tEmit);
   if (false) /**/{
-    astrometry::DMatrix x1 = f.fromICRS(xyz).transpose();
-    astrometry::DMatrix x2 = abg.getXYZ(tEmit);
+    DMatrix x1 = f.fromICRS(xyz).transpose();
+    DMatrix x2 = abg.getXYZ(tEmit);
     stringstuff::StreamSaver ss(cerr);
     cerr << std::fixed << std::showpos << std::setprecision(4);
     for (int i=0; i<xGrav.rows(); i++) {
@@ -242,13 +264,15 @@ Fitter::calculateGravity() {
 
 void
 Fitter::calculateChisqDerivatives() {
+  if (observations.size() < 2)
+    throw std::runtime_error("ERROR: Fitter::calculateChisqDerivatives called with <2 observations");
   // Assumes that model values are up to date
-  Vector dx = thetaX - thetaXModel;
-  Vector dy = thetaY - thetaYModel;
+  DVector dx = thetaX - thetaXModel;
+  DVector dy = thetaY - thetaYModel;
   chisq = dx.transpose() * (invcovXX.asDiagonal() * dx);
   chisq += 2.* dx.transpose() * (invcovXY.asDiagonal() * dy);
   chisq += dy.transpose() * (invcovYY.asDiagonal() * dy);
-  Matrix tmp = invcovXX.asDiagonal() * dThetaXdABG;
+  DMatrix tmp = invcovXX.asDiagonal() * dThetaXdABG;
   b = tmp.transpose() * dx;
   A = dThetaXdABG.transpose() * tmp;
   tmp = invcovXY.asDiagonal() * dThetaXdABG;
@@ -297,17 +321,19 @@ Fitter::setLinearOrbit() {
   calculateChisqDerivatives();
 
   // Extract parameters other than GDOT, which we assume is last
-  Vector blin = b.subVector(0, ABG::GDOT);
-  Matrix Alin = A.subMatrix(0, ABG::GDOT, 0, ABG::GDOT);
-  
+  DVector blin = b.subVector(0, ABG::GDOT);
+  DMatrix Alin = A.subMatrix(0, ABG::GDOT, 0, ABG::GDOT);
   
   // Solve (check degeneracies??)
   auto llt = Alin.llt();
-  Vector answer = llt.solve(blin);
+  DVector answer = llt.solve(blin);
 
   // Transfer answer to instance members
   abg.subVector(0,ABG::GDOT) += answer;
   abg[ABG::GDOT] = 0.;
+
+  // Don't consider linear solution to be valid
+  abgIsValid = false;
 }
 
 void
@@ -319,6 +345,9 @@ Fitter::newtonFit(double chisqTolerance, bool dump) {
   calculateChisqDerivatives();
   const int MAX_ITERATIONS = 20;
 
+  // cancel validity of results until re-converged
+  abgIsValid = false;
+  
   // Do a series of iterations with time delay and gravity fixed
   int iterations = 0;
   double oldChisq;
@@ -372,6 +401,7 @@ Fitter::newtonFit(double chisqTolerance, bool dump) {
   } while (iterations < MAX_ITERATIONS && abs(chisq-oldChisq) > chisqTolerance);
   if (iterations >= MAX_ITERATIONS)
     throw std::runtime_error("Fitter::newtonFit exceeded max fine iterations");
+  abgIsValid = true;
   return;
 }
 
@@ -381,8 +411,8 @@ Fitter::printResiduals(std::ostream& os) const {
   os << "# Residuals: " << endl << std::fixed << std::setprecision(2);
   double chitot = 0;
   double chi;
-  Vector dx = thetaX - thetaXModel;
-  Vector dy = thetaY - thetaYModel;
+  DVector dx = thetaX - thetaXModel;
+  DVector dy = thetaY - thetaYModel;
   os << "# N    T     dx     dy    chisq" << endl;
   os << "#    (days)  (arcsecond)   " << endl;
   for (int i=0; i<dx.size(); i++) {
@@ -398,8 +428,8 @@ Fitter::printResiduals(std::ostream& os) const {
 void
 Fitter::printCovariance(std::ostream& os) const {
   stringstuff::StreamSaver ss(os);
-  Matrix c = A.inverse();
-  astrometry::DVector sd = c.diagonal().cwiseSqrt();
+  DMatrix c = A.inverse();
+  DVector sd = c.diagonal().cwiseSqrt();
   os << "# ABG std deviations: " << endl
      << std::scientific << std::setprecision(3);
   for (int i=0; i<6; i++) 
@@ -418,8 +448,8 @@ Fitter::printCovariance(std::ostream& os) const {
 
 Elements
 Fitter::getElements() const {
-  astrometry::Vector3 x0;
-  astrometry::Vector3 v0;
+  Vector3 x0;
+  Vector3 v0;
   // Get state in our Frame:
   abg.getState(f.tdb0,x0,v0);
   // Convert to ICRS
@@ -434,19 +464,20 @@ Matrix66
 Fitter::getElementCovariance() const {
   // Derivative of state vector in reference frame:
   Matrix66 dSdABG_frame = abg.getStateDerivatives();
-  /**/cerr << "dSdABG_frame: " << endl << dSdABG_frame << endl;
+  //**/cerr << "dSdABG_frame: " << endl << dSdABG_frame << endl;
+
   // Rotate x and v derivatives into ICRS
   Matrix66 dSdABG;
-  astrometry::DMatrix tmp = dSdABG_frame.subMatrix(0,3,0,6);
+  DMatrix tmp = dSdABG_frame.subMatrix(0,3,0,6);
   dSdABG.subMatrix(0,3,0,6) = f.toICRS(tmp , true);
   tmp = dSdABG_frame.subMatrix(3,6,0,6);
   dSdABG.subMatrix(3,6,0,6) = f.toICRS(tmp, true);
 
-  /**/cerr << "dSdABG: " << endl << dSdABG << endl;
+  //**/cerr << "dSdABG: " << endl << dSdABG << endl;
   
   // Get state in our Frame:
-  astrometry::Vector3 x0;
-  astrometry::Vector3 v0;
+  Vector3 x0;
+  Vector3 v0;
   abg.getState(f.tdb0,x0,v0);
   // Convert to ICRS
   State s;
@@ -455,19 +486,19 @@ Fitter::getElementCovariance() const {
   s.tdb = f.tdb0;
   // Get element derivatives
   Matrix66 dEdABG = getElementDerivatives(s) * dSdABG;
-  /**/cerr << "dEdABG: " << endl << dEdABG << endl;
+  //**/cerr << "dEdABG: " << endl << dEdABG << endl;
   return dEdABG * A.inverse() * dEdABG.transpose();
 }
   
 // Forecast position using current fit.  Cov matrix elements given if filled:
 void
-Fitter::predict(const Vector& t_obs,    // Time of observations, relative to tdb0
-		const Matrix& earth,  // Observation coordinates, in our frame, Nx3
-		Vector* xOut,         // Angular coordinates, in our frame
-		Vector* yOut,
-		Vector* covXX,        // Covar matrix of coordinates
-		Vector* covXY,
-		Vector* covYY) const {
+Fitter::predict(const DVector& t_obs,    // Time of observations, relative to tdb0
+		const DMatrix& earth,  // Observation coordinates, in our frame, Nx3
+		DVector* xOut,         // Angular coordinates, in our frame
+		DVector* yOut,
+		DVector* covXX,        // Covar matrix of coordinates
+		DVector* covXY,
+		DVector* covYY) const {
 
   // Resize arrays if necessary
   int nobs = t_obs.rows();
@@ -482,19 +513,19 @@ Fitter::predict(const Vector& t_obs,    // Time of observations, relative to tdb
 
   // Iterate 3d position determination and time delay.
   // Use inertial orbit if there is no trajectory.
-  Matrix target;
-  Matrix velocity(nobs,3);
+  DMatrix target;
+  DMatrix velocity(nobs,3);
   if (fullTrajectory) {
     // Derive positions from the trajectory, place into our frame
     // Note the Trajectory takes full TDB, not referred to our tdb0:
-    Vector tEphem = t_obs.array() + f.tdb0;
-    Matrix v_ICRS;
+    DVector tEphem = t_obs.array() + f.tdb0;
+    DMatrix v_ICRS;
     target = f.fromICRS(fullTrajectory->position(tEphem),&v_ICRS).transpose();
     // Transform body velocity too
     velocity = f.fromICRS(v_ICRS,true).transpose();
   } else {
     target = abg.getXYZ(t_obs);
-    astrometry::Vector3 x,v;
+    Vector3 x,v;
     // For an inertial orbit, the velocity is constant:
     abg.getState(0., x, v);
     velocity.rowwise() = v.transpose();
@@ -505,15 +536,15 @@ Fitter::predict(const Vector& t_obs,    // Time of observations, relative to tdb
   // where d is distance at time of observation and v_los is
   // line-of-sight velocity.  
 
-  Matrix dx = target - earth;
-  Vector distance = dx.cwiseProduct(dx).rowwise().sum().cwiseSqrt();
-  Vector vlos = (velocity.array()*dx.array()).rowwise().sum() / distance.array();
-  Vector t_emit = t_obs.array() - distance.array() / (vlos.array() + SpeedOfLightAU);
+  DMatrix dx = target - earth;
+  DVector distance = dx.cwiseProduct(dx).rowwise().sum().cwiseSqrt();
+  DVector vlos = (velocity.array()*dx.array()).rowwise().sum() / distance.array();
+  DVector t_emit = t_obs.array() - distance.array() / (vlos.array() + SpeedOfLightAU);
 
   // Final calculation of 3d positions.  Save gravity contribution
-  Matrix gravity(nobs,3,0.);
+  DMatrix gravity(nobs,3,0.);
   if (fullTrajectory) {
-    Vector tEphem = t_emit.array() + f.tdb0;
+    DVector tEphem = t_emit.array() + f.tdb0;
     target = f.fromICRS(fullTrajectory->position(tEphem)).transpose();
     // Subtract inertial motion to get gravity
     gravity = target - abg.getXYZ(t_emit);
@@ -523,7 +554,7 @@ Fitter::predict(const Vector& t_obs,    // Time of observations, relative to tdb
   }
 
   // Now calculate angular positions
-  Vector denom = Vector(nobs,1.) + abg[ABG::GDOT]*t_emit
+  DVector denom = DVector(nobs,1.) + abg[ABG::GDOT]*t_emit
     + abg[ABG::G]*(gravity.col(2) - earth.col(2));
   denom = denom.cwiseInverse();  // Denom is now 1/(z*gamma)
   *xOut = abg[ABG::ADOT]*t_emit + abg[ABG::G]*(gravity.col(0) - earth.col(0));
@@ -535,8 +566,8 @@ Fitter::predict(const Vector& t_obs,    // Time of observations, relative to tdb
 
   if (doDerivs) {
     // Calculate derivatives wrt ABG, using just inertial part
-    Matrix dX(nobs, 6, 0.);
-    Matrix dY(nobs, 6, 0.);
+    DMatrix dX(nobs, 6, 0.);
+    DMatrix dY(nobs, 6, 0.);
     dX.col(ABG::A).setOnes();
     dY.col(ABG::B).setOnes();
     dX.col(ABG::ADOT) = t_emit;

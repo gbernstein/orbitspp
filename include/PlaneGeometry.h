@@ -4,15 +4,9 @@
 #define PLANEGEOMETRY_H
 
 #include "LinearAlgebra.h"
-
+#include "OrbitTypes.h"
 
 namespace orbits {
-
-  typedef linalg::SVector<double,2> Vector2;
-  typedef linalg::SMatrix<double,2,2> Matrix22;
-  typedef linalg::Matrix<double> DMatrix;
-  typedef linalg::Vector<double> DVector;
-  typedef linalg::Vector<bool> BVector;
 
   class Point: public Vector2 {
   public:
@@ -43,6 +37,7 @@ namespace orbits {
   private:
     Point p1;
     Point p2;
+    EIGEN_NEW
   };
 
   class ConvexPolygon {
@@ -90,6 +85,7 @@ namespace orbits {
 
   private:
     double rsq;
+    EIGEN_NEW
   };
 
   class AffineTransformation; // Forward declaration
@@ -128,6 +124,7 @@ namespace orbits {
     Matrix22 invCov;
     // ?? Eigenvalues etc
     
+    EIGEN_NEW
   };
 
   class AffineTransformation {
@@ -150,6 +147,7 @@ namespace orbits {
   private:
     Point xy0;
     Matrix22 m;
+    EIGEN_NEW
   };
     
 } // end namespace

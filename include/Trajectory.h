@@ -38,8 +38,8 @@ namespace orbits {
     // ICRS barycentric coordinates, all times are TDB, units are AU and
     // years.
 
-    linalg::Matrix<double> position(const linalg::Vector<double>& tdb,
-				    linalg::Matrix<double>* velocity=nullptr) const;
+    DMatrix position(const DVector& tdb,
+		     DMatrix* velocity=nullptr) const;
     // Return 3 x N matrix of object positions at TDB's given in input array.
     // If a pointer to velocity array is given, it is resized to 3xN and filled with v.
 
@@ -54,8 +54,8 @@ namespace orbits {
     
   private:
     const Ephemeris& ephem;
-    astrometry::Vector3 x0;  // Initial position
-    astrometry::Vector3 v0;  // Initial velocity
+    Vector3 x0;  // Initial position
+    Vector3 v0;  // Initial velocity
     double tdb0;
     double dt;
     Gravity grav;
@@ -63,9 +63,9 @@ namespace orbits {
     // Need to use special form for vectors containing static-size
     // Eigen structures.
 #ifdef USE_EIGEN
-    typedef std::vector<astrometry::Vector3, Eigen::aligned_allocator<astrometry::Vector3> > v3vector;
+    typedef std::vector<Vector3, Eigen::aligned_allocator<Vector3> > v3vector;
 #else
-    typedef std::vector<astrometry::Vector3> v3vector;
+    typedef std::vector<Vector3> v3vector;
 #endif
     // Caches for positions and velocities at time steps
     // after and before initial state.
@@ -76,11 +76,11 @@ namespace orbits {
     mutable v3vector vbwd;
     mutable v3vector afwd;
     mutable v3vector abwd;
-    mutable astrometry::Vector3 vnext_fwd;
-    mutable astrometry::Vector3 vnext_bwd;
+    mutable Vector3 vnext_fwd;
+    mutable Vector3 vnext_bwd;
     
     // Acceleration calculator - return a*dt
-    astrometry::Vector3 deltaV(const astrometry::Vector3& x, double tdb) const;
+    Vector3 deltaV(const astrometry::Vector3& x, double tdb) const;
     // Extend integration to include this time
     void span(double tdb) const;
   };
