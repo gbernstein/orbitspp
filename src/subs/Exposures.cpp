@@ -68,6 +68,7 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
       exposureTable.readCell(mjd, "mjd_mid", iexp);
       expo.mjd = mjd;
       expo.tdb = ephem.mjd2tdb(mjd);
+      expo.tobs = ephem.mjd2tdb(mjd) - frame.tdb0;
     }
 
     {
@@ -130,14 +131,22 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
 
 // Tree-wide static variables:
 double
-Node::speed;
+Node::speed = 360. / 40.;
+// Default apparent motion to reflex at 40 AU, in degrees/yr.
 
 double
-Node::fieldRadius;
+Node::fieldRadius = 1.1;  // Default to DECam radius, in degrees
 
-Node::Node(dataIter _begin, dataIter _end): begin(_begin), end(_end),
-					    left(nullptr), right(nullptr),
-					    splitOn(TIME)
+int
+Node::obscode = 807;  // Observatory code for earth positions.
+
+Node::Node(dataIter _begin, dataIter _end,
+	   const Ephemeris& ephem,
+	   const Frame& frame): begin(_begin), end(_end),
+				left(nullptr), right(nullptr),
+				splitOn(TIME),
+				tobs(3,0.),
+				earth(3,3,0.)
 {
   // Determine bounds of member exposures
   lower = (*begin)->axis;
@@ -152,6 +161,18 @@ Node::Node(dataIter _begin, dataIter _end): begin(_begin), end(_end),
     lower[1] = min(lower[1], (*i)->axis[1]);
     upper[1] = max(upper[1], (*i)->axis[1]);
   }
+  // Set up the start/middle/end observing times and locations
+  tobs[0] = tStart;
+  tobs[1] = 0.5*(tStart+tStop);
+  tobs[2] = tStop;
+  earth.row(0) = (*begin)->earth.transpose();
+  earth.row(2) = (*last)->earth.transpose();
+  // Use ephemeris to get observer position at midpoint, since there
+  // is not going to be an exposure at this time.
+  // Get observatory position
+  astrometry::CartesianICRS observatory = ephem.observatory(obscode,
+							    tobs[1]+frame.tdb0);
+  earth.row(1) = frame.fromICRS(observatory.getVector()).transpose();
 }
 
 // Unary predicates for partitioning the exposures
@@ -184,7 +205,8 @@ private:
 };
 
 void
-Node::split() {
+Node::split(const Ephemeris& ephem,
+	    const Frame& frame) {
   // Find largest dimension
   double dx = upper[0] - lower[0];
   double dy = upper[1] - lower[1];
@@ -197,29 +219,53 @@ Node::split() {
   
   // Now split, including stable partition of parent array such
   // that leaf nodes remain in time order.
+  dataIter mid;
   if (dt > dx && dt > dy) {
     splitOn = TIME;
     splitValue = 0.5*(tStart + tStop);
     TimeSplit splitter(splitValue);
-    auto mid = stable_partition(begin, end, splitter);
-    left = new Node(begin,mid);
-    right = new Node(mid, end);
+    mid = stable_partition(begin, end, splitter);
   } else if (dx > dy) {
     splitOn = X;
     splitValue = 0.5*(lower[0]+upper[0]);
     XSplit splitter(splitValue);
-    auto mid = stable_partition(begin, end, splitter);
-    left = new Node(begin,mid);
-    right = new Node(mid, end);
+    mid = stable_partition(begin, end, splitter);
   } else {
     splitOn = Y;
     splitValue = 0.5*(lower[1]+upper[1]);
     YSplit splitter(splitValue);
-    auto mid = stable_partition(begin, end, splitter);
-    left = new Node(begin,mid);
-    right = new Node(mid, end);
+    mid = stable_partition(begin, end, splitter);
   }
   // Recursive split of children
-  left->split();
-  right->split();
+  left = new Node(begin,mid,ephem,frame);
+  right = new Node(mid, end,ephem,frame);
+  left->split(ephem,frame);
+  right->split(ephem,frame);
 }
+
+list<const Exposure*>
+Node::find(const Fitter& path) const {
+  // Get locations and error ellipses for orbit and temporal endpoints, midpoint.
+  DVector x(3),y(3),covxx(3),covyy(3),covxy(3);
+  path.predict(tobs, earth, &x, &y, &covxx, &covyy, &covxy);
+
+  // Turn these into a center and radius for search.
+
+  // Add field radius to search
+
+  list<const Exposure*> out;
+  // If no spatial intersection:
+  return out;
+
+  // If this is a leaf node, return everything as a possibility
+
+  // If Node is entirely contained in search, return everything
+
+  // If partial coverage, descend tree
+  out = left->find(path);
+  out.splice(out.end(),right->find(path));
+
+  return out;
+}
+
+  
