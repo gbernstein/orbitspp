@@ -250,8 +250,60 @@ Node::find(const Fitter& path) const {
   path.predict(tobs, earth, &x, &y, &covxx, &covyy, &covxy);
 
   // Turn these into a center and radius for search.
+  Vector2 ctr;
+  Vector2 motion;
+  // Model motion as a quadratic, [xy] = a + bt + ct^2,
+  // where t goes from -1 to +1 over time interval
+  double a = x[1];
+  double b = 0.5 * (x[2]-x[0]);
+  double c = 0.5 * (x[0] + x[2] - 2*a);
+  if (c ==0. || abs(b / (2*c))>1.) {
+    // Endpoints are the maximum
+    ctr[0] = 0.5*(x[2]+x[0]);
+    motion[0] = 0.5*abs(x[2]-x[0]);
+  } else if (c<0) {
+    // There is a max during interval
+    double xMax = a - b*b/(4*c);
+    double xMin = b>0 ? x[0] : x[2];
+    ctr[0] = 0.5*(xMax+xMin);
+    motion[0] = 0.5*(xMax-xMin);
+  } else {
+    // There is a minimum during interval
+    double xMin = a - b*b/(4*c);
+    double xMax = b>0 ? x[2] : x[0];
+    ctr[0] = 0.5*(xMax+xMin);
+    motion[0] = 0.5*(xMax-xMin);
+  }
+  // Y motion:
+  a = y[1];
+  b = 0.5 * (y[2]-y[0]);
+  c = 0.5 * (y[0] + y[2] - 2*a);
+  if (c ==0. || abs(b / (2*c))>1.) {
+    // Endpoints are the maximum
+    ctr[1] = 0.5*(y[2]+y[0]);
+    motion[1] = 0.5*abs(y[2]-y[0]);
+  } else if (c<0) {
+    // There is a max during interval
+    double xMax = a - b*b/(4*c);
+    double xMin = b>0 ? y[0] : y[2];
+    ctr[1] = 0.5*(xMax+xMin);
+    motion[1] = 0.5*(xMax-xMin);
+  } else {
+    // There is a minimum during interval
+    double xMin = a - b*b/(4*c);
+    double xMax = b>0 ? y[2] : y[0];
+    ctr[1] = 0.5*(xMax+xMin);
+    motion[1] = 0.5*(xMax-xMin);
+  }
+  // Find maximum of major axes
+  DVector tr2 = 0.5*(covxx + covyy);
+  DVector det = covxx.array()*covyy.array() - covxy.array()*covxy.array();
+  double maxasq = (tr2.array() + sqrt(tr2.array()*tr2.array() - det.array())).maxCoeff();
 
-  // Add field radius to search
+  // Add motion, error, and field radii together to get match radius (in degrees)
+  double matchRadius = hypot(motion[0],motion[1])/DEGREE + sqrt(maxasq)/DEGREE + fieldRadius;
+  // And center of search region for this time period, in degrees:
+  ctr /= DEGREE; 
 
   list<const Exposure*> out;
   // If no spatial intersection:
