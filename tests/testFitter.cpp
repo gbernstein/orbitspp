@@ -35,8 +35,10 @@ int main(int argc,
       } /**/
 
     fit.setLinearOrbit();
-    cerr << "First ABG:";
-    fit.getABG(true).writeTo(cerr);
+    cerr << "First ABG:" << endl;
+    ABG::writeHeader(cerr);
+    cerr << fit.getABG(true) << endl;
+
     cerr << "distance: " << 1./fit.getABG(true)[ABG::G] << endl;
 
     /** {
@@ -53,19 +55,19 @@ int main(int argc,
     fit.newtonFit();
     fit.printResiduals(cerr);
     cerr << "Final ABG:\n";
-    fit.getABG().writeTo(cerr);
-    cerr << endl << "Chisq: " << fit.getChisq() << endl;
+    ABG::writeHeader(cerr);
+    cerr << fit.getABG(true) << endl;
+    cerr << "Chisq: " << fit.getChisq() << endl;
     cerr << "distance: " << 1./fit.getABG()[ABG::G] << endl;
-    fit.printCovariance(cerr);
-    cerr << endl;
+    cerr << "ABG Covariance:" << endl;
+    writeCovariance6(cerr, fit.getInvCovarABG().inverse());
 
     // Calculate orbital elements:
     cerr << "Elements: " << endl;
-    cerr << fit.getElements();
-    cerr << endl;
+    Elements::writeHeader(cerr);
+    cerr << fit.getElements() << endl;
     cerr << "Covariance: " << endl;
-    cerr << fit.getElementCovariance();
-    cerr << endl;
+    writeCovariance6(cerr, fit.getElementCovariance());
     
     
   } catch (std::runtime_error& e) {

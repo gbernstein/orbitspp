@@ -61,8 +61,6 @@ namespace orbits {
 
     // Print residuals (in arcsec) and chisq contributions per point
     void printResiduals(std::ostream& os) const;
-    // Print ABG covariance matrix
-    void printCovariance(std::ostream& os) const;
     
     // Obtain fitting results
     const ABG& getABG(bool invalidOK=false) const {
@@ -71,7 +69,7 @@ namespace orbits {
       return abg;
     }
     double getChisq() const {return chisq;}  // Chisq at current abg
-    DMatrix getInvCovarABG() const {
+    ABGCovar getInvCovarABG() const {
       // Inverse covariance of ABG from last fit
       if (!abgIsValid) throw std::runtime_error("ERROR: Fitter::getInvCovarABG is not getting converged result");
       return A;}  

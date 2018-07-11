@@ -3,7 +3,57 @@
 #include "OrbitTypes.h"
 #include "StringStuff.h"
 
+#include <string>
+#include <iostream>
+#include <iomanip>
+
 using namespace orbits;
+
+//********************************
+// Here is some nice code to center strings in output fields
+// From https://stackoverflow.com/questions/14861018/center-text-in-fixed-width-field-with-stream-manipulators-in-c
+template<typename charT, typename traits = std::char_traits<charT> >
+class center_helper {
+    std::basic_string<charT, traits> str_;
+public:
+    center_helper(std::basic_string<charT, traits> str) : str_(str) {}
+    template<typename a, typename b>
+    friend std::basic_ostream<a, b>& operator<<(std::basic_ostream<a, b>& s, const center_helper<a, b>& c);
+};
+
+template<typename charT, typename traits = std::char_traits<charT> >
+center_helper<charT, traits> centered(std::basic_string<charT, traits> str) {
+    return center_helper<charT, traits>(str);
+}
+
+// redeclare for std::string directly so we can support anything that implicitly converts to std::string
+center_helper<std::string::value_type, std::string::traits_type> centered(const std::string& str) {
+    return center_helper<std::string::value_type, std::string::traits_type>(str);
+}
+
+template<typename charT, typename traits>
+std::basic_ostream<charT, traits>& operator<<(std::basic_ostream<charT, traits>& s, const center_helper<charT, traits>& c) {
+    std::streamsize w = s.width();
+    if (w > c.str_.length()) {
+        std::streamsize left = (w + c.str_.length()) / 2;
+        s.width(left);
+        s << c.str_;
+        s.width(w - left);
+        s << "";
+    } else {
+        s << c.str_;
+    }
+    return s;
+}
+
+// Order to read/write components:
+const std::vector<int> abgOrder = {ABG::A, ABG::B, ABG::G,
+				   ABG::ADOT, ABG::BDOT, ABG::GDOT};
+const std::vector<string> abgNames={"alpha","beta","gamma","alphadot","betadot","gammadot"};
+const std::vector<string> elementNames={"a","e","i","LAN","AoP","ToP"}; // Matches order of enum
+
+
+//********************************
 
 DMatrix
 ABG::getXYZ(const DVector& t) const {
@@ -34,15 +84,97 @@ ABG::getStateDerivatives() const {
   return out;
 }
   
-void
-ABG::writeTo(std::ostream& os, int precision) const {
-  // Write ABG on one line
+std::ostream& 
+ABG::write(std::ostream& os, int precision) const {
+  // Write ABG on one line.  All ABG's are +-0.xxx in practice.
   stringstuff::StreamSaver ss(os);  // Cache stream state
   os << std::fixed << std::showpos << std::setprecision(precision);
   for (int i=0; i<6; i++)
-    os << (*this)[i] << " ";
-  return;  // Stream state restored on destruction of ss
+    os << std::setw(precision+3) << (*this)[abgOrder[i]] << " ";
+  return os;  // Stream state restored on destruction of ss
 }
+
+std::ostream& 
+ABG::writeHeader(std::ostream& os, int precision) {
+  os << "#";
+  for (auto& s : abgNames)
+    os << std::setw(precision+3) << centered(s) << " ";
+  os << endl;
+  return os;
+}
+
+std::ostream&
+orbits::operator<<(std::ostream& os, const ABG& abg) {return abg.write(os);}
+std::istream&
+orbits::operator>>(std::istream& is, ABG& abg) {return abg.read(is);}
+std::ostream&
+orbits::operator<<(std::ostream& os, const Elements& el) {return el.write(os);}
+std::istream&
+orbits::operator>>(std::istream& is, Elements& el) {return el.read(is);}
+
+std::istream& 
+ABG::read(std::istream& is) {
+  for (int i=0; i<6; i++)
+    is >> (*this)[i];
+  return is;  // Stream state restored on destruction of ss
+}
+
+std::ostream& 
+Elements::write(std::ostream& os, int precision) const {
+  // Write Elements on one line, in degrees.  Aim to have total
+  // number of digits = precision, but without going into scientific notation
+  // like std::defaultfloat.
+  stringstuff::StreamSaver ss(os);  // Cache stream state
+  os << std::fixed << std::noshowpos;
+  os << std::setprecision(precision- ((*this)[A]<10. ? 3 : 4))
+     << std::setw(precision+1) << (*this)[A] << " ";
+  os << std::setprecision(precision) << std::setw(precision+2) 
+     << (*this)[E] << " ";
+  // Inclination is 0-180 degrees
+  os << std::setprecision(precision) << std::setw(precision+4)
+     << (*this)[I]/DEGREE << " ";
+  // Angles 0-360 degrees
+  for (int i=Elements::LAN; i<=Elements::AOP; i++) {
+    double degrees = (*this)[i]/DEGREE;
+    if (degrees<0) degrees+=360.;
+    os << std::setprecision(precision) << std::setw(precision+4)
+       << degrees << " ";
+  }
+  // Time of perihelion - in TDB years post J2000.  Since TNO at opposition
+  // moves about 1e-6 degrees in 1e-7 years, add 1 digit.
+  os << std::setprecision(precision+1) << std::setw(precision+4)
+     << (*this)[Elements::TOP];
+  
+  return os;  // Stream state restored on destruction of ss
+}
+
+std::ostream& 
+Elements::writeHeader(std::ostream& os, int precision) {
+  os << "#"
+     << std::setw(precision+1) << centered(elementNames[Elements::A]) << " "
+     << std::setw(precision+2) << centered(elementNames[Elements::E]) << " "
+     << std::setw(precision+4) << centered(elementNames[Elements::I]) << " "
+     << std::setw(precision+4) << centered(elementNames[Elements::LAN]) << " "
+     << std::setw(precision+4) << centered(elementNames[Elements::AOP]) << " "
+     << std::setw(precision+4) << centered(elementNames[Elements::TOP])
+     << endl;
+  return os;
+}
+
+std::istream& 
+Elements::read(std::istream& is) {
+  is >> (*this)[Elements::A]
+     >> (*this)[Elements::E]
+     >> (*this)[Elements::I]
+     >> (*this)[Elements::LAN]
+     >> (*this)[Elements::AOP]
+     >> (*this)[Elements::TOP];
+  (*this)[Elements::I] *= DEGREE;
+  (*this)[Elements::LAN] *= DEGREE;
+  (*this)[Elements::AOP] *= DEGREE;
+  return is;  // Stream state restored on destruction of ss
+}
+
 
 Vector3
 Frame::toICRS(const Vector3& x,
@@ -195,3 +327,45 @@ MPCObservation::MPCObservation(const string& line) {
   }
 }
 
+std::ostream&
+orbits::writeCovariance6(std::ostream& os, const Matrix66& m, int precision) {
+  stringstuff::StreamSaver ss(os);
+  DVector sd = m.diagonal().cwiseSqrt();
+  os << "# Standard deviations: " << endl;
+  os << std::scientific << std::setprecision(precision) << std::noshowpos;
+  for (int i=0; i<6; i++) 
+    os << sd[i] << " ";
+  os << endl;
+  // Calculate correlation matrix
+  os << "# Correlation matrix:" << endl;
+  sd = sd.cwiseInverse();
+  Matrix66 out = sd.asDiagonal() * m * sd.asDiagonal();
+  os << std::fixed << std::showpos;
+  for (int i=0; i<6; i++) {
+    for (int j=0; j<6; j++)
+      os << std::setw(precision+3) << out(i,j) << " ";
+    os << endl;
+  }
+  return os;
+}
+
+Matrix66
+orbits::readCovariance6(std::istream& is) {
+  string buffer;
+  stringstuff::getlineNoComment(is, buffer);
+  Vector6 sd;
+  {
+    std::istringstream iss(buffer);
+    for (int i=0; i<6; i++)
+      iss >> sd[i];
+  }
+  Matrix66 cov;
+  for (int i=0; i<6; i++) {
+    stringstuff::getlineNoComment(is, buffer);
+    std::istringstream iss(buffer);
+    for (int j=0; j<6; j++)
+      iss >> cov(i,j);
+  }
+  return sd.asDiagonal() * cov * sd.asDiagonal();
+}
+  

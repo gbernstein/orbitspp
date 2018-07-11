@@ -72,8 +72,14 @@ namespace orbits {
     DMatrix getXYZ(const DVector& t) const;
     // Calculate inertial XYZ positions at an array of times, return n x 3 matrix
 
-    void writeTo(std::ostream& os, int precision=6) const;
+    // Read and write
+    std::ostream& write(std::ostream& os, int precision=7) const;
+    std::istream& read(std::istream& is);
+    static std::ostream& writeHeader(std::ostream& os, int precision=7); // Write column header
   };
+
+  extern std::ostream& operator<<(std::ostream& os, const ABG& abg);
+  extern std::istream& operator>>(std::istream& is, ABG& abg);
 
   class Elements: public Vector6 {
     // Keplerian elements for elliptical orbit
@@ -84,7 +90,14 @@ namespace orbits {
     static const int LAN=3; // Longitude of ascending node
     static const int AOP=4; // Argument of perihelion
     static const int TOP=5; // Time of perihelion passage
+    // Read and write - angles in degrees for I/O; precision is basically degrees of posn.
+    std::ostream& write(std::ostream& os, int precision=7) const;
+    std::istream& read(std::istream& is);
+    static std::ostream& writeHeader(std::ostream& os, int precision=7); // Write column header
   };
+
+  extern std::ostream& operator<<(std::ostream& os, const Elements& el);
+  extern std::istream& operator>>(std::istream& is, Elements& el);
 
   class Observation {
     // General observer-frame information about a detection
@@ -109,6 +122,14 @@ namespace orbits {
   };
 
   typedef Matrix66 ABGCovar;
+
+  // Write and read covariance matrices as a line of sd's and
+  // a correlation matrix.
+  // The write will terminate with endl and the read uses getline
+  // so it is best to keep these on their own lines.
+  extern std::ostream& writeCovariance6(std::ostream& os, const Matrix66& m, int precision=6);
+  extern Matrix66 readCovariance6(std::istream& is);
+  
   
   class Frame: public astrometry::ReferenceFrame {
     // Coordinate reference frame, including
