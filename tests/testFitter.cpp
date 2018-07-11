@@ -60,14 +60,17 @@ int main(int argc,
     cerr << "Chisq: " << fit.getChisq() << endl;
     cerr << "distance: " << 1./fit.getABG()[ABG::G] << endl;
     cerr << "ABG Covariance:" << endl;
-    writeCovariance6(cerr, fit.getInvCovarABG().inverse());
+    {
+      ABGCovariance cov = fit.getInvCovarABG().inverse();
+      cov.write(cerr);
+    }
 
     // Calculate orbital elements:
     cerr << "Elements: " << endl;
     Elements::writeHeader(cerr);
     cerr << fit.getElements() << endl;
     cerr << "Covariance: " << endl;
-    writeCovariance6(cerr, fit.getElementCovariance());
+    //**writeCovariance6(cerr, fit.getElementCovariance());
     
     
   } catch (std::runtime_error& e) {

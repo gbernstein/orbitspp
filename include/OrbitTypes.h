@@ -99,6 +99,14 @@ namespace orbits {
   extern std::ostream& operator<<(std::ostream& os, const Elements& el);
   extern std::istream& operator>>(std::istream& is, Elements& el);
 
+  class ABGCovariance: public Matrix66 {
+  public:
+    ABGCovariance(const Matrix66& rhs): Matrix66(rhs) {}
+    ABGCovariance() = default;
+    std::ostream& write(std::ostream& os, int precision=6) const;
+    std::istream& read(std::istream& is);
+  };
+
   class Observation {
     // General observer-frame information about a detection
   public:
