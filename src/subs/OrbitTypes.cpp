@@ -328,9 +328,9 @@ MPCObservation::MPCObservation(const string& line) {
 }
 
 std::ostream&
-orbits::writeCovariance6(std::ostream& os, const Matrix66& m, int precision) {
+ABGCovariance::write(std::ostream& os, int precision) {
   stringstuff::StreamSaver ss(os);
-  DVector sd = m.diagonal().cwiseSqrt();
+  DVector sd = this->diagonal().cwiseSqrt();
   os << "# Standard deviations: " << endl;
   os << std::scientific << std::setprecision(precision) << std::noshowpos;
   for (int i=0; i<6; i++) 
@@ -349,8 +349,8 @@ orbits::writeCovariance6(std::ostream& os, const Matrix66& m, int precision) {
   return os;
 }
 
-Matrix66
-orbits::readCovariance6(std::istream& is) {
+std::istream&
+ABGCovariance::read(std::istream& is) {
   string buffer;
   stringstuff::getlineNoComment(is, buffer);
   Vector6 sd;
@@ -359,13 +359,14 @@ orbits::readCovariance6(std::istream& is) {
     for (int i=0; i<6; i++)
       iss >> sd[i];
   }
-  Matrix66 cov;
+  Matrix66 corr;
   for (int i=0; i<6; i++) {
     stringstuff::getlineNoComment(is, buffer);
     std::istringstream iss(buffer);
     for (int j=0; j<6; j++)
-      iss >> cov(i,j);
+      iss >> corr(i,j);
   }
-  return sd.asDiagonal() * cov * sd.asDiagonal();
+  *this =  sd.asDiagonal() * corr * sd.asDiagonal();
+  return is;
 }
-  
+
