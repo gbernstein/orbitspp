@@ -34,6 +34,10 @@ int main(int argc,
       fit.setFrame(f);
       } /**/
 
+    cerr << "Reference frame: " << endl;
+    Frame::writeHeader(cerr);
+    fit.getFrame().write(cerr);
+    
     fit.setLinearOrbit();
     cerr << "First ABG:" << endl;
     ABG::writeHeader(cerr);
