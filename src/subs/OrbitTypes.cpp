@@ -433,3 +433,48 @@ ElementCovariance::read(std::istream& is) {
   return is;
 }
 
+std::ostream&
+Frame::write(std::ostream& os) const {
+  // Write Frame spec on one line, decimal degrees, ~1 mas accuracy
+  stringstuff::StreamSaver ss(os);
+  double ra, dec, pa;
+  orient.getPole().getLonLat(ra,dec);
+  pa = orient.getPA();
+  if (ra<0.) ra+= TPI;
+  if (pa<0.) pa+= TPI;
+  
+  os << std::fixed << std::setprecision(7)
+     << std::noshowpos << std::setw(11) << ra/DEGREE << " "
+     << std::showpos << std::setw(11) << dec/DEGREE << " "
+     << std::noshowpos << std::setw(11) << pa/DEGREE << " "
+     << std::showpos << std::setprecision(8)
+     << std::setw(11) << origin[0] << " "
+     << std::setw(11) << origin[1] << " "
+     << std::setw(11) << origin[2] << " "
+     << std::setw(11) << tdb0
+     << endl;
+  return os;
+}
+
+std::ostream&
+Frame::writeHeader(std::ostream& os) {
+  stringstuff::StreamSaver ss(os);
+  vector<string> names={"RA","Dec","PA", "x0", "y0", "z0", "tdb0"};
+  os << "#";
+  for (auto& s : names)
+    os << std::setw(11) << centered(s) << " ";
+  os << endl;
+  return os;
+}
+
+
+
+std::istream&
+Frame::read(std::istream& is) {
+  double ra, dec, pa;
+  is >> ra >> dec >> pa >> origin[0] >> origin[1] >> origin[2] >> tdb0;
+  orient = astrometry::Orientation(astrometry::SphericalICRS(ra*DEGREE, dec*DEGREE),
+				   pa*DEGREE);
+  return is;
+}
+

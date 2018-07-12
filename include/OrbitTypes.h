@@ -162,6 +162,12 @@ namespace orbits {
 		  bool isVelocity=false) const;
     DMatrix fromICRS(const DMatrix& x,
 		    bool isVelocity=false) const;
+
+    // Write/read one-line specification.
+    std::ostream& write(std::ostream& os) const;
+    std::istream& read(std::istream& os);
+    static std::ostream& writeHeader(std::ostream& os);
+    
   };
 
 } // end namespace orbits
