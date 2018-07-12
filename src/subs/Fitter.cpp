@@ -430,7 +430,7 @@ Fitter::getElements() const {
   Vector3 x0;
   Vector3 v0;
   // Get state in our Frame:
-  abg.getState(f.tdb0,x0,v0);
+  abg.getState(0.,x0,v0);
   // Convert to ICRS
   State s;
   s.x = astrometry::CartesianICRS(f.toICRS(x0));
@@ -457,7 +457,7 @@ Fitter::getElementCovariance() const {
   // Get state in our Frame:
   Vector3 x0;
   Vector3 v0;
-  abg.getState(f.tdb0,x0,v0);
+  abg.getState(0.,x0,v0);
   // Convert to ICRS
   State s;
   s.x = astrometry::CartesianICRS(f.toICRS(x0));
@@ -499,7 +499,7 @@ Fitter::predict(const DVector& t_obs,    // Time of observations, relative to td
     // Note the Trajectory takes full TDB, not referred to our tdb0:
     DVector tEphem = t_obs.array() + f.tdb0;
     DMatrix v_ICRS;
-    target = f.fromICRS(fullTrajectory->position(tEphem),&v_ICRS).transpose();
+    target = f.fromICRS(fullTrajectory->position(tEphem,&v_ICRS)).transpose();
     // Transform body velocity too
     velocity = f.fromICRS(v_ICRS,true).transpose();
   } else {
@@ -532,7 +532,7 @@ Fitter::predict(const DVector& t_obs,    // Time of observations, relative to td
     // Gravity contribution remains zero in this case.
   }
 
-  // Now calculate angular positions
+    // Now calculate angular positions
   DVector denom = DVector(nobs,1.) + abg[ABG::GDOT]*t_emit
     + abg[ABG::G]*(gravity.col(2) - earth.col(2));
   denom = denom.cwiseInverse();  // Denom is now 1/(z*gamma)
@@ -560,9 +560,11 @@ Fitter::predict(const DVector& t_obs,    // Time of observations, relative to td
 
     // Now contract with the ABG covariance to get position covariance
     Matrix66 cov = A.inverse();
-    *covXX = dX * cov * dX.transpose();
-    *covXY = dX * cov * dY.transpose();
-    *covYY = dY * cov * dY.transpose();
+    DMatrix xTmp = dX * cov;
+    DMatrix yTmp = dY * cov;
+    *covXX = (dX.array()*xTmp.array()).rowwise().sum();
+    *covXY = (dX.array()*yTmp.array()).rowwise().sum();
+    *covYY = (dY.array()*yTmp.array()).rowwise().sum();
 
     // We left off a factor of denom in dX, dY;
     // It's faster to put these in at the end:
