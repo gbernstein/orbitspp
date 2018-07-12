@@ -30,7 +30,7 @@ Fitter::Fitter(const Ephemeris& eph_,
 			       abgIsValid(false) {} 
 
 void
-Fitter::setABG(const ABG& abg_, const ABGCovar& cov_) {
+Fitter::setABG(const ABG& abg_, const ABGCovariance& cov_) {
   if (!frameIsSet)
     throw std::runtime_error("ERROR: Fitter::setABG called before setFrame");
   abg = abg_;
@@ -425,27 +425,6 @@ Fitter::printResiduals(std::ostream& os) const {
   os << " chisq w/o priors " << chitot << " w/priors: " << chisq << endl;
 }
 
-void
-Fitter::printCovariance(std::ostream& os) const {
-  stringstuff::StreamSaver ss(os);
-  DMatrix c = A.inverse();
-  DVector sd = c.diagonal().cwiseSqrt();
-  os << "# ABG std deviations: " << endl
-     << std::scientific << std::setprecision(3);
-  for (int i=0; i<6; i++) 
-    os << sd[i] << " ";
-  os << endl;
-  // Calculate correlation matrix
-  sd = sd.cwiseInverse();
-  c = sd.asDiagonal() * c * sd.asDiagonal();
-  os << std::fixed << std::showpos;
-  for (int i=0; i<6; i++) {
-    for (int j=0; j<6; j++)
-      os << std::setw(6) << c(i,j) << " ";
-    os << endl;
-  }
-}
-
 Elements
 Fitter::getElements() const {
   Vector3 x0;
@@ -460,7 +439,7 @@ Fitter::getElements() const {
   return orbits::getElements(s);
 }
 
-Matrix66
+ElementCovariance
 Fitter::getElementCovariance() const {
   // Derivative of state vector in reference frame:
   Matrix66 dSdABG_frame = abg.getStateDerivatives();
@@ -487,7 +466,7 @@ Fitter::getElementCovariance() const {
   // Get element derivatives
   Matrix66 dEdABG = getElementDerivatives(s) * dSdABG;
   //**/cerr << "dEdABG: " << endl << dEdABG << endl;
-  return dEdABG * A.inverse() * dEdABG.transpose();
+  return Matrix66(dEdABG * A.inverse() * dEdABG.transpose());
 }
   
 // Forecast position using current fit.  Cov matrix elements given if filled:

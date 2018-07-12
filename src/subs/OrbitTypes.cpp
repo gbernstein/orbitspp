@@ -46,10 +46,12 @@ std::basic_ostream<charT, traits>& operator<<(std::basic_ostream<charT, traits>&
     return s;
 }
 
-// Order to read/write components:
+// Order to read/write components - could change these two lines to rearrange ABG printouts
 const std::vector<int> abgOrder = {ABG::A, ABG::B, ABG::G,
 				   ABG::ADOT, ABG::BDOT, ABG::GDOT};
 const std::vector<string> abgNames={"alpha","beta","gamma","alphadot","betadot","gammadot"};
+// The printout order of Elements is fixed by the code in the read/write routines to
+// match the storage order.
 const std::vector<string> elementNames={"a","e","i","LAN","AoP","ToP"}; // Matches order of enum
 
 
@@ -328,22 +330,26 @@ MPCObservation::MPCObservation(const string& line) {
 }
 
 std::ostream&
-ABGCovariance::write(std::ostream& os, int precision) {
+ABGCovariance::write(std::ostream& os, int precision) const {
   stringstuff::StreamSaver ss(os);
-  DVector sd = this->diagonal().cwiseSqrt();
+  Vector6 sd = this->diagonal().cwiseSqrt();
   os << "# Standard deviations: " << endl;
+  os << "#";
+  for (auto& s : abgNames)
+    os << std::setw(precision+7) << centered(s);
+  os << endl;
   os << std::scientific << std::setprecision(precision) << std::noshowpos;
   for (int i=0; i<6; i++) 
-    os << sd[i] << " ";
+    os << sd[abgOrder[i]] << " ";
   os << endl;
   // Calculate correlation matrix
   os << "# Correlation matrix:" << endl;
   sd = sd.cwiseInverse();
-  Matrix66 out = sd.asDiagonal() * m * sd.asDiagonal();
+  Matrix66 corr = sd.asDiagonal() * (*this) * sd.asDiagonal();
   os << std::fixed << std::showpos;
   for (int i=0; i<6; i++) {
     for (int j=0; j<6; j++)
-      os << std::setw(precision+3) << out(i,j) << " ";
+      os << std::setw(precision+3) << corr(abgOrder[i],abgOrder[j]) << " ";
     os << endl;
   }
   return os;
@@ -357,8 +363,65 @@ ABGCovariance::read(std::istream& is) {
   {
     std::istringstream iss(buffer);
     for (int i=0; i<6; i++)
+      iss >> sd[abgOrder[i]];
+  }
+  Matrix66 corr;
+  for (int i=0; i<6; i++) {
+    stringstuff::getlineNoComment(is, buffer);
+    std::istringstream iss(buffer);
+    for (int j=0; j<6; j++)
+      iss >> corr(abgOrder[i],abgOrder[j]);
+  }
+  *this =  Matrix66(sd.asDiagonal() * corr * sd.asDiagonal());
+  return is;
+}
+
+
+std::ostream&
+ElementCovariance::write(std::ostream& os, int precision) const {
+  stringstuff::StreamSaver ss(os);
+  Vector6 sd = this->diagonal().cwiseSqrt();
+  Vector6 inverseSD = sd.cwiseInverse();
+  Matrix66 corr = inverseSD.asDiagonal() * (*this) * inverseSD.asDiagonal();
+  // Convert the angle SD's to degrees
+  sd[Elements::I] /= DEGREE;
+  sd[Elements::LAN] /= DEGREE;
+  sd[Elements::AOP] /= DEGREE;
+  os << "# Standard deviations: " << endl;
+  os << "#";
+  for (auto& s : elementNames)
+    os << std::setw(precision+7) << centered(s);
+  os << endl;
+  os << std::scientific << std::setprecision(precision) << std::noshowpos;
+  for (int i=0; i<6; i++) 
+    os << sd[i] << " ";
+  os << endl;
+  // Calculate correlation matrix
+  os << "# Correlation matrix:" << endl;
+  os << std::fixed << std::showpos;
+  for (int i=0; i<6; i++) {
+    for (int j=0; j<6; j++)
+      os << std::setw(precision+3) << corr(i,j) << " ";
+    os << endl;
+  }
+  return os;
+}
+
+std::istream&
+ElementCovariance::read(std::istream& is) {
+  string buffer;
+  stringstuff::getlineNoComment(is, buffer);
+  Vector6 sd;
+  {
+    std::istringstream iss(buffer);
+    for (int i=0; i<6; i++)
       iss >> sd[i];
   }
+  // Convert angles from degrees:
+  sd[Elements::I] *= DEGREE;
+  sd[Elements::LAN] *= DEGREE;
+  sd[Elements::AOP] *= DEGREE;
+  
   Matrix66 corr;
   for (int i=0; i<6; i++) {
     stringstuff::getlineNoComment(is, buffer);
@@ -366,7 +429,7 @@ ABGCovariance::read(std::istream& is) {
     for (int j=0; j<6; j++)
       iss >> corr(i,j);
   }
-  *this =  sd.asDiagonal() * corr * sd.asDiagonal();
+  *this =  Matrix66(sd.asDiagonal() * corr * sd.asDiagonal());
   return is;
 }
 
