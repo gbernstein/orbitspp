@@ -20,7 +20,7 @@ namespace orbits {
     // Initialize fitter with ephemeris and choice of gravity approximation
 
     // Give Fitter a previous result (can be used for prediction without Observations)
-    void setABG(const ABG& abg_, const ABGCovar& cov_);
+    void setABG(const ABG& abg_, const ABGCovariance& cov_);
     
     // Add an Observation
     void addObservation(const Observation& obs);
@@ -69,12 +69,12 @@ namespace orbits {
       return abg;
     }
     double getChisq() const {return chisq;}  // Chisq at current abg
-    ABGCovar getInvCovarABG() const {
+    ABGCovariance getInvCovarABG() const {
       // Inverse covariance of ABG from last fit
       if (!abgIsValid) throw std::runtime_error("ERROR: Fitter::getInvCovarABG is not getting converged result");
       return A;}  
     Elements getElements() const;
-    Matrix66 getElementCovariance() const;
+    ElementCovariance getElementCovariance() const;
 
     // Forecast position using current fit.  Cov matrix elements given if filled:
     void predict(const DVector& t_obs,    // Time of observations, relative to tdb0

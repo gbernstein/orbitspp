@@ -81,6 +81,14 @@ namespace orbits {
   extern std::ostream& operator<<(std::ostream& os, const ABG& abg);
   extern std::istream& operator>>(std::istream& is, ABG& abg);
 
+  class ABGCovariance: public Matrix66 {
+  public:
+    ABGCovariance(const Matrix66& rhs): Matrix66(rhs) {}
+    ABGCovariance() = default;
+    std::ostream& write(std::ostream& os, int precision=6) const;
+    std::istream& read(std::istream& is);
+  };
+
   class Elements: public Vector6 {
     // Keplerian elements for elliptical orbit
   public:
@@ -99,10 +107,10 @@ namespace orbits {
   extern std::ostream& operator<<(std::ostream& os, const Elements& el);
   extern std::istream& operator>>(std::istream& is, Elements& el);
 
-  class ABGCovariance: public Matrix66 {
+  class ElementCovariance: public Matrix66 {
   public:
-    ABGCovariance(const Matrix66& rhs): Matrix66(rhs) {}
-    ABGCovariance() = default;
+    ElementCovariance(const Matrix66& rhs): Matrix66(rhs) {}
+    ElementCovariance() = default;
     std::ostream& write(std::ostream& os, int precision=6) const;
     std::istream& read(std::istream& is);
   };
@@ -129,16 +137,6 @@ namespace orbits {
     int obscode; // MPC observatory code
   };
 
-  typedef Matrix66 ABGCovar;
-
-  // Write and read covariance matrices as a line of sd's and
-  // a correlation matrix.
-  // The write will terminate with endl and the read uses getline
-  // so it is best to keep these on their own lines.
-  extern std::ostream& writeCovariance6(std::ostream& os, const Matrix66& m, int precision=6);
-  extern Matrix66 readCovariance6(std::istream& is);
-  
-  
   class Frame: public astrometry::ReferenceFrame {
     // Coordinate reference frame, including
     // 3d coords of origin,
