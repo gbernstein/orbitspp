@@ -105,8 +105,9 @@ DMatrix
 Trajectory::position(const DVector& tdb,
 		     DMatrix* velocity) const {
   DMatrix out(3,tdb.size());
-  if (velocity)
+  if (velocity) {
     velocity->resize(3,tdb.size());
+  }
   if (tdb.size()==0) return out;
   if (grav==INERTIAL) {
     // Inertial motion is just linear algebra

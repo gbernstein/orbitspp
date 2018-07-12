@@ -124,11 +124,11 @@ ABG::read(std::istream& is) {
 std::ostream& 
 Elements::write(std::ostream& os, int precision) const {
   // Write Elements on one line, in degrees.  Aim to have total
-  // number of digits = precision, but without going into scientific notation
+  // number of digits on a = precision, but without going into scientific notation
   // like std::defaultfloat.
   stringstuff::StreamSaver ss(os);  // Cache stream state
   os << std::fixed << std::noshowpos;
-  os << std::setprecision(precision- ((*this)[A]<10. ? 3 : 4))
+  os << std::setprecision(precision- ((*this)[A]<100. ? 2 : 3))
      << std::setw(precision+1) << (*this)[A] << " ";
   os << std::setprecision(precision) << std::setw(precision+2) 
      << (*this)[E] << " ";

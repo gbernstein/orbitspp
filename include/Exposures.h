@@ -25,6 +25,21 @@ namespace orbits {
     EIGEN_NEW;
   };
 
+  // This function finds all exposures from the FITS table that could
+  // possibly contain a bound TNO that is in the given
+  // range of alpha, beta, gamma at the frame reference epoch.
+  extern
+  std::vector<Exposure>
+  selectExposures(const Frame& frame,   // Starting coordinates, time
+		  const Ephemeris& ephem,  // Ephemeris to use
+		  double gamma0,        // Center and width of range 
+		  double dGamma,        // of gamma to cover
+		  double searchRadius,  // Range of starting coords to cover
+		  string exposureFile="data/y4a1.exposure.positions.fits",  // File of exposure data
+		  double fieldRadius = 1.1); // Circumscribed field radius (degrees)
+  // ?? Allow exclusion of filters??
+  // ?? Add CCD corners, detections ??
+
   class Node {
     // Node of a k-d tree of Exposures over time and position
   public:
@@ -41,6 +56,12 @@ namespace orbits {
     
     list<const Exposure*> find(const Fitter& path) const;
     // Return a list of exposures that are close to the path.
+
+    int countNodes() const {
+      // Give total count of nodes rooted to this one (inclusive)
+      if (left) return left->countNodes() + right->countNodes() + 1;
+      else return 1;
+    }
 
     static void setSpeed(double speed_) {speed=speed_;}
     static void setFieldRadius(double radius_) {fieldRadius = radius_;}
@@ -78,17 +99,6 @@ namespace orbits {
     EIGEN_NEW
   };
   
-  extern
-  std::vector<Exposure>
-  selectExposures(const Frame& frame,   // Starting coordinates, time
-		  const Ephemeris& ephem,  // Ephemeris to use
-		  double gamma0,        // Center and width of range 
-		  double dGamma,        // of gamma to cover
-		  double searchRadius,  // Range of starting coords to cover
-		  string exposureFile="data/y4a1.exposure.positions.fits",  // File of exposure data
-		  double fieldRadius = 1.1); // Circumscribed field radius (degrees)
-  // ?? Allow exclusion of filters??
-  // ?? Add CCD corners, detections ??
   
 
 } // end namespace orbits

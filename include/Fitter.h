@@ -76,6 +76,8 @@ namespace orbits {
     Elements getElements() const;
     ElementCovariance getElementCovariance() const;
 
+    const Trajectory& getTrajectory() const {return *fullTrajectory;}
+
     // Forecast position using current fit.  Cov matrix elements given if filled:
     void predict(const DVector& t_obs,    // Time of observations, relative to tdb0
 		 const DMatrix& earth,  // Observation coordinates, in our frame

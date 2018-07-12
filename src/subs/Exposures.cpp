@@ -156,7 +156,7 @@ Node::Node(dataIter _begin, dataIter _end,
   tStart = (*begin)->tobs;
   auto last = end;
   --last;
-  tStop = (*end)->tobs;  // Time ordering assumed.
+  tStop = (*last)->tobs;  // Time ordering assumed.
   for (auto i=begin; i!=end; ++i) {
     corners(0,0) = min(corners(0,0), (*i)->axis[0]);
     corners(2,0) = max(corners(2,0), (*i)->axis[0]);
@@ -188,7 +188,7 @@ class TimeSplit {
 public:
   TimeSplit(double value_): value(value_) {}
   bool operator()(const Exposure* exptr) const {
-    return exptr->tdb < value;
+    return exptr->tobs < value;
   }
 private:
   double value;
@@ -222,9 +222,14 @@ Node::split(const Ephemeris& ephem,
   double splittingThreshold = 0.5 * fieldRadius;
   if (dx < splittingThreshold
       && dy < splittingThreshold
-      && dt < splittingThreshold)
+      && dt < splittingThreshold) {
+    /**/cerr << "Leaf node: " << end-begin << " elements" 
+	     << " T " << tStart << "-" << tStop
+	     << " X " << corners(0,0) << "-" << corners(2,0)
+	     << " Y " << corners(0,1) << "-" << corners(2,1)
+	     << endl;
     return; // No need for further splits; leaf node.
-  
+  }
   // Now split, including stable partition of parent array such
   // that leaf nodes remain in time order.
   dataIter mid;
@@ -233,16 +238,19 @@ Node::split(const Ephemeris& ephem,
     splitValue = 0.5*(tStart + tStop);
     TimeSplit splitter(splitValue);
     mid = stable_partition(begin, end, splitter);
+    //**/cerr << ".Splitting at time " << splitValue << endl;
   } else if (dx > dy) {
     splitOn = X;
     splitValue = 0.5*(corners(0,0)+corners(2,0));
     XSplit splitter(splitValue);
     mid = stable_partition(begin, end, splitter);
+    //**/cerr << ".Splitting at X " << splitValue << endl;
   } else {
     splitOn = Y;
     splitValue = 0.5*(corners(0,1)+corners(2,1));
     YSplit splitter(splitValue);
     mid = stable_partition(begin, end, splitter);
+    //**/cerr << ".Splitting at Y " << splitValue << endl;
   }
   // Recursive split of children
   left = new Node(begin,mid,ephem,frame);
@@ -312,7 +320,6 @@ Node::find(const Fitter& path) const {
   double matchRadius = hypot(motion[0],motion[1])/DEGREE + sqrt(maxasq)/DEGREE + fieldRadius;
   // And center of search region for this time period, in degrees:
   ctr /= DEGREE; 
-
   list<const Exposure*> out;
   // If no spatial intersection: (ignoring curved boundaries at corners)
   if (ctr[0] >= corners(2,0) + matchRadius ||
@@ -326,6 +333,7 @@ Node::find(const Fitter& path) const {
   if (!left) {
     // If this is a leaf node, return everything as a possibility
     out.insert(out.end(), begin, end);
+    /**/cerr << "Leaf node in with " << end-begin << " exposures" << endl;
     return out;
   }
 
@@ -333,6 +341,7 @@ Node::find(const Fitter& path) const {
   if ( (ctr.distanceSq(corners).array() < (matchRadius*matchRadius)).all()) {
     // Return all exposures
     out.insert(out.end(), begin, end);
+    /**/cerr << "Total node in with " << end-begin << " exposures" << endl;
     return out;
   }
     
@@ -343,4 +352,13 @@ Node::find(const Fitter& path) const {
   return out;
 }
 
-  
+
+Node*
+Node::buildTree(dataIter begin_, dataIter end_,
+		const Ephemeris& ephem,
+		const Frame& frame) {
+  auto root = new Node(begin_, end_, ephem, frame);
+  root->split(ephem,frame);
+  return root;
+}
+

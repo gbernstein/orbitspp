@@ -55,6 +55,7 @@ namespace orbits {
 		  Vector3& x,
 		  Vector3& v) const {
       // Calculate state vector in reference system at given time for inertial motion
+      // Note that returned state has t = tdb-tdb0, whereas most uses expect tdb.
       x[0] = (*this)[ADOT]*t + (*this)[A];
       x[1] = (*this)[BDOT]*t + (*this)[B];
       x[2] = (*this)[GDOT]*t + 1.;
