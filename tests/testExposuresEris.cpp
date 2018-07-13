@@ -87,6 +87,8 @@ int main(int argc,
     frame.write(cerr);
 
     auto abg = fit.getABG();
+    ABG::writeHeader(cerr);
+    abg.write(cerr);
       
     // Calculate orbital elements:
     cerr << "Elements: " << endl;
@@ -120,15 +122,15 @@ int main(int argc,
       DVector y(n);
       DMatrix earth(n,3);
       for (int i=0; i<n; i++) {
-	tobs[i] = possibleExposures[i].tdb - frame.tdb0;
-	earth.row(i) = possibleExposures[i].earth.transpose();
+	tobs[i] = possibleExposures[i]->tdb - frame.tdb0;
+	earth.row(i) = possibleExposures[i]->earth.transpose();
       }
       fit.predict(tobs,earth,&x,&y);
 	
       int nCross=0;
       int nMiss=0;
       for (int i=0; i<n; i++) {
-	const Exposure& expo = possibleExposures[i];
+	const Exposure& expo = *possibleExposures[i];
 	double ra,dec;
 	astrometry::Gnomonic gn(x[i],y[i],frame.orient);
 	astrometry::SphericalICRS(gn).getLonLat(ra,dec);
@@ -156,7 +158,49 @@ int main(int argc,
 	   << ", " << nMiss << " misses" << endl;
     }
 
-      
+    // Examine transient lists from each possible exposure
+    {
+      // Check all input exposures to see if orbit is in them, note if any are missing from possible list.
+      int n = possibleExposures.size();
+      DVector tobs(n);
+      DVector x(n);
+      DVector y(n);
+      DVector covxx(n);
+      DVector covxy(n);
+      DVector covyy(n);
+      DMatrix earth(n,3);
+      for (int i=0; i<n; i++) {
+	tobs[i] = possibleExposures[i]->tdb - frame.tdb0;
+	earth.row(i) = possibleExposures[i]->earth.transpose();
+      }
+      fit.predict(tobs,earth,&x,&y,&covxx,&covxy,&covyy);
+      x /= DEGREE;
+      y /= DEGREE;
+      covxx /= (DEGREE*DEGREE);
+      covxy /= (DEGREE*DEGREE);
+      covyy /= (DEGREE*DEGREE);
+      int totalCounts = 0;
+      //**double CHISQ_THRESHOLD=9.21; // 99% point of chisq
+      double CHISQ_THRESHOLD=50; //** ?? try more
+      for (int i=0; i<n; i++) {
+	DVector chisq = possibleExposures[i]->chisq(x[i], y[i], covxx[i], covyy[i], covxy[i]);
+	int counts = (chisq.array() < CHISQ_THRESHOLD).count();
+	totalCounts += counts;
+	if (counts>0) {
+	  cout << possibleExposures[i]->expnum << " detects: ";
+	  for (int j=0; j<chisq.size(); j++) {
+	    if (chisq[j] < CHISQ_THRESHOLD) {
+	      cout << possibleExposures[i]->id[j]
+		   << " " << chisq[j]
+		   << " rate " << sqrt(covxx[i]*covyy[i]-covxy[i]*covxy[i])
+		                       *possibleExposures[i]->detectionDensity*CHISQ_THRESHOLD; 
+	    }
+	  }
+	  cout << endl;
+	}
+      }
+      cout << "Total detections: " << totalCounts << endl;
+    }
     
   } catch (std::runtime_error& e) {
     quit(e);

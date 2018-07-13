@@ -217,6 +217,34 @@ Frame::fromICRS(const DMatrix& x,
   }
 }
 
+Matrix22
+Frame::toICRS(const Matrix22& cov) const {
+  // Get rotation of current Frame wrt ICRS:
+  double pa = orient.getPA();
+  double c = cos(pa);
+  double s = sin(pa);
+  Matrix22 rot;
+  rot(0,0) = rot(1,1) = c;
+  rot(0,1) = s;
+  rot(1,0) = -s;
+  Matrix22 out = rot * cov * rot.transpose();
+  return out;
+}
+
+Matrix22
+Frame::fromICRS(const Matrix22& cov) const {
+  // Get rotation of current Frame wrt ICRS:
+  double pa = orient.getPA();
+  double c = cos(pa);
+  double s = sin(pa);
+  Matrix22 rot;
+  rot(0,0) = rot(1,1) = c;
+  rot(0,1) = s;
+  rot(1,0) = -s;
+  Matrix22 out = rot.transpose() * cov * rot;
+  return out;
+}
+
 MPCObservation::MPCObservation(const string& line) {
   auto fields = stringstuff::split(line);
   auto wordPtr = fields.begin();

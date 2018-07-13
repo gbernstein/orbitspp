@@ -5,18 +5,19 @@
 
 using namespace orbits;
 
-std::vector<Exposure>
+std::vector<const Exposure*>
 orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
 			const Ephemeris& ephem,  
 			double gamma0,        // Center and width of range 
 			double dGamma,        // of gamma to cover
 			double searchRadius,  // Range of starting coords to cover
+			string transientFile,
 			string exposureFile,
 			double fieldRadius) { 
 
 
-  std::vector<Exposure> out;  // This will be the returned array
-
+  std::vector<const Exposure*> out;  // This will be the returned array
+  std::list<Exposure*> firstCut; // Make a list first, then toss those with no transient data.
   // Read the exposure information table
   img::FTable exposureTable;
   try {
@@ -62,27 +63,37 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
       continue;
     
     // Fill Exposure structure, converting to Frame
-    Exposure expo;
+    auto expo = new Exposure;
     {
       double mjd;
       exposureTable.readCell(mjd, "mjd_mid", iexp);
-      expo.mjd = mjd;
-      expo.tdb = ephem.mjd2tdb(mjd);
-      expo.tobs = ephem.mjd2tdb(mjd) - frame.tdb0;
+      expo->mjd = mjd;
+      expo->tdb = ephem.mjd2tdb(mjd);
+      expo->tobs = ephem.mjd2tdb(mjd) - frame.tdb0;
     }
 
     {
       int expnum;
       exposureTable.readCell(expnum, "expnum", iexp);
-      expo.expnum = expnum;
+      expo->expnum = expnum;
     }
     
     {
       astrometry::Gnomonic xy(pointing, frame.orient);
       double x,y;
       xy.getLonLat(x,y);
-      expo.axis[0] = x / DEGREE;
-      expo.axis[1] = y / DEGREE;
+      expo->axis[0] = x / DEGREE;
+      expo->axis[1] = y / DEGREE;
+      std::vector<double> cov;
+      // Read atmospheric covariance and rotate into Frame
+      exposureTable.readCell(cov, "cov", iexp);
+      Matrix22 covRADec;
+      covRADec(0,0) = cov[0];
+      covRADec(1,1) = cov[1];
+      covRADec(1,0) = cov[2];
+      covRADec(0,1) = cov[2];
+      covRADec *= pow(1000.*3600.,-2.);  // milliarcsec->degrees
+      expo->atmosphereCov = frame.fromICRS(covRADec);
     }
 
     astrometry::CartesianICRS earthICRS;
@@ -90,15 +101,15 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
       std::vector<double> observatory;
       exposureTable.readCell(observatory,"observatory",iexp);
       for (int i=0; i<3; i++) earthICRS[i]=observatory[i];
-      expo.earth = frame.fromICRS(earthICRS.getVector());
+      expo->earth = frame.fromICRS(earthICRS.getVector());
     }
     
     // Get the center positions of the orbits at this time
     double xMin, xMax, yMin, yMax;
     astrometry::SphericalICRS posn =
-      trajectoryMin.observe(expo.tdb,earthICRS);
+      trajectoryMin.observe(expo->tdb,earthICRS);
     astrometry::Gnomonic(posn, frame.orient).getLonLat(xMin,yMin);
-    posn = trajectoryMax.observe(expo.tdb, earthICRS);
+    posn = trajectoryMax.observe(expo->tdb, earthICRS);
     astrometry::Gnomonic(posn, frame.orient).getLonLat(xMax,yMax);
 
     Point mean;
@@ -114,13 +125,87 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
 
     // Calculate unbinding velocity
     const double BINDING_FACTOR = 1.1;
-    double bind = BINDING_FACTOR * sqrt(8.) * PI * pow(gammaMax,1.5) * (expo.tdb-frame.tdb0);
+    double bind = BINDING_FACTOR * sqrt(8.) * PI * pow(gammaMax,1.5) * (expo->tdb-frame.tdb0);
     radius += asin(bind)/DEGREE;
 
     // Now test distance
-    if ( mean.distanceSq(expo.axis) < radius*radius)
-      out.push_back(expo);
+    if ( mean.distanceSq(expo->axis) < radius*radius)
+      firstCut.push_back(expo);
+    else
+      delete expo;
   }
+
+  // Now read in the transients for the exposures we're keeping.
+  img::FTable transientTable;
+  img::FTable transientIndex;
+  try {
+    FITS::FitsTable ft(transientFile, FITS::ReadOnly, "DATA");
+    std::vector<string> columnsOfInterest = {"RA","DEC","CCDNUM","ERRAWIN_WORLD"};
+    transientTable = ft.extract(0,-1,columnsOfInterest);
+    FITS::FitsTable ft2(transientFile, FITS::ReadOnly, "INDEX");
+    transientIndex = ft2.extract();
+  } catch (FITS::FITSError& m) {
+    cerr << "Error reading transient table" << endl;
+    quit(m);
+  }
+
+  // Build an index into the index:
+  std::map<int,int> findExpnum;
+  int expnum;
+  for (int row=0; row<transientIndex.nrows(); row++) {
+    transientIndex.readCell(expnum, "EXPNUM", row);
+    findExpnum[expnum] = row;
+  }
+
+  for (auto expoptr : firstCut) {
+    if (findExpnum.count(expoptr->expnum)==0) {
+      // No transient file entry for this exposure.  Flush it.
+      delete expoptr;
+      continue;
+    }
+
+    int begin,end;
+    transientIndex.readCell(begin, "FIRST", findExpnum[expoptr->expnum]);
+    transientIndex.readCell(end,  "LAST", findExpnum[expoptr->expnum]);
+    float density;
+    transientIndex.readCell(density, "DENSITY", findExpnum[expoptr->expnum]);
+    expoptr->detectionDensity = density;
+    int nTransients = end-begin;
+    expoptr->xy.resize(nTransients, 2);
+    expoptr->covXX.resize(nTransients);
+    expoptr->covXY.resize(nTransients);
+    expoptr->covYY.resize(nTransients);
+    expoptr->ccdnum.resize(nTransients);
+    expoptr->id.resize(nTransients);
+
+    std::vector<double> ra;
+    transientTable.readCells(ra, "RA", begin, end);
+    std::vector<double> dec;
+    transientTable.readCells(dec, "DEC", begin, end);
+    std::vector<double> sig;
+    transientTable.readCells(sig, "ERRAWIN_WORLD", begin, end);
+    std::vector<short int> ccd;
+    transientTable.readCells(ccd, "CCDNUM", begin, end);
+    
+    // Fill in individual detections' properties
+    DMatrix xyRADec(nTransients,2,0.);
+    for (int i=0; i<nTransients; i++) {
+      expoptr->id[i] = i+begin;
+      expoptr->ccdnum[i] = ccd[i];
+      expoptr->covXX[i] = sig[i]*sig[i] + expoptr->atmosphereCov(0,0);
+      expoptr->covXY[i] = expoptr->atmosphereCov(1,0);
+      expoptr->covYY[i] = sig[i]*sig[i] + expoptr->atmosphereCov(1,1);
+      astrometry::SphericalICRS radec(ra[i]*DEGREE, dec[i]*DEGREE);
+      astrometry::Gnomonic xy(radec, frame.orient);
+      double x,y;
+      xy.getLonLat(x,y);
+      expoptr->xy(i,0) = x / DEGREE;
+      expoptr->xy(i,1) = y / DEGREE;
+    }
+
+    // Add to output
+    out.push_back(expoptr);
+  } // End exposure loop
 
   return out;
 }
@@ -223,11 +308,11 @@ Node::split(const Ephemeris& ephem,
   if (dx < splittingThreshold
       && dy < splittingThreshold
       && dt < splittingThreshold) {
-    /**/cerr << "Leaf node: " << end-begin << " elements" 
+    /**cerr << "Leaf node: " << end-begin << " elements" 
 	     << " T " << tStart << "-" << tStop
 	     << " X " << corners(0,0) << "-" << corners(2,0)
 	     << " Y " << corners(0,1) << "-" << corners(2,1)
-	     << endl;
+	     << endl; **/
     return; // No need for further splits; leaf node.
   }
   // Now split, including stable partition of parent array such
@@ -333,7 +418,7 @@ Node::find(const Fitter& path) const {
   if (!left) {
     // If this is a leaf node, return everything as a possibility
     out.insert(out.end(), begin, end);
-    /**/cerr << "Leaf node in with " << end-begin << " exposures" << endl;
+    //**/cerr << "Leaf node in with " << end-begin << " exposures" << endl;
     return out;
   }
 
@@ -341,7 +426,7 @@ Node::find(const Fitter& path) const {
   if ( (ctr.distanceSq(corners).array() < (matchRadius*matchRadius)).all()) {
     // Return all exposures
     out.insert(out.end(), begin, end);
-    /**/cerr << "Total node in with " << end-begin << " exposures" << endl;
+    //**/cerr << "Total node in with " << end-begin << " exposures" << endl;
     return out;
   }
     
@@ -365,7 +450,7 @@ Node::buildTree(dataIter begin_, dataIter end_,
 std::list<double>
 DESTree::tdb_splits = {13.5,14.5,15.5,16.5,17.5,18.5};  // July 1 of each year splits DES seasons
 
-DESTree::DESTree(const std::vector<Exposure>& exposures,
+DESTree::DESTree(std::vector<const Exposure*>& exposurePointers,
 		 const Ephemeris& ephem,
 		 const Frame& frame,
 		 double gamma0) {
@@ -374,12 +459,8 @@ DESTree::DESTree(const std::vector<Exposure>& exposures,
   Node::setFieldRadius(1.1);    // DECam radius
   Node::setObservatory(807);    // CTIO
   
-  // Make an array of exposure pointers
-  for (auto& e : exposures)
-    exptrs.push_back(&e);
-
-  auto begin = exptrs.begin();
-  auto end = exptrs.end();
+  auto begin = exposurePointers.begin();
+  auto end = exposurePointers.end();
 
   // Make a distinct tree for each DES season
   for (auto tdb : tdb_splits) {
@@ -394,6 +475,7 @@ DESTree::DESTree(const std::vector<Exposure>& exposures,
   // Add any left after last split time
   if (end-begin > 0) 
     years.push_back( Node::buildTree(begin, end, ephem, frame));
+  /**/cerr << "DESTree has " << years.size() << " seasons" << endl;
 }
 
 DESTree::~DESTree() {
@@ -416,3 +498,19 @@ DESTree::find(const Fitter& path) const {
     out.splice(out.end(),n->find(path));
   return out;
 }
+
+DVector
+Exposure::chisq(double x0, double y0, double covxx, double covyy, double covxy) const {
+  DVector dx = xy.col(0).array() - x0;
+  DVector dy = xy.col(1).array() - y0;
+  DVector cxx = covXX.array() + covxx;
+  DVector cxy = covXY.array() + covxy;
+  DVector cyy = covYY.array() + covyy;
+
+  DVector det = cxx.array() * cyy.array() - cxy.array()*cxy.array();
+  DVector chisq = dx.array() * (dx.array()*cyy.array() - dy.array()*cxy.array())
+    + dy.array() * (dy.array()*cxx.array() - dx.array()*cxy.array());
+  chisq.array() /= det.array();
+  return chisq;
+}
+  

@@ -163,6 +163,9 @@ namespace orbits {
 		  bool isVelocity=false) const;
     DMatrix fromICRS(const DMatrix& x,
 		    bool isVelocity=false) const;
+    // This one is to convert a covariance matrix of local deviations
+    Matrix22 toICRS(const Matrix22& cov) const;
+    Matrix22 fromICRS(const Matrix22& cov) const;
 
     // Write/read one-line specification.
     std::ostream& write(std::ostream& os) const;
