@@ -362,3 +362,57 @@ Node::buildTree(dataIter begin_, dataIter end_,
   return root;
 }
 
+std::list<double>
+DESTree::tdb_splits = {13.5,14.5,15.5,16.5,17.5,18.5};  // July 1 of each year splits DES seasons
+
+DESTree::DESTree(const std::vector<Exposure>& exposures,
+		 const Ephemeris& ephem,
+		 const Frame& frame,
+		 double gamma0) {
+  // Set up the Node class
+  Node::setSpeed(360. * gamma0); // Speed is max reflex at gamma0, degrees/yr
+  Node::setFieldRadius(1.1);    // DECam radius
+  Node::setObservatory(807);    // CTIO
+  
+  // Make an array of exposure pointers
+  for (auto& e : exposures)
+    exptrs.push_back(&e);
+
+  auto begin = exptrs.begin();
+  auto end = exptrs.end();
+
+  // Make a distinct tree for each DES season
+  for (auto tdb : tdb_splits) {
+    TimeSplit splitter(tdb-frame.tdb0);
+    auto mid = stable_partition(begin, end, splitter);
+    if (mid-begin > 0) {
+      // We have a tree to build for this year.
+      years.push_back( Node::buildTree(begin, mid, ephem, frame));
+      begin = mid;
+    }
+  }
+  // Add any left after last split time
+  if (end-begin > 0) 
+    years.push_back( Node::buildTree(begin, end, ephem, frame));
+}
+
+DESTree::~DESTree() {
+  // Delete all years' trees
+  for (auto n : years) delete n;
+}
+
+int
+DESTree::countNodes() const {
+  int count=0;
+  for (auto n : years)
+    count += n->countNodes();
+  return count;
+}
+
+list<const Exposure*>
+DESTree::find(const Fitter& path) const {
+  list<const Exposure*> out;
+  for (auto n : years) 
+    out.splice(out.end(),n->find(path));
+  return out;
+}
