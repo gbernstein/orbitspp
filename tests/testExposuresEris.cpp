@@ -103,7 +103,17 @@ int main(int argc,
     auto possibleExposures = orbits::selectExposures(frame, ephem,
 						     gamma0, dGamma, 0.5);
 
+
+    cerr << "Possible exposures: " << possibleExposures.size() << endl;
+    // Now make a tree
+    DESTree tree(possibleExposures, ephem, frame, gamma0);
+
+    cerr << "Tree has " << tree.countNodes() << " nodes. Start search" << endl;
+    // Search the tree for Eris hits
+    auto hits = tree.find(fit);
+			      
     {
+      // Check all input exposures to see if orbit is in them, note if any are missing from possible list.
       int n = possibleExposures.size();
       DVector tobs(n);
       DVector x(n);
@@ -115,41 +125,42 @@ int main(int argc,
       }
       fit.predict(tobs,earth,&x,&y);
 	
+      int nCross=0;
+      int nMiss=0;
       for (int i=0; i<n; i++) {
 	const Exposure& expo = possibleExposures[i];
 	double ra,dec;
 	astrometry::Gnomonic gn(x[i],y[i],frame.orient);
 	astrometry::SphericalICRS(gn).getLonLat(ra,dec);
-	/*cout << expo.expnum << " " << tobs[i]
+	bool hit=false;
+	for (auto e : hits)
+	  if (e->expnum == expo.expnum) {
+	    hit = true;
+	    break;
+	  }
+	double rad = hypot(expo.axis[0]-x[i]/DEGREE,
+			   expo.axis[1]-y[i]/DEGREE);
+	if (rad >1.1) continue;
+	nCross++;
+	if (!hit) {
+	  cout << "MISSED" << endl;
+	  nMiss++;
+	}
+	cout << expo.expnum << " " << tobs[i]
 	     << " " << expo.axis[0] << " " << expo.axis[1]
 	     << " Eris " << x[i]/DEGREE << " " << y[i]/DEGREE
 	     << " RA/Dec " << ra/DEGREE << " " << dec/DEGREE
 	     << endl;
-	*/
       }
+      cout << "True hits: " << nCross << " of " << hits.size()
+	   << ", " << nMiss << " misses" << endl;
     }
 
-    cerr << "Possible exposures: " << possibleExposures.size() << endl;
-    // Now make a tree
-    std::vector<const Exposure*> exposurePointers;
-    for (auto& e: possibleExposures)
-      exposurePointers.push_back(&e);
-
-    Node::setSpeed(360. * gamma0); // Set to maximum reflex speed, degrees/yr
-    auto root = Node::buildTree(exposurePointers.begin(),
-				exposurePointers.end(),
-				ephem, frame);
-
-    /**/cerr << "Tree has " << root->countNodes() << "nodes. Start search" << endl;
-    // Search the tree for Eris hits
-    auto hits = root->find(fit);
-    cout << "Possible hits: " << hits.size() << endl;
-    for (auto eptr : hits) {
-      cout << eptr->expnum << endl;
-    }
-			     
+      
+    
   } catch (std::runtime_error& e) {
     quit(e);
   }
   exit(0);
 }
+

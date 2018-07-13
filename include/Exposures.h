@@ -2,6 +2,7 @@
 #ifndef EXPOSURES_H
 #define EXPOSURES_H
 
+#include <list>
 #include "Astrometry.h"
 #include "OrbitTypes.h"
 #include "PlaneGeometry.h"
@@ -72,6 +73,7 @@ namespace orbits {
     // Builds the whole tree out of time-ordered data.
     // Be sure to set speed and radius first.  Returns root node pointer.
     // Needs 
+    EIGEN_NEW
     
   private:
     dataIter begin;  // Range of data associated with this node
@@ -96,10 +98,28 @@ namespace orbits {
 	       const Frame& frame);
     // Split all the way down to leaves
 
-    EIGEN_NEW
   };
   
-  
+  class DESTree {
+    /* Serves as the root of a kD-tree of exposures that we can search using an orbit.
+     * Specialized to DES in that input exposure list is divided into survey years
+     * first, then the binary-tree Nodes begin below there.
+     */
+  public:
+    DESTree(const std::vector<Exposure>& exposures,
+	    const Ephemeris& ephem,
+	    const Frame& frame,
+	    double gamma0);
+    ~DESTree();
+    
+    int countNodes() const;
+    list<const Exposure*> find(const Fitter& path) const;
+    // Return a list of exposures that are close to the path.
+  private:
+    std::vector<const Exposure*> exptrs;
+    std::list<Node*> years;
+    static std::list<double> tdb_splits;  // tdb's at which we split DES seasons
+  };
 
 } // end namespace orbits
 #endif 
