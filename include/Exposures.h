@@ -19,23 +19,36 @@ namespace orbits {
     double tobs;  // Time relative to Frame tdb0
     Vector3 earth;  // Observatory position in Frame
     Point axis;   // Optical axis coords, in Frame gnomonic, degrees
+    Matrix22 atmosphereCov;  // Atmospheric astrometric covariance for exposure.
 
     double detectionDensity; // Density of transients, per sq degree
+    DMatrix xy;   // Transient coordinates, in Frame
+    DVector covXX;
+    DVector covXY;
+    DVector covYY;
+    vector<int> ccdnum; // CCD of origin of transients
+    vector<int> id;  // ID or row number of transient in original file
 
-    // ??? Add per-CCD info on boundaries, detection lists.
+    // Return chisq of transients determined
+    // by the given error ellipse.  Transients' measurement errors are added in.
+    DVector chisq(double x0, double y0, double covxx, double covyy, double covxy) const;
+    
+    // ??? Add per-CCD info on boundaries
     EIGEN_NEW;
   };
 
   // This function finds all exposures from the FITS table that could
   // possibly contain a bound TNO that is in the given
   // range of alpha, beta, gamma at the frame reference epoch.
+  // Then it loads the transient lists for each
   extern
-  std::vector<Exposure>
+  std::vector<const Exposure*>
   selectExposures(const Frame& frame,   // Starting coordinates, time
 		  const Ephemeris& ephem,  // Ephemeris to use
 		  double gamma0,        // Center and width of range 
 		  double dGamma,        // of gamma to cover
 		  double searchRadius,  // Range of starting coords to cover
+		  string transientFile="data/y4a1.transients.fits",  // File of transients
 		  string exposureFile="data/y4a1.exposure.positions.fits",  // File of exposure data
 		  double fieldRadius = 1.1); // Circumscribed field radius (degrees)
   // ?? Allow exclusion of filters??
@@ -106,7 +119,7 @@ namespace orbits {
      * first, then the binary-tree Nodes begin below there.
      */
   public:
-    DESTree(const std::vector<Exposure>& exposures,
+    DESTree(std::vector<const Exposure*>& exposurePointers,
 	    const Ephemeris& ephem,
 	    const Frame& frame,
 	    double gamma0);
@@ -116,7 +129,6 @@ namespace orbits {
     list<const Exposure*> find(const Fitter& path) const;
     // Return a list of exposures that are close to the path.
   private:
-    std::vector<const Exposure*> exptrs;
     std::list<Node*> years;
     static std::list<double> tdb_splits;  // tdb's at which we split DES seasons
   };
