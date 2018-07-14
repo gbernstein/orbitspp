@@ -54,6 +54,7 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
   // Step through all exposures
   for (int iexp = 0; iexp<exposureTable.nrows(); iexp++) {
     // Skip exposures not pointed anywhere near right direction
+    // FITS table has RA, Dec in degrees.
     double ra, dec;
     exposureTable.readCell(ra, "ra", iexp);
     exposureTable.readCell(dec, "dec", iexp);
@@ -82,8 +83,8 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
       astrometry::Gnomonic xy(pointing, frame.orient);
       double x,y;
       xy.getLonLat(x,y);
-      expo->axis[0] = x / DEGREE;
-      expo->axis[1] = y / DEGREE;
+      expo->axis[0] = x;
+      expo->axis[1] = y;
       std::vector<double> cov;
       // Read atmospheric covariance and rotate into Frame
       exposureTable.readCell(cov, "cov", iexp);
@@ -92,7 +93,7 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
       covRADec(1,1) = cov[1];
       covRADec(1,0) = cov[2];
       covRADec(0,1) = cov[2];
-      covRADec *= pow(1000.*3600.,-2.);  // milliarcsec->degrees
+      covRADec *= pow(0.001*ARCSEC,2.);  // milliarcsec->rad
       expo->atmosphereCov = frame.fromICRS(covRADec);
     }
 
@@ -113,9 +114,9 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
     astrometry::Gnomonic(posn, frame.orient).getLonLat(xMax,yMax);
 
     Point mean;
-    mean[0] = 0.5*(xMin+xMax) / DEGREE;
-    mean[1] = 0.5*(yMin+yMax) / DEGREE;
-    double gammaRadius = 0.5*hypot(xMax-xMin, yMax-yMin) / DEGREE;
+    mean[0] = 0.5*(xMin+xMax);
+    mean[1] = 0.5*(yMin+yMax);
+    double gammaRadius = 0.5*hypot(xMax-xMin, yMax-yMin);
 
     // Build matching radius, starting with
     // the radii of the exposure and the source region
@@ -126,7 +127,7 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
     // Calculate unbinding velocity
     const double BINDING_FACTOR = 1.1;
     double bind = BINDING_FACTOR * sqrt(8.) * PI * pow(gammaMax,1.5) * (expo->tdb-frame.tdb0);
-    radius += asin(bind)/DEGREE;
+    radius += asin(bind);
 
     // Now test distance
     if ( mean.distanceSq(expo->axis) < radius*radius)
@@ -169,7 +170,7 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
     transientIndex.readCell(end,  "LAST", findExpnum[expoptr->expnum]);
     float density;
     transientIndex.readCell(density, "DENSITY", findExpnum[expoptr->expnum]);
-    expoptr->detectionDensity = density;
+    expoptr->detectionDensity = density / (DEGREE*DEGREE); // Change per sq deg to per sr
     int nTransients = end-begin;
     expoptr->xy.resize(nTransients, 2);
     expoptr->covXX.resize(nTransients);
@@ -188,19 +189,20 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
     transientTable.readCells(ccd, "CCDNUM", begin, end);
     
     // Fill in individual detections' properties
+    // Their coordinates and sigma are in degrees.
     DMatrix xyRADec(nTransients,2,0.);
     for (int i=0; i<nTransients; i++) {
       expoptr->id[i] = i+begin;
       expoptr->ccdnum[i] = ccd[i];
-      expoptr->covXX[i] = sig[i]*sig[i] + expoptr->atmosphereCov(0,0);
+      expoptr->covXX[i] = sig[i]*sig[i]*DEGREE*DEGREE + expoptr->atmosphereCov(0,0);
       expoptr->covXY[i] = expoptr->atmosphereCov(1,0);
-      expoptr->covYY[i] = sig[i]*sig[i] + expoptr->atmosphereCov(1,1);
+      expoptr->covYY[i] = sig[i]*sig[i]*DEGREE*DEGREE + expoptr->atmosphereCov(1,1);
       astrometry::SphericalICRS radec(ra[i]*DEGREE, dec[i]*DEGREE);
       astrometry::Gnomonic xy(radec, frame.orient);
       double x,y;
       xy.getLonLat(x,y);
-      expoptr->xy(i,0) = x / DEGREE;
-      expoptr->xy(i,1) = y / DEGREE;
+      expoptr->xy(i,0) = x;
+      expoptr->xy(i,1) = y;
     }
 
     // Add to output
@@ -216,7 +218,7 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
 
 // Tree-wide static variables:
 double
-Node::speed = 360. / 40.;
+Node::speed = TPI / 40.;
 // Default apparent motion to reflex at 40 AU, in degrees/yr.
 
 double
@@ -401,10 +403,9 @@ Node::find(const Fitter& path) const {
   DVector det = covxx.array()*covyy.array() - covxy.array()*covxy.array();
   double maxasq = (tr2.array() + sqrt(tr2.array()*tr2.array() - det.array())).maxCoeff();
 
-  // Add motion, error, and field radii together to get match radius (in degrees)
-  double matchRadius = hypot(motion[0],motion[1])/DEGREE + sqrt(maxasq)/DEGREE + fieldRadius;
-  // And center of search region for this time period, in degrees:
-  ctr /= DEGREE; 
+  // Add motion, error, and field radii together to get match radius
+  double matchRadius = hypot(motion[0],motion[1]) + sqrt(maxasq) + fieldRadius;
+
   list<const Exposure*> out;
   // If no spatial intersection: (ignoring curved boundaries at corners)
   if (ctr[0] >= corners(2,0) + matchRadius ||
@@ -455,8 +456,8 @@ DESTree::DESTree(std::vector<const Exposure*>& exposurePointers,
 		 const Frame& frame,
 		 double gamma0) {
   // Set up the Node class
-  Node::setSpeed(360. * gamma0); // Speed is max reflex at gamma0, degrees/yr
-  Node::setFieldRadius(1.1);    // DECam radius
+  Node::setSpeed(TPI * gamma0); // Speed is max reflex at gamma0, rad/yr
+  Node::setFieldRadius(1.1*DEGREE);    // DECam radius
   Node::setObservatory(807);    // CTIO
   
   auto begin = exposurePointers.begin();
