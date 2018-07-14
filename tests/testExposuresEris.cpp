@@ -140,19 +140,18 @@ int main(int argc,
 	    hit = true;
 	    break;
 	  }
-	double rad = hypot(expo.axis[0]-x[i]/DEGREE,
-			   expo.axis[1]-y[i]/DEGREE);
-	if (rad >1.1) continue;
+	double rad = hypot(expo.axis[0]-x[i],
+			   expo.axis[1]-y[i]);
+	if (rad >1.1*DEGREE) continue;
 	nCross++;
 	if (!hit) {
-	  cout << "MISSED" << endl;
 	  nMiss++;
+	  cout << "MISSED " 
+	       << expo.expnum << " " << tobs[i]
+	       << " " << expo.axis[0]/DEGREE << " " << expo.axis[1]/DEGREE
+	       << " Eris " << x[i]/DEGREE << " " << y[i]/DEGREE
+	       << endl;
 	}
-	cout << expo.expnum << " " << tobs[i]
-	     << " " << expo.axis[0] << " " << expo.axis[1]
-	     << " Eris " << x[i]/DEGREE << " " << y[i]/DEGREE
-	     << " RA/Dec " << ra/DEGREE << " " << dec/DEGREE
-	     << endl;
       }
       cout << "True hits: " << nCross << " of " << hits.size()
 	   << ", " << nMiss << " misses" << endl;
@@ -174,11 +173,6 @@ int main(int argc,
 	earth.row(i) = possibleExposures[i]->earth.transpose();
       }
       fit.predict(tobs,earth,&x,&y,&covxx,&covxy,&covyy);
-      x /= DEGREE;
-      y /= DEGREE;
-      covxx /= (DEGREE*DEGREE);
-      covxy /= (DEGREE*DEGREE);
-      covyy /= (DEGREE*DEGREE);
       int totalCounts = 0;
       //**double CHISQ_THRESHOLD=9.21; // 99% point of chisq
       double CHISQ_THRESHOLD=50; //** ?? try more

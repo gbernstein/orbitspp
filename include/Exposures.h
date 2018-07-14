@@ -12,16 +12,17 @@
 namespace orbits {
 
   class Exposure {
+    // Information on an exposure.  All quantities in radians internally.
   public:
     int expnum;
     double mjd;
     double tdb;
     double tobs;  // Time relative to Frame tdb0
     Vector3 earth;  // Observatory position in Frame
-    Point axis;   // Optical axis coords, in Frame gnomonic, degrees
+    Point axis;   // Optical axis coords, in Frame gnomonic
     Matrix22 atmosphereCov;  // Atmospheric astrometric covariance for exposure.
 
-    double detectionDensity; // Density of transients, per sq degree
+    double detectionDensity; // Density of transients, per sr
     DMatrix xy;   // Transient coordinates, in Frame
     DVector covXX;
     DVector covXY;
@@ -47,10 +48,10 @@ namespace orbits {
 		  const Ephemeris& ephem,  // Ephemeris to use
 		  double gamma0,        // Center and width of range 
 		  double dGamma,        // of gamma to cover
-		  double searchRadius,  // Range of starting coords to cover
+		  double searchRadius,  // Range of starting coords to cover (radians)
 		  string transientFile="data/y4a1.transients.fits",  // File of transients
 		  string exposureFile="data/y4a1.exposure.positions.fits",  // File of exposure data
-		  double fieldRadius = 1.1); // Circumscribed field radius (degrees)
+		  double fieldRadius = 1.1*DEGREE); // Circumscribed field radius (radians)
   // ?? Allow exclusion of filters??
   // ?? Add CCD corners, detections ??
 
@@ -77,8 +78,8 @@ namespace orbits {
       else return 1;
     }
 
-    static void setSpeed(double speed_) {speed=speed_;}
-    static void setFieldRadius(double radius_) {fieldRadius = radius_;}
+    static void setSpeed(double speed_) {speed=speed_;} // Rough max TNO speed, rad/yr
+    static void setFieldRadius(double radius_) {fieldRadius = radius_;} // radians
     static void setObservatory(int obscode_) {obscode=obscode_;}
     static Node* buildTree(dataIter begin_, dataIter end_,
 			   const Ephemeris& ephem,
