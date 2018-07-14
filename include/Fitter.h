@@ -28,6 +28,15 @@ namespace orbits {
     // Ingest a sequence of MPC-style observations from stream
     void readMPCObservations(istream& is);
 
+    // Replace observations with data that is already in desired Frame
+    void setObservationsInFrame(const DVector& tObs_,    // TDB since reference time
+				const DVector& thetaX_,  // Observed positions
+				const DVector& thetaY_,
+				const DVector& covXX_,   // Covariance of observed posns
+				const DVector& covYY_,
+				const DVector& covXY_,
+				const DMatrix& xE_);     // Observatory posn at observations
+
     // Number of observations
     int nObservations() const {return observations.size();}
 
@@ -69,6 +78,7 @@ namespace orbits {
       return abg;
     }
     double getChisq() const {return chisq;}  // Chisq at current abg
+    int getDOF() const {return 2*tObs.size() - 6;}  // DOF does not count priors
     ABGCovariance getInvCovarABG() const {
       // Inverse covariance of ABG from last fit
       if (!abgIsValid) throw std::runtime_error("ERROR: Fitter::getInvCovarABG is not getting converged result");
@@ -87,7 +97,16 @@ namespace orbits {
 		 DVector* covXY = nullptr,   // (not computed if nullptrs)
 		 DVector* covYY = nullptr) const;
 		 
-    
+    // Return a new Fitter that has orbit updated using an additional observation
+    // The additional data is assumed already in desired Frame.
+    Fitter* augmentObservation(double tObs_,    // TDB since reference time
+			       double thetaX_,  // Observed positions
+			       double thetaY_,
+			       double covXX_,   // Covariance of observed posns
+			       double covYY_,
+			       double covXY_,
+			       const Vector3& xE_,     // Observatory posn at observations
+			       bool newGravity=false); // Use updated orbit to recalculate non-inertial motion?
   private:
     const Ephemeris& eph; // Solar system Ephemeris
 
@@ -105,6 +124,8 @@ namespace orbits {
 
     void calculateChisq(); // Calculate chisq at current abg
     void calculateChisqDerivatives(); // Calculate chisq and derivs wrt abg
+
+    void resizeArrays(int n); // Set all of arrays below to desired sizes
 
     Frame f;   // Reference frame for our coordinates
 
