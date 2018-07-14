@@ -157,7 +157,15 @@ int main(int argc,
 	   << ", " << nMiss << " misses" << endl;
     }
 
-    // Examine transient lists from each possible exposure
+    // Examine transient lists from each possible exposure.
+    // We'll accumulate data on matched detections and then refit it.
+    std::vector<double> foundT;
+    std::vector<double> foundX;
+    std::vector<double> foundY;
+    std::vector<double> foundCovXX;
+    std::vector<double> foundCovYY;
+    std::vector<double> foundCovXY;
+    std::vector<Vector3> foundXE;
     {
       // Check all input exposures to see if orbit is in them, note if any are missing from possible list.
       int n = possibleExposures.size();
@@ -177,17 +185,26 @@ int main(int argc,
       //**double CHISQ_THRESHOLD=9.21; // 99% point of chisq
       double CHISQ_THRESHOLD=50; //** ?? try more
       for (int i=0; i<n; i++) {
-	DVector chisq = possibleExposures[i]->chisq(x[i], y[i], covxx[i], covyy[i], covxy[i]);
+	const Exposure& expo = *possibleExposures[i];
+	DVector chisq = expo.chisq(x[i], y[i], covxx[i], covyy[i], covxy[i]);
 	int counts = (chisq.array() < CHISQ_THRESHOLD).count();
 	totalCounts += counts;
 	if (counts>0) {
-	  cout << possibleExposures[i]->expnum << " detects: ";
+	  cout << expo.expnum << " detects: ";
 	  for (int j=0; j<chisq.size(); j++) {
 	    if (chisq[j] < CHISQ_THRESHOLD) {
-	      cout << possibleExposures[i]->id[j]
+	      cout << expo.id[j]
 		   << " " << chisq[j]
-		   << " rate " << sqrt(covxx[i]*covyy[i]-covxy[i]*covxy[i])
-		                       *possibleExposures[i]->detectionDensity*CHISQ_THRESHOLD; 
+		   << " rate " << sqrt(covxx[i]*covyy[i]-covxy[i]*covxy[i]) *
+		      expo.detectionDensity*CHISQ_THRESHOLD; 
+	      // Add this observation for fitting later
+	      foundT.push_back(expo.tobs);
+	      foundX.push_back(expo.xy(j,0));
+	      foundY.push_back(expo.xy(j,1));
+	      foundCovXX.push_back(expo.covXX[j]);
+	      foundCovYY.push_back(expo.covYY[j]);
+	      foundCovXY.push_back(expo.covXY[j]);
+	      foundXE.push_back(expo.earth);
 	    }
 	  }
 	  cout << endl;
@@ -195,6 +212,30 @@ int main(int argc,
       }
       cout << "Total detections: " << totalCounts << endl;
     }
+
+    // Refit the orbit to just these new detections.
+    {
+      // Reformat std::vectors into Eigen arrays and give to fitter.
+      int n=foundT.size();
+      DVector vT(n); for (int i=0; i<n; i++) vT[i] = foundT[i];
+      DVector vX(n); for (int i=0; i<n; i++) vX[i] = foundX[i];
+      DVector vY(n); for (int i=0; i<n; i++) vY[i] = foundY[i];
+      DVector vXX(n); for (int i=0; i<n; i++) vXX[i] = foundCovXX[i];
+      DVector vYY(n); for (int i=0; i<n; i++) vYY[i] = foundCovYY[i];
+      DVector vXY(n); for (int i=0; i<n; i++) vT[i] = foundT[i];
+      DMatrix vXE(n,3); for (int i=0; i<n; i++) vXE.row(i) = foundXE[i].transpose();
+    
+      /**/cerr << "new data made" << endl;
+      fit.setObservationsInFrame(vT,vX,vY,vXX,vYY,vXY,vXE);
+    }
+    /**/cerr << "refitting" << endl;
+    fit.newtonFit();
+    cerr << "Chisq of new Eris fit: " << fit.getChisq() << endl;
+    Elements::writeHeader(cerr);
+    cerr << fit.getElements() << endl;
+
+    fit.printResiduals(cerr);
+    
     
   } catch (std::runtime_error& e) {
     quit(e);

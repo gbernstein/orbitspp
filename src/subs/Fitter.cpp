@@ -64,17 +64,7 @@ observationTimeOrder(const Observation& m1,
 }
 
 void
-Fitter::setFrame(const Frame& f_) {
-  if (frameIsSet)
-    throw std::runtime_error("ERROR: Fitter::setFrame called after already set");
-  f = f_;
-  frameIsSet = true;
-  abgIsValid = false;
-  // Recalculate all coordinates in this frame;
-  int n = observations.size();
-  // Put observations into time order.
-  std::sort(observations.begin(), observations.end(),
-    observationTimeOrder);
+Fitter::resizeArrays(int n) {
   tObs.resize(n);
   tEmit.resize(n);
   tdbEmit.resize(n);
@@ -89,6 +79,21 @@ Fitter::setFrame(const Frame& f_) {
   xGrav.resize(n,3);
   dThetaXdABG.resize(n,6);
   dThetaYdABG.resize(n,6);
+}
+
+void
+Fitter::setFrame(const Frame& f_) {
+  if (frameIsSet)
+    throw std::runtime_error("ERROR: Fitter::setFrame called after already set");
+  f = f_;
+  frameIsSet = true;
+  abgIsValid = false;
+  // Put observations into time order.
+  std::sort(observations.begin(), observations.end(),
+    observationTimeOrder);
+  // Recalculate all coordinates in this frame;
+  int n = observations.size();
+  resizeArrays(n);
 
   astrometry::Gnomonic projection(f.orient);  
   for (int i=0; i<n; i++) {
@@ -133,6 +138,44 @@ Fitter::setFrame(const Frame& f_) {
   }
 }
 
+// Replace observations with data that is already in desired Frame
+void
+Fitter::setObservationsInFrame(const DVector& tObs_,    // TDB since reference time
+			       const DVector& thetaX_,  // Observed positions
+			       const DVector& thetaY_,
+			       const DVector& covXX_,   // Covariance of observed posns
+			       const DVector& covYY_,
+			       const DVector& covXY_,
+			       const DMatrix& xE_) {    // Observatory posn at observations
+  if (!frameIsSet)
+    throw std::runtime_error("ERROR: Fitter::setObservationsInFrame() was "
+			     "called before setFrame()");
+  int n = tObs_.size();
+  if (thetaX_.size()!=n ||
+      thetaY_.size()!=n ||
+      covXX_.size()!=n ||
+      covYY_.size()!=n ||
+      covXY_.size()!=n ||
+      xE_.rows() !=n ||
+      xE_.cols() !=3)
+    throw std::runtime_error("ERROR: Mismatched array sizes in "
+			     "Fitter::setObservationsInFrame()");
+
+  resizeArrays(n);
+  abgIsValid = false;
+  tObs = tObs_;
+  tEmit = tObs_; // No light-travel correction to start
+  tdbEmit = tEmit.array() + f.tdb0;
+  thetaX = thetaX_;
+  thetaY = thetaY_;
+  DVector det = covXX_.array()*covYY_.array() - covXY_.array()*covXY_.array();
+  invcovXX = covYY_.array() / det.array();
+  invcovYY = covXX_.array() / det.array();
+  invcovXY = -covXY_.array() / det.array();
+  xE = xE_;
+  xGrav.setZero();
+}
+
 void
 Fitter::chooseFrame(int obsNumber) {
   if (obsNumber >= static_cast<int> (observations.size())) 
@@ -165,12 +208,12 @@ Fitter::chooseFrame(int obsNumber) {
 
 void
 Fitter::calculateOrbitDerivatives() {
-  int nobs = observations.size();
+  int nobs = tEmit.size();
 
   // Calculate positions
   DVector denom = DVector(nobs,1.) + abg[ABG::GDOT]*tEmit
     + abg[ABG::G]*(xGrav.col(2) - xE.col(2));
-  // ??? add TMV version
+
   denom = denom.cwiseInverse();  // Denom is now 1/(z*gamma)
   thetaXModel = abg[ABG::ADOT]*tEmit
     + abg[ABG::G]*(xGrav.col(0) - xE.col(0));
@@ -204,7 +247,7 @@ Fitter::calculateOrbitDerivatives() {
 void
 Fitter::iterateTimeDelay() {
   // Use current orbit to update light-travel time
-  int nobs = observations.size();
+  int nobs = tObs.size();
   // Light-travel time is distance/(speed of light)
 
   DMatrix xyz = abg.getXYZ(tEmit) + xGrav - xE;
@@ -264,7 +307,7 @@ Fitter::calculateGravity() {
 
 void
 Fitter::calculateChisqDerivatives() {
-  if (observations.size() < 2)
+  if (tObs.size() < 2)
     throw std::runtime_error("ERROR: Fitter::calculateChisqDerivatives called with <2 observations");
   // Assumes that model values are up to date
   DVector dx = thetaX - thetaXModel;
@@ -413,16 +456,22 @@ Fitter::printResiduals(std::ostream& os) const {
   double chi;
   DVector dx = thetaX - thetaXModel;
   DVector dy = thetaY - thetaYModel;
-  os << "# N    T     dx     dy    chisq" << endl;
+  os << "# N    T      dx      dy    chisq" << endl;
   os << "#    (days)  (arcsecond)   " << endl;
   for (int i=0; i<dx.size(); i++) {
     chi = dx[i]*dx[i]*invcovXX[i] + 2.*dx[i]*dy[i]*invcovXY[i] + dy[i]*dy[i]*invcovYY[i];
-    os << std::setw(3) << i << "  " << std::showpos << std::setw(7) << tObs[i]/DAY
-       << " " << dx[i]/ARCSEC << " " << dy[i]/ARCSEC
-       << std::noshowpos << " " << chi << endl;
+    os << std::setw(3) << i << "  "
+       << std::showpos << tObs[i]/DAY << " "
+       << std::setprecision(3)
+       << std::setw(7) << dx[i]/ARCSEC << " "
+       << std::setw(7) << dy[i]/ARCSEC << " "
+       << std::noshowpos << std::setprecision(2) << chi << endl;
     chitot += chi;
   }
-  os << " chisq w/o priors " << chitot << " w/priors: " << chisq << endl;
+  os << " chisq w/o priors: " << chitot
+     << " w/priors: " << chisq 
+     << " DOF: " << getDOF()
+     << endl;
 }
 
 Elements
