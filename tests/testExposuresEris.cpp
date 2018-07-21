@@ -224,11 +224,9 @@ int main(int argc,
       DVector vYY(n); for (int i=0; i<n; i++) vYY[i] = foundCovYY[i];
       DVector vXY(n); for (int i=0; i<n; i++) vT[i] = foundT[i];
       DMatrix vXE(n,3); for (int i=0; i<n; i++) vXE.row(i) = foundXE[i].transpose();
-    
-      /**/cerr << "new data made" << endl;
       fit.setObservationsInFrame(vT,vX,vY,vXX,vYY,vXY,vXE);
     }
-    /**/cerr << "refitting" << endl;
+
     fit.newtonFit();
     cerr << "Chisq of new Eris fit: " << fit.getChisq() << endl;
     Elements::writeHeader(cerr);

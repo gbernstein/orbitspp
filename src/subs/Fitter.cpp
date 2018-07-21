@@ -624,3 +624,85 @@ Fitter::predict(const DVector& t_obs,    // Time of observations, relative to td
   }  
   return;
 }
+
+Fitter*
+Fitter::augmentObservation(double tObs_,    // TDB since reference time
+			   double thetaX_,  // Observed positions
+			   double thetaY_,
+			   double covXX_,   // Covariance of observed posns
+			   double covYY_,
+			   double covXY_,
+			   const Vector3& xE_,     // Observatory posn at observations
+			   bool newGravity) const {
+  // Create new Fitter with room for one more data point
+  auto out = new Fitter(eph, grav);
+  out->setFrame(f);
+  int oldN = tObs.size();
+  out->resizeArrays(oldN + 1);
+  out->tObs.subVector(0,oldN) = tObs;
+  out->tObs[oldN] = tObs_;
+  out->thetaX.subVector(0,oldN) = thetaX;
+  out->thetaX[oldN] = thetaX_;
+  out->thetaY.subVector(0,oldN) = thetaY;
+  out->thetaY[oldN] = thetaY_;
+  out->invcovXX.subVector(0,oldN) = invcovXX;
+  out->invcovYY.subVector(0,oldN) = invcovYY;
+  out->invcovXY.subVector(0,oldN) = invcovXY;
+  double det = covXX_*covYY_ - covXY_*covXY_;
+  out->invcovXX[oldN] = covYY_/det;
+  out->invcovYY[oldN] = covXX_/det;
+  out->invcovXY[oldN] = -covXY_/det;
+  out->xE.subMatrix(0,oldN,0,3) = xE;
+  out->xE.row(oldN) = xE_.transpose();
+  
+  out->xGrav.subMatrix(0,oldN,0,3) = xGrav;
+  out->tEmit.subVector(0,oldN) = tEmit;
+  out->tdbEmit.subVector(0,oldN) = tdbEmit;
+  // Get gravity position and time delay for new point from current fit
+  {
+    if (!fullTrajectory)
+      throw std::runtime_error("ERROR: Fitter::augmentObservation called without "
+			       "a valid Trajectory");
+    Vector3 xFull = f.fromICRS(fullTrajectory->position(tObs_+f.tdb0).getVector());
+    Vector3 xInertial,v;
+    abg.getState(tObs_,xInertial,v);
+    Vector3 g = xFull-xInertial;
+    out->xGrav.row(oldN) = g.transpose();
+
+    Vector3 dx = (xFull-xE_);
+    out->tEmit[oldN] = tObs_ - sqrt(dx.dot(dx))/SpeedOfLightAU; 
+    out->tdbEmit[oldN] = out->tEmit[oldN] + f.tdb0;
+  }
+
+  // Do a single Newton iteration of refitting, starting from old solution
+  out->abg = abg;
+  // And including same priors
+  out->gamma0 = gamma0;
+  out->gammaPriorSigma = gammaPriorSigma;
+  out->bindingConstraintFactor = bindingConstraintFactor;
+  
+  out->calculateOrbitDerivatives();
+  out->calculateChisqDerivatives();
+  auto llt = out->A.llt();
+  out->abg += llt.solve(out->b);
+  // Refine time delay
+  out->iterateTimeDelay();
+  // Either adopt old trajectory or recalculate it
+  if (newGravity)
+    out->calculateGravity();
+  else
+    out->fullTrajectory = new Trajectory(*fullTrajectory);
+  // One more Newton
+  out->calculateOrbitDerivatives();
+  out->calculateChisqDerivatives();
+  llt = out->A.llt();
+  Vector6 dp = llt.solve(out->b); 
+  out->abg += dp;
+  out->abgIsValid = true;
+  // Shortcut for new chisq assuming linearity
+  out->chisq -= dp.transpose() * out->A * dp;
+  
+  return out;
+}  
+
+  

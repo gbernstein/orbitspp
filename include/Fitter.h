@@ -99,6 +99,8 @@ namespace orbits {
 		 
     // Return a new Fitter that has orbit updated using an additional observation
     // The additional data is assumed already in desired Frame.
+    // Use updated orbit to recalculate non-inertial motion if newGravity=true,
+    // otherwise keep trajectory from previous fit.
     Fitter* augmentObservation(double tObs_,    // TDB since reference time
 			       double thetaX_,  // Observed positions
 			       double thetaY_,
@@ -106,7 +108,7 @@ namespace orbits {
 			       double covYY_,
 			       double covXY_,
 			       const Vector3& xE_,     // Observatory posn at observations
-			       bool newGravity=false); // Use updated orbit to recalculate non-inertial motion?
+			       bool newGravity=false) const; 
   private:
     const Ephemeris& eph; // Solar system Ephemeris
 
