@@ -399,6 +399,7 @@ Fitter::newtonFit(double chisqTolerance, bool dump) {
     // Solve (check degeneracies??)
     auto llt = A.llt();
     abg += llt.solve(b);
+    /**/cerr << "iteration " << iterations;
     if (dump) {
       cerr << "Iteration " << iterations <<endl;
       auto dd = llt.solve(b);
@@ -407,8 +408,11 @@ Fitter::newtonFit(double chisqTolerance, bool dump) {
       cerr << endl << " abg:    ";
       write6(abg,cerr);
     }
+    /**/cerr << " .solved. " << iterations;
     calculateOrbitDerivatives();
+    /**/cerr << " .orbits. ";
     calculateChisqDerivatives();
+    /**/cerr << " .chisq. " << chisq  << " abg " << abg <<  endl;
     if (dump) cerr << endl << " New chisq: " << chisq << endl;
     iterations++;
   } while (iterations < MAX_ITERATIONS && abs(chisq-oldChisq) > chisqTolerance);
@@ -426,7 +430,7 @@ Fitter::newtonFit(double chisqTolerance, bool dump) {
     // Solve (check degeneracies??)
     auto llt = A.llt();
     abg += llt.solve(b);
-    if (dump) {
+    if (true) { //**(dump) {
       cerr << "Gravity iteration " << iterations <<endl;
       auto dd = llt.solve(b);
       cerr << " change: ";
