@@ -433,7 +433,6 @@ Fitter::abgSanityCheck() const {
   if (abs(abg[ABG::G]) > MAX_GAMMA) {
     FormatAndThrow<std::runtime_error>()
       << "ERROR: Fitter gamma grows too large: " << abg[ABG::G];
-    /**/cerr << "linear Gamma " << abg[ABG::G] << endl;
   }
   double ke = (abg[ABG::ADOT] * abg[ABG::ADOT]
 	       + abg[ABG::BDOT] * abg[ABG::BDOT]
@@ -441,7 +440,6 @@ Fitter::abgSanityCheck() const {
   if (ke > MAX_KE) {
     FormatAndThrow<std::runtime_error>()
       << "ERROR: Fitter |KE/PE| grows too large: " << ke;
-    /**/cerr << "linear KE " << ke << endl;
   }
 }
 
