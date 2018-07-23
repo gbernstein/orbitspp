@@ -27,7 +27,11 @@ Fitter::Fitter(const Ephemeris& eph_,
 			       bindingConstraintFactor(0.),
 			       gammaPriorSigma(0.),
 			       frameIsSet(false),
-			       abgIsValid(false) {} 
+			       abgIsFit(false),
+			       positionsAreValid(false),
+			       positionDerivsAreValid(false),
+			       chisqIsValid(false),
+			       chisqDerivsAreValid(false) {} 
 
 void
 Fitter::setABG(const ABG& abg_, const ABGCovariance& cov_) {
@@ -35,8 +39,9 @@ Fitter::setABG(const ABG& abg_, const ABGCovariance& cov_) {
     throw std::runtime_error("ERROR: Fitter::setABG called before setFrame");
   abg = abg_;
   A = cov_.inverse();
-  abgIsValid = true;
+  newABG(); // update status flags
 }
+
 void
 Fitter::addObservation(const Observation& obs) {
   if (frameIsSet)
@@ -53,14 +58,6 @@ Fitter::readMPCObservations(istream& is) {
     auto obs = mpc2Observation(MPCObservation(line),eph);
     observations.push_back(obs);
   };
-}
-
-// Routine used to put observations into time order
-bool
-observationTimeOrder(const Observation& m1,
-		     const Observation& m2)
-{
-  return m1.tdb < m2.tdb;
 }
 
 void
@@ -87,10 +84,8 @@ Fitter::setFrame(const Frame& f_) {
     throw std::runtime_error("ERROR: Fitter::setFrame called after already set");
   f = f_;
   frameIsSet = true;
-  abgIsValid = false;
-  // Put observations into time order.
-  std::sort(observations.begin(), observations.end(),
-    observationTimeOrder);
+  newData(); // Reset results flags
+
   // Recalculate all coordinates in this frame;
   int n = observations.size();
   resizeArrays(n);
@@ -162,7 +157,8 @@ Fitter::setObservationsInFrame(const DVector& tObs_,    // TDB since reference t
 			     "Fitter::setObservationsInFrame()");
 
   resizeArrays(n);
-  abgIsValid = false;
+  newData(); // Reset results flags
+
   tObs = tObs_;
   tEmit = tObs_; // No light-travel correction to start
   tdbEmit = tEmit.array() + f.tdb0;
@@ -207,9 +203,13 @@ Fitter::chooseFrame(int obsNumber) {
 }
 
 void
-Fitter::calculateOrbitDerivatives() {
+Fitter::calculateOrbit(bool doDerivatives) {
   int nobs = tEmit.size();
 
+  // Is is already done?
+  if (doDerivatives && positionsAreValid && positionDerivsAreValid) return;
+  if (!doDerivatives && positionsAreValid) return;
+  
   // Calculate positions
   DVector denom = DVector(nobs,1.) + abg[ABG::GDOT]*tEmit
     + abg[ABG::G]*(xGrav.col(2) - xE.col(2));
@@ -223,24 +223,30 @@ Fitter::calculateOrbitDerivatives() {
   thetaYModel.array() += abg[ABG::B];
   thetaXModel.array() *= denom.array();
   thetaYModel.array() *= denom.array();
+  positionsAreValid = true;
 
-  // Calculate derivatives
-  dThetaXdABG.setZero();
-  dThetaYdABG.setZero();
-  dThetaXdABG.col(ABG::A).setOnes();
-  dThetaYdABG.col(ABG::B).setOnes();
-  dThetaXdABG.col(ABG::ADOT) = tEmit;
-  dThetaYdABG.col(ABG::BDOT) = tEmit;
-  dThetaXdABG.col(ABG::G) = xGrav.col(0) - xE.col(0)
-    + thetaXModel.cwiseProduct(xE.col(2)-xGrav.col(2));
-  dThetaYdABG.col(ABG::G) = xGrav.col(1) - xE.col(1)
-    + thetaYModel.cwiseProduct(xE.col(2)-xGrav.col(2));
-  dThetaXdABG.col(ABG::GDOT) -= thetaXModel.cwiseProduct(tEmit);
-  dThetaYdABG.col(ABG::GDOT) -= thetaYModel.cwiseProduct(tEmit);
+  if (doDerivatives) {
+    // Calculate derivatives
+    dThetaXdABG.setZero();
+    dThetaYdABG.setZero();
+    dThetaXdABG.col(ABG::A).setOnes();
+    dThetaYdABG.col(ABG::B).setOnes();
+    dThetaXdABG.col(ABG::ADOT) = tEmit;
+    dThetaYdABG.col(ABG::BDOT) = tEmit;
+    dThetaXdABG.col(ABG::G) = xGrav.col(0) - xE.col(0)
+      + thetaXModel.cwiseProduct(xE.col(2)-xGrav.col(2));
+    dThetaYdABG.col(ABG::G) = xGrav.col(1) - xE.col(1)
+      + thetaYModel.cwiseProduct(xE.col(2)-xGrav.col(2));
+    dThetaXdABG.col(ABG::GDOT) -= thetaXModel.cwiseProduct(tEmit);
+    dThetaYdABG.col(ABG::GDOT) -= thetaYModel.cwiseProduct(tEmit);
 
-  dThetaXdABG.applyOnTheLeft(denom.asDiagonal());
-  dThetaYdABG.applyOnTheLeft(denom.asDiagonal());
-
+    dThetaXdABG.applyOnTheLeft(denom.asDiagonal());
+    dThetaYdABG.applyOnTheLeft(denom.asDiagonal());
+    positionDerivsAreValid = true;
+  }
+  
+  // Downstream quantities are invalid now
+  chisqIsValid = chisqDerivsAreValid = false; 
   return;
 }
 
@@ -253,8 +259,16 @@ Fitter::iterateTimeDelay() {
   DMatrix xyz = abg.getXYZ(tEmit) + xGrav - xE;
   // Get sqrt(xyz.xyz):
   DVector dist = xyz.cwiseProduct(xyz).rowwise().sum().cwiseSqrt();
+  if ( (dist.array()>1e4).any())
+    throw std::runtime_error("ERROR: distance >10,000 AU in Fitter::iterateTimeDelay()");
   tEmit = tObs - dist/SpeedOfLightAU;
   tdbEmit.array() = tEmit.array() + f.tdb0;
+
+  // This invalidates the solution
+  // Solutions no longer match gravity
+  newABG();
+  abgIsFit = false;
+  
   return;
 }
 
@@ -302,39 +316,56 @@ Fitter::calculateGravity() {
       cerr << " " << xGrav(i,0) << " " << xGrav(i,1) << " " << xGrav(i,2) << endl;
     } /**/
   }
+
+  // Solutions no longer match gravity
+  newABG();
+  abgIsFit = false;
+
   return;
 }
 
 void
-Fitter::calculateChisqDerivatives() {
+Fitter::calculateChisq(bool doDerivatives) {
   if (tObs.size() < 2)
-    throw std::runtime_error("ERROR: Fitter::calculateChisqDerivatives called with <2 observations");
-  // Assumes that model values are up to date
+    throw std::runtime_error("ERROR: Fitter::calculateChisq called with <2 observations");
+
+  // Is it already done?
+  if (doDerivatives && chisqIsValid && chisqDerivsAreValid) return;
+  if (!doDerivatives && chisqIsValid) return;
+  
+  // Make sure that model positions are current (and derivatives, if needed)
+  calculateOrbit(doDerivatives);
+    
   DVector dx = thetaX - thetaXModel;
   DVector dy = thetaY - thetaYModel;
   chisq = dx.transpose() * (invcovXX.asDiagonal() * dx);
   chisq += 2.* dx.transpose() * (invcovXY.asDiagonal() * dy);
   chisq += dy.transpose() * (invcovYY.asDiagonal() * dy);
-  DMatrix tmp = invcovXX.asDiagonal() * dThetaXdABG;
-  b = tmp.transpose() * dx;
-  A = dThetaXdABG.transpose() * tmp;
-  tmp = invcovXY.asDiagonal() * dThetaXdABG;
-  b += tmp.transpose() * dy;
-  A += dThetaYdABG.transpose() * tmp;
-  tmp = invcovXY.asDiagonal() * dThetaYdABG;
-  b += tmp.transpose() * dx;
-  A += dThetaXdABG.transpose() * tmp;
-  tmp = invcovYY.asDiagonal() * dThetaYdABG;
-  b += tmp.transpose() * dy;
-  A += dThetaYdABG.transpose() * tmp;
 
+  if (doDerivatives) {
+    DMatrix tmp = invcovXX.asDiagonal() * dThetaXdABG;
+    b = tmp.transpose() * dx;
+    A = dThetaXdABG.transpose() * tmp;
+    tmp = invcovXY.asDiagonal() * dThetaXdABG;
+    b += tmp.transpose() * dy;
+    A += dThetaYdABG.transpose() * tmp;
+    tmp = invcovXY.asDiagonal() * dThetaYdABG;
+    b += tmp.transpose() * dx;
+    A += dThetaXdABG.transpose() * tmp;
+    tmp = invcovYY.asDiagonal() * dThetaYdABG;
+    b += tmp.transpose() * dy;
+    A += dThetaYdABG.transpose() * tmp;
+  }
+  
   // Add gamma constraint, if any
   if (gammaPriorSigma > 0.) {
     double w = pow(gammaPriorSigma, -2);
     double dg = (gamma0-abg[ABG::G]);
     chisq += dg * w * dg;
-    b[ABG::G] += w * dg;
-    A(ABG::G,ABG::G) += w;
+    if (doDerivatives) {
+      b[ABG::G] += w * dg;
+      A(ABG::G,ABG::G) += w;
+    }
   }
 
   // Add derivatives from binding prior - crude one
@@ -345,23 +376,34 @@ Fitter::calculateChisqDerivatives() {
     chisq += w * (abg[ABG::ADOT] * abg[ABG::ADOT]
 		  + abg[ABG::BDOT] * abg[ABG::BDOT]
 		  + abg[ABG::GDOT] * abg[ABG::GDOT]);
-    double dampFactor = 0.5; // This adjustment prevents the solution from oscillating
-    // due to the energy constraint.
-    b[ABG::ADOT] += -w * abg[ABG::ADOT] * dampFactor;
-    b[ABG::BDOT] += -w * abg[ABG::BDOT] * dampFactor;
-    b[ABG::GDOT] += -w * abg[ABG::GDOT] * dampFactor;
-    A(ABG::ADOT,ABG::ADOT) += w;
-    A(ABG::BDOT,ABG::BDOT) += w;
-    A(ABG::GDOT,ABG::GDOT) += w;
+
+    if (doDerivatives) {
+      double dampFactor = 0.5; // This adjustment prevents the solution from oscillating
+      // due to the energy constraint.
+      b[ABG::ADOT] += -w * abg[ABG::ADOT] * dampFactor;
+      b[ABG::BDOT] += -w * abg[ABG::BDOT] * dampFactor;
+      b[ABG::GDOT] += -w * abg[ABG::GDOT] * dampFactor;
+      A(ABG::ADOT,ABG::ADOT) += w;
+      A(ABG::BDOT,ABG::BDOT) += w;
+      A(ABG::GDOT,ABG::GDOT) += w;
+    }
   }
+
+  chisqIsValid = true;
+  chisqDerivsAreValid = doDerivatives;
 }
-  
+
+double
+Fitter::getChisq() {
+  calculateChisq(false);
+  return chisq;
+}
+
 void
 Fitter::setLinearOrbit() {
 
-  // Assume that current gravity is good (probably zero)
-  calculateOrbitDerivatives();
-  calculateChisqDerivatives();
+  // Get positions/derivatives for current ABG
+  calculateChisq(true);
 
   // Extract parameters other than GDOT, which we assume is last
   DVector blin = b.subVector(0, ABG::GDOT);
@@ -375,8 +417,32 @@ Fitter::setLinearOrbit() {
   abg.subVector(0,ABG::GDOT) += answer;
   abg[ABG::GDOT] = 0.;
 
-  // Don't consider linear solution to be valid
-  abgIsValid = false;
+  newABG(); // Reset results flags
+  // But don't consider linear solution to be valid
+  abgIsFit = false;
+
+  // Update positions, chisq - no derivatives
+  calculateChisq(false);
+}
+
+void
+Fitter::abgSanityCheck() const {
+  const double MAX_GAMMA = 1.; // Any closer than this is failure
+  const double MAX_KE = 10.; // Failure when crude |KE/PE| exceeds this
+
+  if (abs(abg[ABG::G]) > MAX_GAMMA) {
+    FormatAndThrow<std::runtime_error>()
+      << "ERROR: Fitter gamma grows too large: " << abg[ABG::G];
+    /**/cerr << "linear Gamma " << abg[ABG::G] << endl;
+  }
+  double ke = (abg[ABG::ADOT] * abg[ABG::ADOT]
+	       + abg[ABG::BDOT] * abg[ABG::BDOT]
+	       + abg[ABG::GDOT] * abg[ABG::GDOT]) / (2. * GM * pow(abs(abg[ABG::G]),3.));
+  if (ke > MAX_KE) {
+    FormatAndThrow<std::runtime_error>()
+      << "ERROR: Fitter |KE/PE| grows too large: " << ke;
+    /**/cerr << "linear KE " << ke << endl;
+  }
 }
 
 void
@@ -384,12 +450,11 @@ Fitter::newtonFit(double chisqTolerance, bool dump) {
   // Assuming that we are coming into this with a good starting point
   iterateTimeDelay();
   calculateGravity();
-  calculateOrbitDerivatives();
-  calculateChisqDerivatives();
+  calculateChisq(true);
   const int MAX_ITERATIONS = 20;
 
   // cancel validity of results until re-converged
-  abgIsValid = false;
+  abgIsFit = false;
   
   // Do a series of iterations with time delay and gravity fixed
   int iterations = 0;
@@ -399,7 +464,7 @@ Fitter::newtonFit(double chisqTolerance, bool dump) {
     // Solve (check degeneracies??)
     auto llt = A.llt();
     abg += llt.solve(b);
-    /**/cerr << "iteration " << iterations;
+
     if (dump) {
       cerr << "Iteration " << iterations <<endl;
       auto dd = llt.solve(b);
@@ -408,11 +473,13 @@ Fitter::newtonFit(double chisqTolerance, bool dump) {
       cerr << endl << " abg:    ";
       write6(abg,cerr);
     }
-    /**/cerr << " .solved. " << iterations;
-    calculateOrbitDerivatives();
-    /**/cerr << " .orbits. ";
-    calculateChisqDerivatives();
-    /**/cerr << " .chisq. " << chisq  << " abg " << abg <<  endl;
+
+    // Quit if iterations have gone completely awry
+    abgSanityCheck();
+
+    // Recalculate with new ABG
+    calculateChisq(true);
+    //**/cerr << " .chisq. " << chisq  << " abg " << abg <<  endl;
     if (dump) cerr << endl << " New chisq: " << chisq << endl;
     iterations++;
   } while (iterations < MAX_ITERATIONS && abs(chisq-oldChisq) > chisqTolerance);
@@ -422,15 +489,14 @@ Fitter::newtonFit(double chisqTolerance, bool dump) {
   // Then converge with time delay and gravity recalculated
   iterateTimeDelay();
   calculateGravity();
-  calculateOrbitDerivatives();
-  calculateChisqDerivatives();
+  calculateChisq(true);
   iterations = 0;
   do {
     oldChisq = chisq;
     // Solve (check degeneracies??)
     auto llt = A.llt();
     abg += llt.solve(b);
-    if (true) { //**(dump) {
+    if (dump) {
       cerr << "Gravity iteration " << iterations <<endl;
       auto dd = llt.solve(b);
       cerr << " change: ";
@@ -439,21 +505,28 @@ Fitter::newtonFit(double chisqTolerance, bool dump) {
       write6(abg,cerr);
       cerr << endl;
     }
+
+    // Quit if iterations have gone completely awry
+    abgSanityCheck();
+
+    // Update with new ABG
     iterateTimeDelay();
     calculateGravity();
-    calculateOrbitDerivatives();
-    calculateChisqDerivatives();
+    calculateChisq(true);
     if (dump) cerr << endl << " New chisq: " << chisq << endl;
     iterations++;
   } while (iterations < MAX_ITERATIONS && abs(chisq-oldChisq) > chisqTolerance);
   if (iterations >= MAX_ITERATIONS)
     throw std::runtime_error("Fitter::newtonFit exceeded max fine iterations");
-  abgIsValid = true;
+  abgIsFit = true;
   return;
 }
 
 void
-Fitter::printResiduals(std::ostream& os) const {
+Fitter::printResiduals(std::ostream& os) {
+  // Update residuals and chisq to current ABG if needed
+  calculateChisq(false);
+
   stringstuff::StreamSaver ss(os);
   os << "# Residuals: " << endl << std::fixed << std::setprecision(2);
   double chitot = 0;
@@ -678,6 +751,8 @@ Fitter::augmentObservation(double tObs_,    // TDB since reference time
     out->tdbEmit[oldN] = out->tEmit[oldN] + f.tdb0;
   }
 
+  out->newData(); // Invalidate state of new Fitter
+  
   // Do a single Newton iteration of refitting, starting from old solution
   out->abg = abg;
   // And including same priors
@@ -685,10 +760,10 @@ Fitter::augmentObservation(double tObs_,    // TDB since reference time
   out->gammaPriorSigma = gammaPriorSigma;
   out->bindingConstraintFactor = bindingConstraintFactor;
   
-  out->calculateOrbitDerivatives();
-  out->calculateChisqDerivatives();
+  out->calculateChisq(true);
   auto llt = out->A.llt();
   out->abg += llt.solve(out->b);
+  out->newABG();
   // Refine time delay
   out->iterateTimeDelay();
   // Either adopt old trajectory or recalculate it
@@ -697,14 +772,17 @@ Fitter::augmentObservation(double tObs_,    // TDB since reference time
   else
     out->fullTrajectory = new Trajectory(*fullTrajectory);
   // One more Newton
-  out->calculateOrbitDerivatives();
-  out->calculateChisqDerivatives();
+  out->calculateChisq(true);
   llt = out->A.llt();
   Vector6 dp = llt.solve(out->b); 
   out->abg += dp;
-  out->abgIsValid = true;
+  out->abgIsFit = true;
   // Shortcut for new chisq assuming linearity
   out->chisq -= dp.transpose() * out->A * dp;
+  out->chisqIsValid = true;
+  // We'll consider the A from previous iteration to be valid
+  // assuming that the last change was small
+  out->chisqDerivsAreValid = true;
   
   return out;
 }  

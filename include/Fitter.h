@@ -69,19 +69,19 @@ namespace orbits {
     void newtonFit(double chisqTolerance=0.01, bool dump=false);
 
     // Print residuals (in arcsec) and chisq contributions per point
-    void printResiduals(std::ostream& os) const;
+    void printResiduals(std::ostream& os);
     
     // Obtain fitting results
     const ABG& getABG(bool invalidOK=false) const {
-      if (!abgIsValid && !invalidOK)
+      if (!abgIsFit && !invalidOK)
 	throw std::runtime_error("ERROR: Fitter::getABG is not getting converged result");
       return abg;
     }
-    double getChisq() const {return chisq;}  // Chisq at current abg
+    double getChisq(); // Chisq at current abg
     int getDOF() const {return 2*tObs.size() - 6;}  // DOF does not count priors
     ABGCovariance getInvCovarABG() const {
       // Inverse covariance of ABG from last fit
-      if (!abgIsValid) throw std::runtime_error("ERROR: Fitter::getInvCovarABG is not getting converged result");
+      if (!abgIsFit) throw std::runtime_error("ERROR: Fitter::getInvCovarABG is not getting converged result");
       return A;}  
     Elements getElements() const;
     ElementCovariance getElementCovariance() const;
@@ -121,12 +121,16 @@ namespace orbits {
     void iterateTimeDelay(); // Update tEmit based on light-travel time in current orbit.
     void calculateGravity(); // Calculate non-inertial terms from current ABG
 
-    // Calculate positions and their derivs wrt ABG
-    void calculateOrbitDerivatives(); 
+    // Calculate angular positions and their derivs wrt ABG
+    void calculateOrbit(bool doDerivatives=true); 
 
-    void calculateChisq(); // Calculate chisq at current abg
-    void calculateChisqDerivatives(); // Calculate chisq and derivs wrt abg
+    // Calculate chisq (and derivatives) at current abg.
+    // (Calls calculateOrbit if needed)
+    void calculateChisq(bool doDerivatives=true); 
 
+    // Throw an exception if we have a clearly invalid ABG
+    void abgSanityCheck() const;
+      
     void resizeArrays(int n); // Set all of arrays below to desired sizes
 
     Frame f;   // Reference frame for our coordinates
@@ -164,7 +168,25 @@ namespace orbits {
 
     // Some state indicators
     bool frameIsSet; // The reference frame has been set.
-    bool abgIsValid; // The ABG is a solution to observations and its (inv) covariance A is valid.
+    bool abgIsFit; // The ABG is a solution to the observations
+    bool positionsAreValid; // theta[XY]Model correspond to current ABG.
+    bool positionDerivsAreValid; // dTheta[XY]dABG correspond to current ABG.
+    bool chisqIsValid;   // Chisq corresponds to current ABG.
+    bool chisqDerivsAreValid;  // Chisq derivatives (b,A) correspond to current ABG.
+
+    // Reset state flags for new solution
+    void newABG() {
+      abgIsFit = true;
+      positionsAreValid = positionDerivsAreValid = false;
+      chisqIsValid = chisqDerivsAreValid = false;
+    }
+
+    // Reset state flags for new data
+    void newData() {
+      newABG();
+      abgIsFit = false;
+    }
+
   };
 } // namespace orbits
 #endif
