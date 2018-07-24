@@ -8,6 +8,7 @@
 #include "PlaneGeometry.h"
 #include "Ephemeris.h"
 #include "Fitter.h"
+#include "FitsTable.h"
 
 namespace orbits {
 
@@ -38,6 +39,28 @@ namespace orbits {
     EIGEN_NEW;
   };
 
+  class ExposureTable {
+    // Class that reads information on DES exposures from a standard FITS file
+    // of binary tables.  Information available quickly via expnum is MJD and the
+    // ICRS position of the telescope at this MJD.
+  public:
+    ExposureTable(string exposureFile="");
+    // Open exposure table.  Path to FITS file will be read from environment variable
+    // DES_EXPOSURE_TABLE if none is given here.
+
+    bool isAstrometric(int expnum) const; // Is astrometric solution / covariance available?
+    double mjd(int expnum) const;  // Return MJD_MID
+    astrometry::CartesianICRS observatory(int expnum) const; //ICRS observatory position
+    Matrix22 atmosphereCov(int expnum) const; // Return atmospheric position covariance (radians), Diag(-1) if unknown
+    // Get both at once, return false if expnum is not known:
+    bool observingInfo(int expnum, double& mjd, astrometry::CartesianICRS& observatory) const;
+  private:
+    img::FTable astrometricTable;
+    img::FTable nonAstrometricTable;
+    map<int,int> astrometricIndex;   // These two map from expnum into table row number.
+    map<int,int> nonAstrometricIndex;
+  };
+  
   // This function finds all exposures from the FITS table that could
   // possibly contain a bound TNO that is in the given
   // range of alpha, beta, gamma at the frame reference epoch.
