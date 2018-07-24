@@ -94,8 +94,8 @@ namespace orbits {
 		 DVector* xOut,         // Angular coordinates, in our frame
 		 DVector* yOut,
 		 DVector* covXX = nullptr,   // Covar matrix of coordinates
-		 DVector* covXY = nullptr,   // (not computed if nullptrs)
-		 DVector* covYY = nullptr) const;
+		 DVector* covYY = nullptr,   // (not computed if nullptrs)
+		 DVector* covXY = nullptr) const;
 		 
     // Return a new Fitter that has orbit updated using an additional observation
     // The additional data is assumed already in desired Frame.
