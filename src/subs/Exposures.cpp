@@ -5,6 +5,124 @@
 
 using namespace orbits;
 
+// Name of environment variable giving path to observatories file
+const string EXPOSURE_ENVIRON = "DES_EXPOSURE_TABLE";
+
+ExposureTable::ExposureTable(string exposureFile) {
+  string path = exposureFile;
+  if (path.empty())  {
+    // Find FITS file name from environment variable
+    char *kpath = getenv(EXPOSURE_ENVIRON.c_str());
+    if (kpath == NULL) 
+      throw std::runtime_error("No path given for DES exposure table FITS file");
+    path = kpath;
+  }
+  // ??? Could make this faster by saving columns as arrays, save FTable overhead.
+  
+  try {
+    FITS::FitsTable ft1(path,FITS::ReadOnly,1);
+    astrometricTable = ft1.extract();
+    FITS::FitsTable ft2(path,FITS::ReadOnly,2);
+    nonAstrometricTable = ft2.extract();
+  } catch (FITS::FITSError& m) {
+    cerr << "Error reading DES exposure table from " << path << endl;
+    quit(m);
+  }
+
+  // Build indices into each table from maps
+  vector<int> expnum;
+  astrometricTable.readCells(expnum,"EXPNUM");
+  for (int i=0; i<expnum.size(); i++)
+    astrometricIndex[expnum[i]] = i;
+  nonAstrometricTable.readCells(expnum,"EXPNUM");
+  for (int i=0; i<expnum.size(); i++)
+    nonAstrometricIndex[expnum[i]] = i;
+}
+
+bool
+ExposureTable::isAstrometric(int expnum) const {
+  return astrometricIndex.count(expnum);
+}
+
+double
+ExposureTable::mjd(int expnum) const {
+  auto ptr = astrometricIndex.find(expnum);
+  int index;
+  double mjd;
+  if (ptr==astrometricIndex.end()) {
+    // Try non-ast table; throw exception if not there.
+    index = nonAstrometricIndex.at(expnum);
+    nonAstrometricTable.readCell(mjd,"MJD_MID",index);
+  } else {
+    index = ptr->second;
+    astrometricTable.readCell(mjd,"MJD_MID",index);
+  }
+  return mjd;
+}
+
+astrometry::CartesianICRS
+ExposureTable::observatory(int expnum) const {
+  auto ptr = astrometricIndex.find(expnum);
+  int index;
+  vector<double> v3;
+  if (ptr==astrometricIndex.end()) {
+    // Try non-ast table; throw exception if not there.
+    index = nonAstrometricIndex.at(expnum);
+    nonAstrometricTable.readCell(v3,"OBSERVATORY",index);
+  } else {
+    index = ptr->second;
+    astrometricTable.readCell(v3,"OBSERVATORY",index);
+  }
+  return astrometry::CartesianICRS(v3[0],v3[1],v3[2]);
+}
+
+Matrix22
+ExposureTable::atmosphereCov(int expnum) const {
+  auto ptr = astrometricIndex.find(expnum);
+  int index;
+  Matrix22 out;
+  if (ptr==astrometricIndex.end()) {
+    // Negative diagonals for unknown cov
+    out(0,0) = out(1,1) = -1.;
+  } else {
+    vector<double> cov;
+    index = ptr->second;
+    astrometricTable.readCell(cov,"COV",index);
+    const double masSq = pow(0.001*ARCSEC,2.); // Table is in milliarcsec
+    out(0,0) += cov[0]*masSq;
+    out(1,1) += cov[1]*masSq;
+    out(0,1) += cov[2]*masSq;
+    out(1,0) += cov[2]*masSq;
+  }
+  return out;
+}
+
+// Get both at once, return false if expnum is not known:
+bool
+ExposureTable::observingInfo(int expnum,
+			     double& mjd,
+			     astrometry::CartesianICRS& observatory) const {
+  auto ptr = astrometricIndex.find(expnum);
+  int index;
+  vector<double> v3;
+  if (ptr==astrometricIndex.end()) {
+    // Try non-ast table
+    ptr = nonAstrometricIndex.find(expnum);
+    if (ptr==nonAstrometricIndex.end())
+      // No data
+      return false;
+    index = ptr->second;
+    nonAstrometricTable.readCell(mjd,"MJD_MID",index);
+    nonAstrometricTable.readCell(v3,"OBSERVATORY",index);
+  } else {
+    index = ptr->second;
+    nonAstrometricTable.readCell(mjd,"MJD_MID",index);
+    astrometricTable.readCell(v3,"OBSERVATORY",index);
+  }
+  for (int i=0; i<3; i++) observatory[i] = v3[i];
+  return true;
+}
+
 std::vector<const Exposure*>
 orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
 			const Ephemeris& ephem,  
