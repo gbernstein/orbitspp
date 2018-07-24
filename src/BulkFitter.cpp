@@ -198,6 +198,12 @@ int main(int argc,
 
     // Are we writing to a FITS table or stdout?
     bool orbitsToFile = !orbitPath.empty();
+
+    // If writing to stdout, print out the reference frame
+    if (!orbitsToFile) {
+      Frame::writeHeader(cout);
+      cout << frame << endl;
+    }
     
     // If we read the exposure table it'll go here:
     ExposureTable* exposureTable = nullptr;
@@ -410,6 +416,17 @@ int main(int argc,
       // Write the output table
       FITS::FitsTable ft(orbitPath, FITS::Create + FITS::OverwriteFile);
       img::FTable out = ft.use();
+      // Write reference frame information into header
+      double ra0, dec0;
+      frame.orient.getPole().getLonLat(ra0,dec0);
+      out.header()->replace("RA0",ra0/DEGREE);
+      out.header()->replace("DEC0",dec0/DEGREE);
+      out.header()->replace("TDB0",frame.tdb0);
+      out.header()->replace("PA0",frame.orient.getPA()/DEGREE);
+      out.header()->replace("X0",frame.origin[0]);
+      out.header()->replace("Y0",frame.origin[1]);
+      out.header()->replace("Z0",frame.origin[2]);
+      
       out.addColumn(idOut,"ORBITID");
       out.addColumn(fitFlags,"FLAGS");
       out.addColumn(chisq,"CHISQ");

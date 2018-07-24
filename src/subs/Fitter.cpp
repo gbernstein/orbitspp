@@ -600,8 +600,8 @@ Fitter::predict(const DVector& t_obs,    // Time of observations, relative to td
 		DVector* xOut,         // Angular coordinates, in our frame
 		DVector* yOut,
 		DVector* covXX,        // Covar matrix of coordinates
-		DVector* covXY,
-		DVector* covYY) const {
+		DVector* covYY,
+		DVector* covXY) const {
 
   // Resize arrays if necessary
   int nobs = t_obs.rows();
