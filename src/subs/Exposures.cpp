@@ -116,7 +116,7 @@ ExposureTable::observingInfo(int expnum,
     nonAstrometricTable.readCell(v3,"OBSERVATORY",index);
   } else {
     index = ptr->second;
-    nonAstrometricTable.readCell(mjd,"MJD_MID",index);
+    astrometricTable.readCell(mjd,"MJD_MID",index);
     astrometricTable.readCell(v3,"OBSERVATORY",index);
   }
   for (int i=0; i<3; i++) observatory[i] = v3[i];

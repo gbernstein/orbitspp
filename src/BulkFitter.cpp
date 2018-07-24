@@ -6,6 +6,7 @@
 #include "FTable.h"
 #include "FitsTable.h"
 #include "Astrometry.h"
+#include "Exposures.h"
 
 #include <iostream>
 
@@ -199,7 +200,8 @@ int main(int argc,
     bool orbitsToFile = !orbitPath.empty();
     
     // If we read the exposure table it'll go here:
-    img::FTable exposureTable;
+    ExposureTable* exposureTable = nullptr;
+    
     // And we will build this index from expnum to table row number:
     std::map<int,int> expnumIndex;
       
@@ -278,46 +280,24 @@ int main(int argc,
       
 	if (useExpnum) {
 	  // Read exposure table if needed and not here
-	  if (expnumIndex.empty()) {
-	    try {
-	      FITS::FitsTable ft(exposurePath);
-	      exposureTable = ft.extract();
-	    } catch (FITS::FITSError& m) {
-	      cerr << "Error reading exposure table" << endl;
-	      quit(m);
-	    }
-	    // Build lookup index for expnums
-	    vector<int> ee;
-	    exposureTable.readCells(ee, "EXPNUM");
-	    for (int irow=0; irow<ee.size(); irow++)
-	      expnumIndex[ee[irow]] = irow;
+	  if (!exposureTable) {
+	    exposureTable = new ExposureTable(exposurePath);
 	  }
 
+	  double mjdThis;
+	  astrometry::CartesianICRS xyzThis;
 	  // Get xE and mjd from the DECam table
-	  int index;
-	  try {
-	    index = expnumIndex.at(expnumThis);
-	  } catch (std::out_of_range& m) {
-	    // Skip observation, no data for exposure
+	  if (!exposureTable->observingInfo(expnumThis, mjdThis, xyzThis)) {
 	    /**/cerr << "Missing exposure info for " << expnumThis << endl;
 	    continue;
 	  }
 	    
-	  vector<double> xyz;
-	  exposureTable.readCell(xyz, "observatory", index);
-	  for (int i=0; i<3; i++) obs.observer[i] = xyz[i];
-	  exposureTable.readCell(mjdThis, "mjd_mid", index);
+	  for (int i=0; i<3; i++) obs.observer[i] = xyzThis[i];
 	  obs.tdb = eph.mjd2tdb(mjdThis);
 
-	  // Add atmospheric term to covariance
-	  std::vector<double> cov;
-	  exposureTable.readCell(cov, "cov", index);
-	  const double masSq = pow(0.001*ARCSEC,2.); // Table is in milliarcsec
-	  obs.cov(0,0) += cov[0]*masSq;
-	  obs.cov(1,1) += cov[1]*masSq;
-	  obs.cov(0,1) += cov[2]*masSq;
-	  obs.cov(1,0) += cov[2]*masSq;
-
+	  if (exposureTable->isAstrometric(expnumThis)) {
+	    obs.cov += exposureTable->atmosphereCov(expnumThis);
+	  }
 	} else {
 	  // Input data is an MJD.  Use ephemeris to get observatory posn.
 	  obs.tdb = eph.mjd2tdb(mjdThis);
