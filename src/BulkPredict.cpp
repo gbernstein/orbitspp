@@ -189,7 +189,6 @@ int main(int argc,
       }
       orbitID.push_back(idThis);
 
-      /**/cerr << "useExpnum? " << useExpnum << " " << mjdThis << endl;
       // Now read everything
       while (stringstuff::getlineNoComment(cin, buffer)) {
 	std::istringstream iss(buffer);
@@ -234,7 +233,6 @@ int main(int argc,
       if (!orbitIndex.count(idThis)) {
 	// No orbit found.  Set flags, move on.
 	errorThis = NO_ORBIT;
-	/**/cerr << "No orbit for " << idThis << endl;
       } else {
 	index = orbitIndex[idThis];
 	orbitTable.readCell(errorThis, "FLAGS", index);
@@ -289,7 +287,7 @@ int main(int argc,
 	} else {
 	  double tdb = eph.mjd2tdb(mjd[i]);
 	  xyz = eph.observatory(obscode, tdb);
-	  tobs[i - beginRow];
+	  tobs[i - beginRow] = tdb;
 	}
 	earth.col(i-beginRow) = xyz.getVector();
       }
