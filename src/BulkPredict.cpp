@@ -300,7 +300,7 @@ int main(int argc,
       DVector covXX(endRow-beginRow);
       DVector covYY(endRow-beginRow);
       DVector covXY(endRow-beginRow);
-      fit.predict(tobs, xE, &x, &y, &covXX, &covXY, &covYY);
+      fit.predict(tobs, xE, &x, &y, &covXX, &covYY, &covXY);
       
       // Get major axes
       DVector tr2 = 0.5*(covXX + covYY);
