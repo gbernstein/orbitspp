@@ -11,11 +11,11 @@
 #include <iostream>
 
 const string usage =
-  "BulkFitter: produce orbit fits for sets of DES observations.  The input data are\n"
+  "BulkFit: produce orbit fits for sets of DES observations.  The input data are\n"
   "linked sets of detections, identified by common ID number.  Outputs are \n"
   "fit results for each orbit ID.\n"
   "Usage:\n"
-  "  FitsFitter [parameter file...] [-<key> <value>...]\n"
+  "  BulkFit [parameter file...] [-<key> <value>...]\n"
   "  where any parameter file(s) given will be scanned first, then parameter key/value\n"
   "  pairs on cmd line will be read and override file values.\n"
   "  Program options are listed below.\n"
@@ -31,6 +31,9 @@ const string usage =
   "If no FITS input file is given, data will be read from stdin.  First non-comment\n"
   "line should give the reference frame info.  Successive lines have format\n"
   "  <orbit id> <expnum or mjd>  <ra>  <dec>  <sigma>\n"
+  "\n"
+  "When expnum is used, atmospheric turbulence contribution is added to measurement\n"
+  "errors if it is known.\n"
   "\n"
   "Output FITS binary table will the reference frame info in header, and contain\n"
   "columns for \n"
