@@ -45,8 +45,8 @@ main(int argc,
 					  gamma0, dGamma, 0.5);
 
     for (auto& expo : answer) {
-      cout << expo.expnum << " " << expo.tdb-tdb0
-	   << " " << expo.axis[0] << " " << expo.axis[1] << endl;
+      cout << expo->expnum << " " << expo->tdb-tdb0
+	   << " " << expo->axis[0] << " " << expo->axis[1] << endl;
     }
   } catch (std::runtime_error& e) {
     quit(e);

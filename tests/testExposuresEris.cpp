@@ -180,7 +180,7 @@ int main(int argc,
 	tobs[i] = possibleExposures[i]->tdb - frame.tdb0;
 	earth.row(i) = possibleExposures[i]->earth.transpose();
       }
-      fit.predict(tobs,earth,&x,&y,&covxx,&covxy,&covyy);
+      fit.predict(tobs,earth,&x,&y,&covxx,&covyy,&covxy);
       int totalCounts = 0;
       //**double CHISQ_THRESHOLD=9.21; // 99% point of chisq
       double CHISQ_THRESHOLD=50; //** ?? try more
