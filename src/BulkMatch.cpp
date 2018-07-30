@@ -331,7 +331,7 @@ int main(int argc,
 	}
       
 	// Add measurement error for this observation
-	double sigRadian = sigma[i]*DEGREE;
+	double sigRadian = sigma[i]*ARCSEC;
 	cxx[ii] += sigRadian*sigRadian;
 	cyy[ii] += sigRadian*sigRadian;
       }
