@@ -3,6 +3,7 @@
 #ifndef PLANEGEOMETRY_H
 #define PLANEGEOMETRY_H
 
+#include <vector>
 #include "LinearAlgebra.h"
 #include "OrbitTypes.h"
 
@@ -44,7 +45,7 @@ namespace orbits {
     // Convex polygon defined by clockwise list of vertices.  There is no automatic check
     // for convexity or clockwise.
   public:
-    ConvexPolygon(const vector<Point>& vertices);
+    ConvexPolygon(const std::vector<Point>& vertices);
     bool isConvex() const; // Force check
     double area() const;
     // Check whether one or many points are interior to polygon

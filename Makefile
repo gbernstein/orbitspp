@@ -53,12 +53,10 @@ ifdef MKL_DIR
 INCLUDES += -I $(MKL_DIR)/include -D USE_MKL
 endif
 
-# !! Not really using this but Astrometry does
+# Not really using this but Astrometry might, so
+# keep it for linking if we have it.
 ifdef YAML_DIR
-INCLUDES += -I $(YAML_DIR)/include
 LIBS += -L $(YAML_DIR)/lib -lyaml-cpp
-else
-$(error Require YAML_DIR in environment)
 endif
 
 ifdef CFITSIO_DIR

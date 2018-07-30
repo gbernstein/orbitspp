@@ -34,16 +34,6 @@ int main(int argc,
 
     fit.chooseFrame(-1);
     //**fit.chooseFrame(0);
-    /**{
-      string line = "56877.1624158 -3:03:03.9501 -41:23:03.0142 0.1 807";
-      auto obs = mpc2Observation(MPCObservation(line), eph);
-      astrometry::Orientation orient(obs.radec);
-      orient.alignToEcliptic();
-      double tdb0 = 14.;
-      astrometry::CartesianICRS origin = obs.observer;
-      Frame f(origin,orient,tdb0);
-      fit.setFrame(f);
-      } /**/
 
     cerr << "Reference frame: " << endl;
     Frame::writeHeader(cerr);
@@ -56,17 +46,6 @@ int main(int argc,
 
     cerr << "distance: " << 1./fit.getABG(true)[ABG::G] << endl;
 
-    /** {
-      fit.getABG(true)[0] = -0.0125341;
-      fit.getABG(true)[1] = 0.0131069;
-      fit.getABG(true)[2] = 0.0276466;
-      fit.getABG(true)[3] = 0.0209088;
-      fit.getABG(true)[4] = -0.0218552;
-      fit.getABG(true)[5] = 0.00432035;
-      cerr << "Fake ABG:";
-      fit.getABG().writeTo(cerr);
-  } /**/
-    
     fit.newtonFit();
     fit.printResiduals(cerr);
     cerr << "Final ABG:\n";
