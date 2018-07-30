@@ -80,7 +80,7 @@ Matrix22
 ExposureTable::atmosphereCov(int expnum) const {
   auto ptr = astrometricIndex.find(expnum);
   int index;
-  Matrix22 out;
+  Matrix22 out(0.);
   if (ptr==astrometricIndex.end()) {
     // Negative diagonals for unknown cov
     out(0,0) = out(1,1) = -1.;
@@ -89,10 +89,10 @@ ExposureTable::atmosphereCov(int expnum) const {
     index = ptr->second;
     astrometricTable.readCell(cov,"COV",index);
     const double masSq = pow(0.001*ARCSEC,2.); // Table is in milliarcsec
-    out(0,0) += cov[0]*masSq;
-    out(1,1) += cov[1]*masSq;
-    out(0,1) += cov[2]*masSq;
-    out(1,0) += cov[2]*masSq;
+    out(0,0) = cov[0]*masSq;
+    out(1,1) = cov[1]*masSq;
+    out(0,1) = cov[2]*masSq;
+    out(1,0) = cov[2]*masSq;
   }
   return out;
 }
