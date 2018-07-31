@@ -11,11 +11,11 @@
 #include <iostream>
 
 const string usage =
-  "BulkMatch: give the chisq for agreement of new observations with previous orbit fits.\n"
+  "BulkProximity: give the chisq for agreement of new observations with previous orbit fits.\n"
   "The chisq output incorporates both the measurement errors on the new observation and\n"
   "the uncertainty in the orbit.\n"
   "Usage:\n"
-  "  BulkMatch [parameter file...] [-<key> <value>...]\n"
+  "  BulkProximity [parameter file...] [-<key> <value>...]\n"
   "  where any parameter file(s) given will be scanned first, then parameter\n"
   "   key/value pairs on cmd line will be read and override file values.\n"
   "  Program options are listed below.\n"
@@ -154,10 +154,10 @@ int main(int argc,
     // Input that is also output:
     vector<int> orbitID;
     vector<int> expnum;
-    vector<int> mjd;  // Might use this instead of expnum
+    vector<double> mjd;  // Might use this instead of expnum
     vector<double> ra;
     vector<double> dec;
-    vector<string> objectID;
+    vector<LONGLONG> objectID;
     vector<double> sigma;
     
     if (observationsFromFile) {
@@ -181,8 +181,9 @@ int main(int argc,
     } else {
       // Reading observation info from stdin.
       // Let's read in all the input at the start to simplify code
-      string buffer, objThis;
+      string buffer;
       int idThis, expnumThis;
+      LONGLONG objThis;
       double mjdThis, raThis, decThis, sigmaThis;
       // Let's read one line to decide whether we are expnum or mjd people:
       stringstuff::getlineNoComment(cin, buffer);
@@ -210,7 +211,7 @@ int main(int argc,
 	  iss >> idThis >> objThis >> expnumThis >> raThis >> decThis >> sigmaThis;
 	  expnum.push_back(expnumThis);
 	} else {
-	  iss >> idThis >> mjdThis >> objThis >> raThis >> decThis >> sigmaThis;
+	  iss >> idThis  >> objThis >>   mjdThis >> raThis >> decThis >> sigmaThis;
 	  mjd.push_back(mjdThis);
 	}
 	orbitID.push_back(idThis);
@@ -258,21 +259,21 @@ int main(int argc,
 	  if (chisqToFile) {
 	    flags[i] = errorThis;
 	  } else {
-	    cout << orbitID[i]
-		 << " " << objectID[i];
+	    cout << setw(8) << orbitID[i]
+		 << " " << setw(12) << objectID[i];
 	    if (useExpnum) {
 	      // expnum format
-	      cout << " " << expnum[i];
+	      cout << " " << setw(6) << expnum[i];
 	    } else {
 	      // MJD format
-	      cout << " " << mjd[i];
+	      cout << " " << fixed << setprecision(5) << setw(11) <<mjd[i];
 	    }
 	    // Remainder of fields:
-	    cout << " " << ra[i]
-		 << " " << dec[i]
-		 << " " << sigma[i]
-		 << " " << errorThis
-		 << " " << -1.
+	    cout << " " << fixed << noshowpos << setprecision(6) << setw(10) << (ra[i] <0 ? ra[i]+360. : ra[i])
+		 << " " << showpos << setw(10) << dec[i]
+		 << " " << noshowpos << setprecision(3) << setw(5) << sigma[i]
+		 << " " << setw(2) << errorThis
+		 << " " << setprecision(0) << -1.
 		 << endl;
 	  }
 	} // end loop over bad orbit's observations
@@ -368,21 +369,21 @@ int main(int argc,
 	  flags[i] = errorThis;
 	  chisq[i] = chi[ii];
 	} else {
-	  cout << orbitID[i]
-	       << " " << objectID[i];
+	  cout << setw(8) << orbitID[i]
+	       << " " << setw(12) << objectID[i];
 	  if (useExpnum) {
 	    // expnum format
-	    cout << " " << expnum[i];
+	    cout << " " << setw(6) << expnum[i];
 	  } else {
 	    // MJD format
-	    cout << " " << mjd[i];
+	    cout << " " << fixed << setprecision(5) << setw(11) <<mjd[i];
 	  }
 	  // Remainder of fields:
-	  cout << " " << ra[i]
-	       << " " << dec[i]
-	       << " " << sigma[i]
-	       << " " << errorThis
-	       << " " << chi[ii]
+	  cout << " " << fixed << noshowpos << setprecision(9) << setw(10) << (ra[i] <0 ? ra[i]+360. : ra[i])
+	       << " " << showpos << setw(10) << dec[i]
+	       << " " << noshowpos << setprecision(3) << setw(5) << sigma[i]
+	       << " " << setw(2) << errorThis
+	       << " " << setprecision(2) << setw(8) << chi[ii]
 	       << endl;
 	}
       }

@@ -40,6 +40,8 @@ Fitter::setABG(const ABG& abg_, const ABGCovariance& cov_) {
   abg = abg_;
   A = cov_.inverse();
   newABG(); // update status flags
+  // Set up Trajectory if using gravity
+  if (grav != Gravity::INERTIAL) createTrajectory();
 }
 
 void
@@ -273,13 +275,10 @@ Fitter::iterateTimeDelay() {
 }
 
 void
-Fitter::calculateGravity() {
-  // Calculate the non-inertial terms in trajectory of object
-  // using current ABG and gravity settings
-  if (grav==Gravity::INERTIAL) {
-    xGrav.setZero();
-    return;
-  }
+Fitter::createTrajectory() {
+  // Make a new Trajectory integrator
+  // based on current ABG.
+
   // Kill any old trajectory
   if (fullTrajectory) {
     delete fullTrajectory;
@@ -298,6 +297,17 @@ Fitter::calculateGravity() {
   
   // Integrate - Trajectory returns 3xN matrix
   fullTrajectory = new Trajectory(eph, s0, grav);
+}
+
+void
+Fitter::calculateGravity() {
+  // Calculate the non-inertial terms in trajectory of object
+  // using current ABG and gravity settings
+  if (grav==Gravity::INERTIAL) {
+    xGrav.setZero();
+    return;
+  }
+  createTrajectory();
   
   DMatrix xyz = fullTrajectory->position(tdbEmit);
 

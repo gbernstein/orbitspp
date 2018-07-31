@@ -22,7 +22,7 @@ const string usage =
   "\n"
   "Input detections can be provided either in a binary FITS table or as\n"
   "ASCII file at stdin. Detections for given orbit should be contiguous\n"
-  "in the input.  FITS file should have columns for ORBIT_ID, EXPNUM (=DECam exposure\n"
+  "in the input.  FITS file should have columns for TRACK_ID, EXPNUM (=DECam exposure\n"
   "number, in which case exposure file must be provided) or MJD, then for RA, DEC\n"
   "(in degrees), and SIGMA (uncertainty per coordinate in arcsec). Header must contain\n"
   "entries for RA0, DEC0, MJD0, X0, Y0, Z0 specifying reference frame orientation,\n"
@@ -41,7 +41,10 @@ const string usage =
   " a FLAG that is set for orbit-fitting failures,\n"
   " the 6-element ABG array specifying best-fit orbit,\n"
   " the ABGCOV 6x6 covariance matrix, flattened.\n"
-  "If no FITS output file is given, orbit fit results will be sent to stdout.";
+  "If no FITS output file is given, orbit fit results will be sent to stdout.\n"
+  "\n"
+  "If the 'residuals' parameter is set to true/T/1, then the residuals of the data\n"
+  "to the best-fit orbit will be printed to stdout (including for aborted fits).";
 
 using namespace std;
 using namespace orbits;
@@ -68,6 +71,7 @@ int main(int argc,
     double gamma0;
     double dGamma;
     int obscode;
+    bool showResiduals;
     Pset parameters;
    
     {
@@ -93,7 +97,11 @@ int main(int argc,
 			   "Width (sigma) of gamma prior", 0.01, 0.);
       parameters.addMember("obscode",&obscode, def | low,
 			   "Observatory code (default: CTIO)", 807, 0);
+      parameters.addMember("residuals",&showResiduals, def,
+			   "Print fit residuals to stdout? (false)", false);
     }
+    parameters.setDefault();
+
     if (argc<2 || string(argv[1])=="-h" || string(argv[1])=="--help") {
       cout << usage << endl;
       parameters.dump(cerr);
@@ -101,7 +109,6 @@ int main(int argc,
     }
     
     {
-      parameters.setDefault();
       // Read any parameter files
       int nPositional=0;
       for (int iarg=1; iarg < argc && argv[iarg][0]!='-'; iarg++) {
@@ -146,24 +153,29 @@ int main(int argc,
       obsTable.header()->getValue("RA0",ra0);
       obsTable.header()->getValue("DEC0",dec0);
       obsTable.header()->getValue("MJD0",mjd0);
-      obsTable.header()->getValue("X0",x0);
-      obsTable.header()->getValue("Y0",y0);
-      obsTable.header()->getValue("Z0",z0);
-      astrometry::CartesianICRS origin(x0,y0,z0);
       astrometry::SphericalICRS pole(ra0*DEGREE, dec0*DEGREE);
       astrometry::Orientation orient(pole);
       orient.alignToEcliptic();  // We'll do this by default.
-      frame = Frame(origin, orient, eph.mjd2tdb(mjd0));
+      if ((obsTable.header()->getValue("X0",x0)
+	   && obsTable.header()->getValue("Y0",y0)
+	   && obsTable.header()->getValue("Z0",z0))) {
+	frame = Frame(astrometry::CartesianICRS(x0,y0,z0),
+		      orient, eph.mjd2tdb(mjd0));
+      } else {
+	// Put origin at position of observatory at MJD0 if not given
+	frame = Frame(eph.observatory(obscode, frame.tdb0),
+		      orient, eph.mjd2tdb(mjd0));
+      }
+      astrometry::CartesianICRS origin(x0,y0,z0);
 
       // Extract data from the table
-      obsTable.readCells(idIn, "ORBIT_ID");
+      obsTable.readCells(idIn, "ORBITID");
       // Are we using expnum or MJD?
       auto colnames = obsTable.listColumns();
       useExpnum = (std::find(colnames.begin(),colnames.end(),"EXPNUM")!=colnames.end());
       if (useExpnum) {
 	obsTable.readCells(expnum, "EXPNUM");
-	// Read the exposure table
-	// ???
+	// Read the exposure table later.
       } else {
 	// We'll use MJD's
 	obsTable.readCells(mjd,"MJD");
@@ -171,7 +183,7 @@ int main(int argc,
 
       obsTable.readCells(ra, "RA");
       obsTable.readCells(dec,"DEC");
-      obsTable.readCells(sigma,"SIGMA");
+      obsTable.readCells(sigma,"SIGMA"); 
     } else {
 
       // Info will come from stdin.  Read the reference frame from first
@@ -205,7 +217,7 @@ int main(int argc,
     // If writing to stdout, print out the reference frame
     if (!orbitsToFile) {
       Frame::writeHeader(cout);
-      cout << frame << endl;
+      frame.write(cout);
     }
     
     // If we read the exposure table it'll go here:
@@ -347,8 +359,6 @@ int main(int argc,
 	auto abg = fit.getABG(true);
 	if (fit.getChisq() / (2*fit.nObservations()) > MAX_LINEAR_CHISQ_PER_PT) {
 	  errorCode = LINEAR_CHISQ_TOO_HIGH;
-	  /**/cerr << "# ---linear fit results: " << abg << endl;
-	  /**/fit.printResiduals(cerr);
 	} else if (abg[ABG::G] > MAX_LINEAR_GAMMA) {
 	  errorCode = LINEAR_GAMMA_TOO_HIGH;
 	} else if ( (abg[ABG::ADOT]*abg[ABG::ADOT] + abg[ABG::BDOT]*abg[ABG::BDOT])
@@ -361,6 +371,12 @@ int main(int argc,
 	errorCode = NONCONVERGENCE;
       }
 
+      // Print fitting residuals if requested
+      if (showResiduals) {
+	cout << "# Fitting results for " << idThis << endl;
+	fit.printResiduals(cout);
+      }
+      
       // Output results
       if (orbitsToFile) {
 	// save to output vectors
