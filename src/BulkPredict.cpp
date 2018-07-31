@@ -72,6 +72,7 @@ int main(int argc,
       parameters.addMember("obscode",&obscode, def | low,
 			   "Observatory code (default: CTIO)", 807, 0);
     }
+    parameters.setDefault();
     if (argc<2 || string(argv[1])=="-h" || string(argv[1])=="--help") {
       cout << usage << endl;
       cout << "\nParameters:" << endl;
@@ -80,7 +81,6 @@ int main(int argc,
     }
     
     {
-      parameters.setDefault();
       // Read any parameter files
       int nPositional=0;
       for (int iarg=1; iarg < argc && argv[iarg][0]!='-'; iarg++) {
@@ -153,7 +153,7 @@ int main(int argc,
     // Input that is also output:
     vector<int> orbitID;
     vector<int> expnum;
-    vector<int> mjd;  // Might use this instead of expnum
+    vector<double> mjd;  // Might use this instead of expnum
     
     if (observationsFromFile) {
       FITS::FitsTable ft(observationPath);
@@ -325,15 +325,15 @@ int main(int argc,
 	  dec[i] = decThis;
 	  semimajor[i] = a[ii];
 	} else {
-	  cout << idThis;
+	  cout << setw(6) << idThis;
 	  if (useExpnum)
-	    cout << " " << expnum[i];
+	    cout << " " << setw(6) << expnum[i];
 	  else
-	    cout << " " << mjd[i];
-	  cout << " " << errorThis
-	       << " " << raThis
-	       << " " << decThis
-	       << " " << a[ii]
+	    cout << " " << fixed << setprecision(5) << setw(11) <<mjd[i];
+	  cout << " " << setw(2) << errorThis
+	       << " " << fixed << noshowpos << setprecision(6) << setw(10) << (raThis<0 ? raThis+360. : raThis)
+	       << " " << showpos << setw(10) << decThis
+	       << " " << noshowpos << setprecision(3) << a[ii]
 	       << endl;
 	}
       }

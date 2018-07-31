@@ -52,7 +52,7 @@ setenv CC "gcc-6 -fopenmp -march=haswell"
 setenv CXXFLAGS "-O"
 
 # Use whatever command you need to point to these packages libraries
-# for runtime linking
+# for runtime linking, e.g. maybe LD_LIBRARY_PATH here.
 setenv DYLD_LIBRARY_PATH $CFITSIO_DIR/lib:$SPICE_DIR/lib
 
 # These variables are needed during execution of the program.
@@ -77,6 +77,23 @@ in your path as needed.
 * `make tests` will build some test programs and install them in
   _orbitspp/testbin_.  I haven't yet documented the proper usage of
   these tests though.
+* The SPICE kernel file in data/de430.tm tells SPICE where to find
+its data files.  The PATH_VALUES line should be changed to match the
+directory where you keep such things, e.g. the /data subdir of this
+repo. Either edit this file, or (preferentially, to keep it from
+getting rewritten every time you pull the repo) make another version
+with a new name and make sure that the SPICE_KERNEL environment
+variable points to it.
+
+
+## Usage
+
+The CFITSIO software is a bit picky about data types, so beware of
+these details:  in the input FITS files to the _Bulk*cpp_ programs,
+the `ORBITID` and `EXPNUM` columns should 4-byte integers (FITS type
+"J") and the `OBJID` column should be 8-byte (FITS type "K"). The
+`MJD` and other coordinate columns should be double-precision ("D").
+
 
 
 

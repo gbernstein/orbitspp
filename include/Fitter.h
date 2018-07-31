@@ -102,12 +102,12 @@ namespace orbits {
     // Use updated orbit to recalculate non-inertial motion if newGravity=true,
     // otherwise keep trajectory from previous fit.
     Fitter* augmentObservation(double tObs_,    // TDB since reference time
-			       double thetaX_,  // Observed positions
+			       double thetaX_,  // Observed position
 			       double thetaY_,
-			       double covXX_,   // Covariance of observed posns
+			       double covXX_,   // Covariance of observed posn
 			       double covYY_,
 			       double covXY_,
-			       const Vector3& xE_,     // Observatory posn at observations
+			       const Vector3& xE_,     // Observatory posn at observation
 			       bool newGravity=false) const; 
   private:
     const Ephemeris& eph; // Solar system Ephemeris
@@ -118,8 +118,9 @@ namespace orbits {
     vector<Observation> observations;
 #endif
     
-    void iterateTimeDelay(); // Update tEmit based on light-travel time in current orbit.
+    void iterateTimeDelay(); // Update tEmit based on light-travel time in current orbit
     void calculateGravity(); // Calculate non-inertial terms from current ABG
+    void createTrajectory(); // Initialize the orbit integrator from current ABG
 
     // Calculate angular positions and their derivs wrt ABG
     void calculateOrbit(bool doDerivatives=true); 
