@@ -12,6 +12,11 @@
 using namespace std;
 using namespace orbits;
 
+const string usage =
+  "GrowOrbits: Given lists of transient detections potentially corresponding to the same\n"
+  "object, looks through the transient catalog added possible additional detections\n"
+  "one by one until nothing new fits the orbit.";
+
 /**
 
 Parameters:
@@ -47,9 +52,16 @@ const int START_IGNORING_HIGH_FPR=4;
 const double INDEPENDENT_TIME_INTERVAL = 0.1*DAY;
 
 struct GlobalResources {
-  Ephemeris* ephem;
   vector<Exposure*> allExposures;
   vector<double> reducedChisqToKeep; // Definition of valid orbit, indexed by # detections
+  bool goodFit(Fitter* fitptr) {
+    // Criterion we'll use for whether an orbit fit is good enough to pursue:
+    double chisqPerDetection = fitptr->getChisq() / (fitptr->nObservations());
+    double threshold = (fitptr->nObservations()< reducedChisqToKeep.size()) ?
+      reducedChisqToKeep[fitptr->nObservations()] :
+      reducedChisqToKeep.back();
+    return chisqPerDetection <= threshold;
+  }
 } globals;
 
 struct Detection {
@@ -182,8 +194,6 @@ FitStep::search() {
     // Get chisq of all points
     DVector chisq = info.eptr->chisq(info.x,info.y,info.covXX,info.covYY,info.covXY);
 
-    // ?? This would be where to mask detections for those already claimed.
-
     double thisFPR = (chisq.array() <= chisqForFalsePositive).count()
       * searchArea / FALSE_POSITIVE_COUNTING_AREA;
     if ((nIndependent>=START_IGNORING_HIGH_FPR)
@@ -209,7 +219,8 @@ FitStep::search() {
     // Now refit orbit to all potential candidates
     // Refit for all good points
     for (int i=0; i<chisq.size(); i++) {
-      if (chisq[i] > SINGLE_CHISQ_THRESHOLD)
+      // Exclude points that are tagged as invalid or bad matches to orbit.
+      if (chisq[i] > SINGLE_CHISQ_THRESHOLD || !info.eptr->valid[i])
 	continue;
       auto nextFit = fitptr->augmentObservation(info.eptr->tobs,
 						info.eptr->xy(i,0), info.eptr->xy(i,1),
@@ -217,11 +228,7 @@ FitStep::search() {
 						info.eptr->earth,
 						true);  // recalculate gravity ???
       // Check chisq to see if we keep it
-      double chisqPerDetection = nextFit->getChisq() / (nextFit->nObservations());
-      double threshold = (nextFit->nObservations()<globals.reducedChisqToKeep.size()) ?
-	globals.reducedChisqToKeep[nextFit->nObservations()] :
-	globals.reducedChisqToKeep.back();
-      if (chisqPerDetection > threshold) {
+      if (!globals.goodFit(nextFit))
 	delete nextFit;
 	continue;
       }
@@ -245,38 +252,239 @@ FitStep::search() {
 
 int
 main(int argc, char **argv) {
-
-  // Read parameters
-
-  // Open inputs
-
-  // Create output arrays
-
-  // Read ephemeris
-
-  // set up reference frame, pick gamma range
-
-
-  // Pluck out all relevant exposure data.  Then close
-  // transient catalog and exposure catalog.
-
-
-  /* Loop over all initial detection sets:
-
-     Fit an orbit
-     quit if not good enough.
-     Assign an input ID
-
-     Create an object which is a combination of fitted orbit to N objects
-     and a catalog of exposures with possible (N+1)th detection.  
-     And the input ID.  Add it to a queue?
-
-     Loop through the queue.  For each object in the queue:
-        Predict object position on all candidate exposures.
-	Pop the impossible exposures out of the candidate list.
-  */
-
+  string tripletPath;
+  string ephemerisPath;
+  string transientPath;
+  string exposurePath;
+  double bindingFactor;
+  double gamma0;
+  double dGamma;
+  double searchRadius;
+  try {
+    Pset parameters;
    
+    {
+      const int def=PsetMember::hasDefault;
+      const int low=PsetMember::hasLowerBound;
+      const int up=PsetMember::hasUpperBound;
+      const int lowopen = low | PsetMember::openLowerBound;
+      const int upopen = up | PsetMember::openUpperBound;
 
+      parameters.addMember("tripletFile",&tripletPath, def,
+			   "FITS file holding initial triplets (null->ASCII stdin)", "");
+      parameters.addMember("ephemerisFile",&ephemerisPath, def,
+			   "SPICE file (null=>environment", "");
+      parameters.addMember("exposureFile",&exposurePath, def,
+			   "FITS file holding DECam exposure info", "");
+      parameters.addMember("transientFile",&transientPath, def,
+			   "FITS file holding transient detections", "");
+      parameters.addMember("bindingFactor",&bindingFactor, def | low,
+			   "Chisq penalty at unbinding", 4., 0.);
+      parameters.addMember("gamma0",&gamma0, def | lowopen,
+			   "Center of gamma search region", 0.03, 0.);
+      parameters.addMember("dGamma",&dGamma, def | lowopen,
+			   "Half-width of gamma search region", 0.01, 0.);
+      parameters.addMember("searchRadius",&searchRadius, def | lowopen,
+			   "Radius of alpha/beta values at reference time", 1., 0.);
+    }
+    parameters.setDefault();
 
-}
+    if (argc<2 || string(argv[1])=="-h" || string(argv[1])=="--help") {
+      cout << usage << endl;
+      parameters.dump(cerr);
+      exit(1);
+    }
+    
+    {
+      // Read any parameter files
+      int nPositional=0;
+      for (int iarg=1; iarg < argc && argv[iarg][0]!='-'; iarg++) {
+	ifstream ifs(argv[iarg]);
+	if (!ifs) {
+	  cerr << "Can't open parameter file " << argv[iarg] << endl;
+	  cerr << usage << endl;
+	  exit(1);
+	}
+	try {
+	  parameters.setStream(ifs);
+	} catch (std::runtime_error &m) {
+	  cerr << "In file " << argv[iarg] << ":" << endl;
+	  quit(m,1);
+	}
+	nPositional++;
+      }
+      // And read arguments from the remaining command line entries
+      parameters.setFromArguments(argc, argv);
+    }
+
+    // Read the ephemeris
+    Ephemeris eph(ephemerisPath);
+
+    // Open inputs
+    // ??? read triplets
+
+    // ??? Set up the chisq thresholds in globals
+    
+    // set up reference frame, pick gamma range
+    Frame frame;
+    {
+      // Hardwire for zone029: ???
+      double ra0 = 26.;
+      double dec0 = -5.;
+      frame.tdb0 = 15.9;  // Late Nov, Y3
+      astrometry::SphericalICRS pole(ra0*DEGREE, dec0*DEGREE);
+      astrometry::Orientation orient(pole);
+      orient.alignToEcliptic();  // We'll do this by default.
+      frame.orient = orient;
+      // Put origin at position of observatory at MJD0
+      frame.origin = eph.observatory(807, frame.tdb0);
+    }    
+
+    // Pluck out all relevant exposure data.  Then close
+    // transient catalog and exposure catalog.
+    auto exposurePool = selectExposures(frame,
+					eph,
+					gamma0,
+					dgamma,
+					searchRadius,
+					transientPath,
+					exposurePath);
+
+    // Make an initial exposure list of all of these for the input orbits
+    list<Exposure*> allExposures;
+    allExposures.insert(allExposures.end(), exposurePool.begin(), exposurePool.end());
+    
+    // Make a lookup table from object ID back to the exposure it
+    // was taken in.  This keeps us from having to keep the
+    // transient file open.
+    std::map<int, Detection> detectionIndex;
+    for (auto& eptr : exposurePool) {
+      for (int i=0; i<eptr->id.size(); i++)
+	detectionIndex[eptr->id[i]] = Detection(eptr,i);
+    }
+
+    int orbitID = 0;
+
+    // Now enter a loop of growing
+    list<FitStep*> fitQueue;
+
+    do {
+      if (fitQueue.empty()) {
+	// Stock the queue with fresh orbit from input
+	string buffer;
+	/* Loop over all initial detection sets: ?? simple stdin format to start */
+	while (getlineNoComment(cin, buffer)) {
+	  istringstream iss(buffer);
+	  // Read object id's on a line
+	  vector<Detection> members;
+	  int objectID;
+	  while (iss >> objectID) {
+	    if (!detectionIndex.count(objectID)) {
+	      cerr << "Object with ID " << objectID
+		   << " is not in one of our search exposures"
+		   << endl;
+	      continue;
+	    }
+	    members.push_back(detectionIndex[objectID]);
+	  }
+      
+	  if (members.size() < 3)
+	    continue; // don't try these...
+
+	  // Make an orbit fit
+	  auto fitptr = new Fitter(eph, Gravity::BARY);  // ?? Need giants' gravity??
+	  fitptr->setFrame(frame);
+	  if (bindingFactor > 0.)
+	    fitptr->setBindingConstraint(bindingFactor);
+	  fitptr->setGammaPrior(gamma0, dGamma/2.); // Give gamma prior so search bound is 2 sigma
+	  // Pass in the detections' data
+	  {
+	    int nobs = members.size();
+	    DVector tobs(nobs);
+	    DVector thetaX(nobs);
+	    DVector thetaY(nobs);
+	    DVector covxx(nobs);
+	    DVector covyy(nobs);
+	    DVector covxy(nobs);
+	    DMatrix xE(nobs,3);
+	    for (int i=0; i<members.size(); i++) {
+	      Detection& det = members[i];
+	      tobs[i] = det.eptr->tobs;
+	      thetaX[i] = det.eptr->xy(i,0);
+	      thetaY[i] = det.eptr->xy(i,1);
+	      covxx[i] = det.eptr->covXX[i];
+	      covyy[i] = det.eptr->covYY[i];
+	      covxy[i] = det.eptr->covXY[i];
+	      xE.row(i) = det.eptr->earth.transpose();
+	    }
+	    fitptr->setObservationsInFrame(tobs, thetaX, thetaY, covxx, covyy, covxy, xE);
+	  }
+	  bool goodFit = true;
+	  try {
+	    fitptr->setLinearOrbit();
+	    fit.newtonFit();  // ?? any more elaborate fitting needed ??
+	  } catch (std::runtime_error& e) {
+	    goodFit = false;
+	  }
+
+	  // Skip the orbit if fit failed or is poor
+	  if (!goodFit || !globals.goodFit(fitptr)) {
+	    delete fitptr;
+	    continue;
+	  }
+
+	  // Fit is good - queue up a FitStep
+	  // First make a list of possible exposures that excludes the
+	  // ones that the original detections come from.
+	  list<Exposure*> possibleExposures(allPossibleExposures);
+	  for (auto& m : members) {
+	    possibleExposures.remove(m.eptr);
+	  }
+	  // Now queue up
+	  fitQueue.push_back(new FitStep(fitptr, possibleExposures, members,
+					 members.size(), members, orbitID,
+					 1000.)); // Set a high FPR so we don't trigger on this
+	  ++orbitID; // Increment orbit id
+	} // End of input-reading loop.
+
+	if (fitQueue.empty()) {
+	  // Nothing left to fit!
+	  exit(0);
+	}
+
+      } // End of searching for new inputs for queue.
+
+	// Search the next item on the queue:
+      auto newFits = fitQueue.front()->search();
+      if (newFits.empty()) {
+	// No new points can be added to this fit.  So it's a completed search.
+	// ??? Have some criterion for output ???
+	const FitStep& fs = *fitQueue.front();
+	cout << "Orbit " << fs.orbitID
+	     << " " << fs.nIndependent
+	     << " " << fs.fptr->getChisq() << " / " << fs.fptr->getDOF()
+	     << " FPR " << fs.fpr
+	     << endl;
+	fs.fptr->getABG().write(cout);
+
+	// ?? Better criterion for when a fit is secure
+	if (fs.nIndependent > 5) {
+	  // Take this fit's detections out of circulation for future fits
+	  for (auto& m : fs.members) {
+	    m.eptr->valid[m.objectRow] = false;
+	  }
+	}
+      } else {
+	// Not a terminal fit - add new searches to queue
+	fitQueue.insert(fitQueue.end(), newFits.begin(), newFits.end());
+      }
+      // Done with this fit
+      delete fitQueue.front();
+      fitQueue.pop_front();
+    } // End of the queue loop.
+
+    cerr << "ERROR: Should not get here." << endl;
+  } catch (std::runtime_error& e) {
+    quit(e,1);
+  }
+}  

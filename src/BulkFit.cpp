@@ -163,10 +163,10 @@ int main(int argc,
 		      orient, eph.mjd2tdb(mjd0));
       } else {
 	// Put origin at position of observatory at MJD0 if not given
+	frame.tdb0 = eph.mjd2tdb(mjd0);
 	frame = Frame(eph.observatory(obscode, frame.tdb0),
-		      orient, eph.mjd2tdb(mjd0));
+		      orient, frame.tdb0);
       }
-      astrometry::CartesianICRS origin(x0,y0,z0);
 
       // Extract data from the table
       obsTable.readCells(idIn, "ORBITID");
