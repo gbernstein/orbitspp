@@ -8,6 +8,7 @@
 #include "Ephemeris.h"
 #include "Fitter.h"
 #include "Exposures.h"
+#include "PSet.h"
 
 using namespace std;
 using namespace orbits;
@@ -68,6 +69,7 @@ struct Detection {
   Exposure* eptr;
   int objectRow;
   Detection(Exposure* eptr_, int objectRow_): eptr(eptr_), objectRow(objectRow_) {}
+  Detection(): eptr(nullptr), objectRow(0) {}
 };
   
 class FitStep {
@@ -75,7 +77,7 @@ class FitStep {
   // to exposures that could hold the (N+1)th.
 public:
   FitStep(Fitter* fitptr_,
-	  vector<Exposure*> possibleExposures_,
+	  list<Exposure*> possibleExposures_,
 	  vector<Detection> members_,
 	  int nIndependent_,
 	  int orbitID_,
@@ -88,13 +90,13 @@ public:
   const Fitter* getFitter() const {return fitptr;}
 
   list<FitStep*> search(); // return all possible N+1 -object FitSteps.
-private:
+
   Fitter* fitptr;  // An orbit fit to the N objects
 
   // Exposures potentially holding the (N+1)th.
   // This list should not include exposures already having a detection, but might
   // include some v close in time.
-  vector<Exposure*> possibleExposures;
+  list<Exposure*> possibleExposures;
   
   vector<Detection> members;  // Detections that comprise the orbit
   
@@ -228,7 +230,7 @@ FitStep::search() {
 						info.eptr->earth,
 						true);  // recalculate gravity ???
       // Check chisq to see if we keep it
-      if (!globals.goodFit(nextFit))
+      if (!globals.goodFit(nextFit)) {
 	delete nextFit;
 	continue;
       }
@@ -239,7 +241,7 @@ FitStep::search() {
 			       orbitID, newFPR));
       // Add this detection to the new FitStep
       out.back()->members.push_back(Detection(info.eptr, i));
-    }
+    } // End of N+1 detection loop
   } // End of N+1 exposure loop
   return out;
 }
@@ -273,7 +275,7 @@ main(int argc, char **argv) {
       parameters.addMember("tripletFile",&tripletPath, def,
 			   "FITS file holding initial triplets (null->ASCII stdin)", "");
       parameters.addMember("ephemerisFile",&ephemerisPath, def,
-			   "SPICE file (null=>environment", "");
+			   "SPICE file (null=>environment)", "");
       parameters.addMember("exposureFile",&exposurePath, def,
 			   "FITS file holding DECam exposure info", "");
       parameters.addMember("transientFile",&transientPath, def,
@@ -345,14 +347,14 @@ main(int argc, char **argv) {
     auto exposurePool = selectExposures(frame,
 					eph,
 					gamma0,
-					dgamma,
+					dGamma,
 					searchRadius,
 					transientPath,
 					exposurePath);
 
     // Make an initial exposure list of all of these for the input orbits
-    list<Exposure*> allExposures;
-    allExposures.insert(allExposures.end(), exposurePool.begin(), exposurePool.end());
+    list<Exposure*> allExposureList;
+    allExposureList.insert(allExposureList.end(), exposurePool.begin(), exposurePool.end());
     
     // Make a lookup table from object ID back to the exposure it
     // was taken in.  This keeps us from having to keep the
@@ -368,7 +370,7 @@ main(int argc, char **argv) {
     // Now enter a loop of growing
     list<FitStep*> fitQueue;
 
-    do {
+    while (true) {
       if (fitQueue.empty()) {
 	// Stock the queue with fresh orbit from input
 	string buffer;
@@ -396,7 +398,7 @@ main(int argc, char **argv) {
 	  fitptr->setFrame(frame);
 	  if (bindingFactor > 0.)
 	    fitptr->setBindingConstraint(bindingFactor);
-	  fitptr->setGammaPrior(gamma0, dGamma/2.); // Give gamma prior so search bound is 2 sigma
+	  fitptr->setGammaConstraint(gamma0, dGamma/2.); // Give gamma prior so search bound is 2 sigma
 	  // Pass in the detections' data
 	  {
 	    int nobs = members.size();
@@ -422,7 +424,7 @@ main(int argc, char **argv) {
 	  bool goodFit = true;
 	  try {
 	    fitptr->setLinearOrbit();
-	    fit.newtonFit();  // ?? any more elaborate fitting needed ??
+	    fitptr->newtonFit();  // ?? any more elaborate fitting needed ??
 	  } catch (std::runtime_error& e) {
 	    goodFit = false;
 	  }
@@ -436,13 +438,13 @@ main(int argc, char **argv) {
 	  // Fit is good - queue up a FitStep
 	  // First make a list of possible exposures that excludes the
 	  // ones that the original detections come from.
-	  list<Exposure*> possibleExposures(allPossibleExposures);
+	  list<Exposure*> possibleExposures(allExposureList);
 	  for (auto& m : members) {
 	    possibleExposures.remove(m.eptr);
 	  }
 	  // Now queue up
 	  fitQueue.push_back(new FitStep(fitptr, possibleExposures, members,
-					 members.size(), members, orbitID,
+					 members.size(), orbitID,
 					 1000.)); // Set a high FPR so we don't trigger on this
 	  ++orbitID; // Increment orbit id
 	} // End of input-reading loop.
@@ -462,10 +464,10 @@ main(int argc, char **argv) {
 	const FitStep& fs = *fitQueue.front();
 	cout << "Orbit " << fs.orbitID
 	     << " " << fs.nIndependent
-	     << " " << fs.fptr->getChisq() << " / " << fs.fptr->getDOF()
+	     << " " << fs.fitptr->getChisq() << " / " << fs.fitptr->getDOF()
 	     << " FPR " << fs.fpr
 	     << endl;
-	fs.fptr->getABG().write(cout);
+	fs.fitptr->getABG().write(cout);
 
 	// ?? Better criterion for when a fit is secure
 	if (fs.nIndependent > 5) {
