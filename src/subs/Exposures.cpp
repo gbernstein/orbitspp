@@ -123,7 +123,7 @@ ExposureTable::observingInfo(int expnum,
   return true;
 }
 
-std::vector<const Exposure*>
+std::vector<Exposure*>
 orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
 			const Ephemeris& ephem,  
 			double gamma0,        // Center and width of range 
@@ -134,7 +134,7 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
 			double fieldRadius) { 
 
 
-  std::vector<const Exposure*> out;  // This will be the returned array
+  std::vector<Exposure*> out;  // This will be the returned array
   std::list<Exposure*> firstCut; // Make a list first, then toss those with no transient data.
   // Read the exposure information table
   img::FTable exposureTable;

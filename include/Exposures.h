@@ -67,7 +67,7 @@ namespace orbits {
   // range of alpha, beta, gamma at the frame reference epoch.
   // Then it loads the transient lists for each
   extern
-  std::vector<const Exposure*>
+  std::vector<Exposure*>
   selectExposures(const Frame& frame,   // Starting coordinates, time
 		  const Ephemeris& ephem,  // Ephemeris to use
 		  double gamma0,        // Center and width of range 
