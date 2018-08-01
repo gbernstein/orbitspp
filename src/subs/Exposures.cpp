@@ -296,6 +296,7 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
     expoptr->covYY.resize(nTransients);
     expoptr->ccdnum.resize(nTransients);
     expoptr->id.resize(nTransients);
+    expoptr->valid = BVector(nTransients,true); //Everyone is valid to start with.
 
     std::vector<double> ra;
     transientTable.readCells(ra, "RA", begin, end);

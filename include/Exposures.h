@@ -30,6 +30,7 @@ namespace orbits {
     DVector covYY;
     vector<int> ccdnum; // CCD of origin of transients
     vector<int> id;  // ID or row number of transient in original file
+    BVector valid;   // Is this a possible new TNO?
 
     // Return chisq of transients determined
     // by the given error ellipse.  Transients' measurement errors are added in.
@@ -72,10 +73,10 @@ namespace orbits {
 		  double gamma0,        // Center and width of range 
 		  double dGamma,        // of gamma to cover
 		  double searchRadius,  // Range of starting coords to cover (radians)
-		  string transientFile="data/y4a1.transients.fits",  // File of transients
+		  string transientFile="data/zone029.transients.fits",  // File of transients
 		  string exposureFile="data/y4a1.exposure.positions.fits",  // File of exposure data
 		  double fieldRadius = 1.1*DEGREE); // Circumscribed field radius (radians)
-  // ?? Allow exclusion of filters??
+  // ?? Allow exclusion of filters?? seasons??
   // ?? Add CCD corners, detections ??
 
   class Node {
