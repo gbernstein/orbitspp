@@ -18,6 +18,8 @@ const string usage =
   "object, looks through the transient catalog added possible additional detections\n"
   "one by one until nothing new fits the orbit.";
 
+const bool DEBUG=false;
+
 /**
 
 Parameters:
@@ -52,15 +54,25 @@ const int START_IGNORING_HIGH_FPR=4;
 // (e.g. when asteroids or defects would have moved out of linking range)
 const double INDEPENDENT_TIME_INTERVAL = 0.1*DAY;
 
+// What maximum FPR to print out?
+const double MAX_FPR_TO_OUTPUT = 1.; // ???
+const int MIN_DETECTIONS_TO_OUTPUT = 4; // ???
+
+// What combination of FPR and number of independent exposures are sufficient
+// to consider this a completed search and flush all other FitSteps from the same
+// starting orbit and pull the detections out of circulation.
+const double MAX_FPR_EXCLUSIVE = 0.01;
+const int MIN_DETECTIONS_EXCLUSIVE = 5;
+
 struct GlobalResources {
   vector<Exposure*> allExposures;
-  vector<double> reducedChisqToKeep; // Definition of valid orbit, indexed by # detections
+  vector<double> chisqPerDetectionToKeep; // Definition of valid orbit, indexed by # detections
   bool goodFit(Fitter* fitptr) {
     // Criterion we'll use for whether an orbit fit is good enough to pursue:
     double chisqPerDetection = fitptr->getChisq() / (fitptr->nObservations());
-    double threshold = (fitptr->nObservations()< reducedChisqToKeep.size()) ?
-      reducedChisqToKeep[fitptr->nObservations()] :
-      reducedChisqToKeep.back();
+    double threshold = (fitptr->nObservations()< chisqPerDetectionToKeep.size()) ?
+      chisqPerDetectionToKeep[fitptr->nObservations()] :
+      chisqPerDetectionToKeep.back();
     return chisqPerDetection <= threshold;
   }
 } globals;
@@ -69,7 +81,7 @@ struct Detection {
   Exposure* eptr;
   int objectRow;
   Detection(Exposure* eptr_, int objectRow_): eptr(eptr_), objectRow(objectRow_) {}
-  Detection(): eptr(nullptr), objectRow(0) {}
+  Detection(): eptr(nullptr), objectRow(0){}
 };
   
 class FitStep {
@@ -84,12 +96,15 @@ public:
 	  double fpr_):
     fitptr(fitptr_), possibleExposures(possibleExposures_),
     members(members_), nIndependent(nIndependent_),
-    orbitID(orbitID), fpr(fpr_) {}
+    orbitID(orbitID_), fpr(fpr_) {}
   ~FitStep() {delete fitptr;}
 
   const Fitter* getFitter() const {return fitptr;}
 
-  list<FitStep*> search(); // return all possible N+1 -object FitSteps.
+  // return all possible N+1 -object FitSteps.
+  // They are sorted in order of increasing false positive rate,
+  // so the most secure one is first.
+  list<FitStep*> search(); 
 
   Fitter* fitptr;  // An orbit fit to the N objects
 
@@ -107,9 +122,19 @@ public:
   // A unique ID for each starting orbit
   int orbitID;
   
-  double fpr;  // False positive rate for having found this guy.
+  // False positive rate for having found last detection,
+  // summed over all images searched for it.
+  double fpr;  
 };
-    
+
+
+bool
+fitStepCompare(const FitStep* lhs, const FitStep* rhs) {
+  // A function used for sorting (pointers to)
+  // FitStep objects in increasing false positive order.
+  return lhs->fpr < rhs->fpr;
+}
+
 // This method of the FitStep is the key ingredient:
 list<FitStep*>
 FitStep::search() {
@@ -176,18 +201,22 @@ FitStep::search() {
     }
   } // Done making exposure list.
   
+  if (DEBUG) cerr << "Search from nobs " << fitptr->nObservations()
+	   << " independent " << nIndependent
+	   << " from " << possibleExposures.size() << " exposures" << endl;
   // Now walk through all viable exposures, collecting
   // information on the actual matches and the
   // false positive expectation.
   
-  double newFPR = 0.; // False positive rate that will be handed to children
+  double totalFPR = 0.; // False positive rate that will be handed to children
   list<Detection> matches;  // List of N+1's.
 
   for (auto& info : infoList) {
     // Determine the search ellipse area on this exposure
     // with some rough allowance for measurement errors
-    double searchArea = PI * sqrt( (info.covXX*info.covYY - info.covXY*info.covYY)
-				   + NOMINAL_POSITION_ERROR*NOMINAL_POSITION_ERROR);
+    double searchArea = PI * sqrt( (info.covXX + NOMINAL_POSITION_ERROR*NOMINAL_POSITION_ERROR)*
+				   (info.covYY + NOMINAL_POSITION_ERROR*NOMINAL_POSITION_ERROR) - info.covXY*info.covYY);
+				   
     // False positive rate will be calculated by scaling error ellipse
     // to have this size, and counting detections in it.
     double chisqForFalsePositive = FALSE_POSITIVE_COUNTING_AREA / searchArea;
@@ -204,7 +233,7 @@ FitStep::search() {
       continue;
     } else {
       // Add this exposure to FPR
-      newFPR += thisFPR;
+      totalFPR += thisFPR;
     }
 
     // See if this exposure is close in time to any of the detections
@@ -224,6 +253,7 @@ FitStep::search() {
       // Exclude points that are tagged as invalid or bad matches to orbit.
       if (chisq[i] > SINGLE_CHISQ_THRESHOLD || !info.eptr->valid[i])
 	continue;
+      if (DEBUG) cerr << "....match exposure " << info.eptr->expnum << " id " << i << " chisq " << chisq[i] << endl;
       auto nextFit = fitptr->augmentObservation(info.eptr->tobs,
 						info.eptr->xy(i,0), info.eptr->xy(i,1),
 						info.eptr->covXX[i], info.eptr->covYY[i], info.eptr->covXY[i],
@@ -231,18 +261,29 @@ FitStep::search() {
 						true);  // recalculate gravity ???
       // Check chisq to see if we keep it
       if (!globals.goodFit(nextFit)) {
+	if (DEBUG) cerr << "....bad fit, deleting" << endl;
 	delete nextFit;
 	continue;
       }
 
-      // Make a new FitStep that has this detection
+      // Make a new FitStep that has this detection.
+      // Temporarily install the FPR just for this exposure.
       out.push_back(new FitStep(nextFit, possibleExposures, members,
 			       (closeInTime ? nIndependent : nIndependent+1),
-			       orbitID, newFPR));
+			       orbitID, thisFPR));
       // Add this detection to the new FitStep
       out.back()->members.push_back(Detection(info.eptr, i));
+      // And remove its exposure from the possibleExposures so we don't
+      // keep finding ourselves...
+      out.back()->possibleExposures.remove(info.eptr);
     } // End of N+1 detection loop
   } // End of N+1 exposure loop
+
+  // Sort the new FitSteps to have lowest FPR first, searched first
+  out.sort(&fitStepCompare);
+  // Then replace FPR of each with the total for all searches
+  for (auto& fsptr : out)
+    fsptr->fpr = totalFPR;
   return out;
 }
 
@@ -291,7 +332,7 @@ main(int argc, char **argv) {
     }
     parameters.setDefault();
 
-    if (argc<2 || string(argv[1])=="-h" || string(argv[1])=="--help") {
+    if (argc>=2 && (string(argv[1])=="-h" || string(argv[1])=="--help")) {
       cout << usage << endl;
       parameters.dump(cerr);
       exit(1);
@@ -324,9 +365,28 @@ main(int argc, char **argv) {
 
     // Open inputs
     // ??? read triplets
-
-    // ??? Set up the chisq thresholds in globals
+    transientPath = "/Users/garyb/DES/TNO/zone029.transients.fits";
+    exposurePath = "/Users/garyb/CODE/orbitspp/data/y4a1.exposure.positions.fits";
     
+    {
+      // Choose chisq cutoffs for numbers of detections
+      DVector pctile(8,0.);
+      // Start with the values for 99th pctile of
+      // chisq distribution for 2*n-5 DOF,
+      // assuming that gammadot isn't really helping fit.
+      pctile << 0., 0., 0., 6.6, 11.3, 15.1, 18.5, 21.7;
+      // Multiply by a factor for error underestimates
+      pctile *= 1.4;
+      // Add a few to allow for gamma / binding priors
+      pctile.array() += bindingFactor + 4.;
+      // Save, dividing by number of points
+      globals.chisqPerDetectionToKeep.resize(pctile.size());
+      for (int i=0; i<3; i++)
+	globals.chisqPerDetectionToKeep[i] = 0.; // Need >=3 pts
+      for (int i=3; i<pctile.size(); i++)
+	globals.chisqPerDetectionToKeep[i] = pctile[i]/i;
+    }
+	
     // set up reference frame, pick gamma range
     Frame frame;
     {
@@ -352,6 +412,8 @@ main(int argc, char **argv) {
 					transientPath,
 					exposurePath);
 
+    if (DEBUG) cerr << "Pool: "  << exposurePool.size() << " exposures" << endl;      
+
     // Make an initial exposure list of all of these for the input orbits
     list<Exposure*> allExposureList;
     allExposureList.insert(allExposureList.end(), exposurePool.begin(), exposurePool.end());
@@ -366,8 +428,11 @@ main(int argc, char **argv) {
     }
 
     int orbitID = 0;
-
-    // Now enter a loop of growing
+    // These are orbitID's that have already been "cleaned out" from an
+    // excellent orbit and should be henceforth ignored.
+    set<int> settledOrbitIDs;
+    
+    // Now enter a loop of growing fits.
     list<FitStep*> fitQueue;
 
     while (true) {
@@ -393,6 +458,7 @@ main(int argc, char **argv) {
 	  if (members.size() < 3)
 	    continue; // don't try these...
 
+	  if (DEBUG) cerr << "Making initial with " << members.size() << " detections" << endl;
 	  // Make an orbit fit
 	  auto fitptr = new Fitter(eph, Gravity::BARY);  // ?? Need giants' gravity??
 	  fitptr->setFrame(frame);
@@ -411,12 +477,13 @@ main(int argc, char **argv) {
 	    DMatrix xE(nobs,3);
 	    for (int i=0; i<members.size(); i++) {
 	      Detection& det = members[i];
+	      int j = det.objectRow;
 	      tobs[i] = det.eptr->tobs;
-	      thetaX[i] = det.eptr->xy(i,0);
-	      thetaY[i] = det.eptr->xy(i,1);
-	      covxx[i] = det.eptr->covXX[i];
-	      covyy[i] = det.eptr->covYY[i];
-	      covxy[i] = det.eptr->covXY[i];
+	      thetaX[i] = det.eptr->xy(j,0);
+	      thetaY[i] = det.eptr->xy(j,1);
+	      covxx[i] = det.eptr->covXX[j];
+	      covyy[i] = det.eptr->covYY[j];
+	      covxy[i] = det.eptr->covXY[j];
 	      xE.row(i) = det.eptr->earth.transpose();
 	    }
 	    fitptr->setObservationsInFrame(tobs, thetaX, thetaY, covxx, covyy, covxy, xE);
@@ -424,13 +491,19 @@ main(int argc, char **argv) {
 	  bool goodFit = true;
 	  try {
 	    fitptr->setLinearOrbit();
+	    fitptr->setLinearOrbit();
+	    if (DEBUG) cerr << "Initial linear fit chisq " << fitptr->getChisq()
+		     << " " << fitptr->getABG(true)[ABG::G] << endl;
 	    fitptr->newtonFit();  // ?? any more elaborate fitting needed ??
+	    if (DEBUG) cerr << "Newton fit chisq " << fitptr->getChisq()
+		     << " " << fitptr->getABG()[ABG::G] << endl;
 	  } catch (std::runtime_error& e) {
 	    goodFit = false;
 	  }
 
 	  // Skip the orbit if fit failed or is poor
 	  if (!goodFit || !globals.goodFit(fitptr)) {
+	    if (DEBUG) cerr << "Not a good fit " << goodFit << endl;
 	    delete fitptr;
 	    continue;
 	  }
@@ -443,9 +516,10 @@ main(int argc, char **argv) {
 	    possibleExposures.remove(m.eptr);
 	  }
 	  // Now queue up
+	  if (DEBUG) cerr << "Queuing using " << possibleExposures.size() << " exposures" << endl;
 	  fitQueue.push_back(new FitStep(fitptr, possibleExposures, members,
 					 members.size(), orbitID,
-					 1000.)); // Set a high FPR so we don't trigger on this
+					 1000.)); // Set a high FPR so we don't trigger output on this
 	  ++orbitID; // Increment orbit id
 	} // End of input-reading loop.
 
@@ -456,33 +530,47 @@ main(int argc, char **argv) {
 
       } // End of searching for new inputs for queue.
 
-	// Search the next item on the queue:
-      auto newFits = fitQueue.front()->search();
+      // Search the next item on the queue:
+      if (DEBUG) cerr << "-->New search, queue size " << fitQueue.size() << endl;
+      auto thisFit = fitQueue.front();
+      fitQueue.pop_front();
+      if (settledOrbitIDs.count(thisFit->orbitID)) {
+	// We do not need to pursue this fit, it's finished elsewhere
+	delete thisFit;
+	continue;
+      }
+      auto newFits = thisFit->search();
+      if (DEBUG) cerr << "search returns " << newFits.size() << endl;
       if (newFits.empty()) {
 	// No new points can be added to this fit.  So it's a completed search.
-	// ??? Have some criterion for output ???
-	const FitStep& fs = *fitQueue.front();
-	cout << "Orbit " << fs.orbitID
-	     << " " << fs.nIndependent
-	     << " " << fs.fitptr->getChisq() << " / " << fs.fitptr->getDOF()
-	     << " FPR " << fs.fpr
-	     << endl;
-	fs.fitptr->getABG().write(cout);
 
-	// ?? Better criterion for when a fit is secure
-	if (fs.nIndependent > 5) {
-	  // Take this fit's detections out of circulation for future fits
-	  for (auto& m : fs.members) {
+	// Is it worthy of output?
+	if (thisFit->nIndependent >= MIN_DETECTIONS_TO_OUTPUT
+	    && thisFit->fpr <= MAX_FPR_TO_OUTPUT) {
+	  cout << "Orbit " << thisFit->orbitID
+	       << " detections " << thisFit->fitptr->nObservations() << " / " << thisFit->nIndependent
+	       << " chisq/DOF " << thisFit->fitptr->getChisq() << " / " << thisFit->fitptr->getDOF()
+	       << " FPR " << thisFit->fpr
+	       << endl;
+	  thisFit->fitptr->getABG().write(cout);
+	  cout << endl;
+	}
+	
+	// If this is a secure fit, shut down further use of its detections
+	if (thisFit->nIndependent >= MIN_DETECTIONS_EXCLUSIVE
+	    && thisFit->fpr <= MAX_FPR_EXCLUSIVE) {
+	  for (auto& m : thisFit->members) {
 	    m.eptr->valid[m.objectRow] = false;
 	  }
+	  settledOrbitIDs.insert(thisFit->orbitID);
 	}
       } else {
-	// Not a terminal fit - add new searches to queue
-	fitQueue.insert(fitQueue.end(), newFits.begin(), newFits.end());
+	// Not a terminal fit - add new searches to queue.
+	// Put them at the front so we are searching depth-first
+	fitQueue.insert(fitQueue.begin(), newFits.begin(), newFits.end());
       }
       // Done with this fit
-      delete fitQueue.front();
-      fitQueue.pop_front();
+      delete thisFit;
     } // End of the queue loop.
 
     cerr << "ERROR: Should not get here." << endl;

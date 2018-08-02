@@ -131,7 +131,8 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
 			double searchRadius,  // Range of starting coords to cover
 			string transientFile,
 			string exposureFile,
-			double fieldRadius) { 
+			double fieldRadius,
+			bool loadTransients) { 
 
 
   std::vector<Exposure*> out;  // This will be the returned array
@@ -254,6 +255,14 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
       delete expo;
   }
 
+  if (!loadTransients) {
+    // Go home without loading individual transients:
+    for (auto expoptr : firstCut) {
+      out.push_back(expoptr);
+    }
+    return out;
+  }
+
   // Now read in the transients for the exposures we're keeping.
   img::FTable transientTable;
   img::FTable transientIndex;
@@ -276,7 +285,7 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
     findExpnum[expnum] = row;
   }
 
-  for (auto expoptr : firstCut) {
+    for (auto expoptr : firstCut) {
     if (findExpnum.count(expoptr->expnum)==0) {
       // No transient file entry for this exposure.  Flush it.
       delete expoptr;
@@ -309,7 +318,6 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
     
     // Fill in individual detections' properties
     // Their coordinates and sigma are in degrees.
-    DMatrix xyRADec(nTransients,2,0.);
     for (int i=0; i<nTransients; i++) {
       expoptr->id[i] = i+begin;
       expoptr->ccdnum[i] = ccd[i];
@@ -393,7 +401,7 @@ Node::Node(dataIter _begin, dataIter _end,
 class TimeSplit {
 public:
   TimeSplit(double value_): value(value_) {}
-  bool operator()(const Exposure* exptr) const {
+  bool operator()(Exposure* exptr) const {
     return exptr->tobs < value;
   }
 private:
@@ -402,7 +410,7 @@ private:
 class XSplit {
 public:
   XSplit(double value_): value(value_) {}
-  bool operator()(const Exposure* exptr) const {
+  bool operator()(Exposure* exptr) const {
     return exptr->axis[0] < value;
   }
 private:
@@ -411,7 +419,7 @@ private:
 class YSplit {
 public:
   YSplit(double value_): value(value_) {}
-  bool operator()(const Exposure* exptr) const {
+  bool operator()(Exposure* exptr) const {
     return exptr->axis[1] < value;
   }
 private:
@@ -465,7 +473,7 @@ Node::split(const Ephemeris& ephem,
   right->split(ephem,frame);
 }
 
-list<const Exposure*>
+list<Exposure*>
 Node::find(const Fitter& path) const {
   // Get locations and error ellipses for orbit and temporal endpoints, midpoint.
   DVector x(3),y(3),covxx(3),covyy(3),covxy(3);
@@ -525,7 +533,7 @@ Node::find(const Fitter& path) const {
   // Add motion, error, and field radii together to get match radius
   double matchRadius = hypot(motion[0],motion[1]) + sqrt(maxasq) + fieldRadius;
 
-  list<const Exposure*> out;
+  list<Exposure*> out;
   // If no spatial intersection: (ignoring curved boundaries at corners)
   if (ctr[0] >= corners(2,0) + matchRadius ||
       ctr[0] <= corners(0,0) - matchRadius ||
@@ -570,7 +578,7 @@ Node::buildTree(dataIter begin_, dataIter end_,
 std::list<double>
 DESTree::tdb_splits = {13.5,14.5,15.5,16.5,17.5,18.5};  // July 1 of each year splits DES seasons
 
-DESTree::DESTree(std::vector<const Exposure*>& exposurePointers,
+DESTree::DESTree(std::vector<Exposure*>& exposurePointers,
 		 const Ephemeris& ephem,
 		 const Frame& frame,
 		 double gamma0) {
@@ -611,9 +619,9 @@ DESTree::countNodes() const {
   return count;
 }
 
-list<const Exposure*>
+list<Exposure*>
 DESTree::find(const Fitter& path) const {
-  list<const Exposure*> out;
+  list<Exposure*> out;
   for (auto n : years) 
     out.splice(out.end(),n->find(path));
   return out;

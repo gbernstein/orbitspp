@@ -38,7 +38,7 @@ namespace orbits {
 				const DMatrix& xE_);     // Observatory posn at observations
 
     // Number of observations
-    int nObservations() const {return observations.size();}
+    int nObservations() const {return frameIsSet ? tObs.size() : observations.size();}
 
     // Set reference frame to the one given, put observations into this frame
     void setFrame(const Frame& f_);
@@ -109,14 +109,12 @@ namespace orbits {
 			       double covXY_,
 			       const Vector3& xE_,     // Observatory posn at observation
 			       bool newGravity=false) const; 
+    EIGEN_NEW
+
   private:
     const Ephemeris& eph; // Solar system Ephemeris
 
-#ifdef USE_EIGEN
     vector<Observation, Eigen::aligned_allocator<Observation> > observations;
-#else
-    vector<Observation> observations;
-#endif
     
     void iterateTimeDelay(); // Update tEmit based on light-travel time in current orbit
     void calculateGravity(); // Calculate non-inertial terms from current ABG
