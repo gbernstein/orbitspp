@@ -62,7 +62,7 @@ const int MIN_DETECTIONS_TO_OUTPUT = 4; // ???
 // to consider this a completed search and flush all other FitSteps from the same
 // starting orbit and pull the detections out of circulation.
 const double MAX_FPR_EXCLUSIVE = 0.01;
-const int MIN_DETECTIONS_EXCLUSIVE = 5;
+const int MIN_DETECTIONS_EXCLUSIVE = 6;
 
 struct GlobalResources {
   vector<Exposure*> allExposures;
@@ -281,9 +281,15 @@ FitStep::search() {
 
   // Sort the new FitSteps to have lowest FPR first, searched first
   out.sort(&fitStepCompare);
-  // Then replace FPR of each with the total for all searches
-  for (auto& fsptr : out)
-    fsptr->fpr = totalFPR;
+  // Then replace FPR of each with the total for all searches.
+  // But if this was not a new independent detection, then
+  // we should have it keep the previous FPR.
+  for (auto& fsptr : out) {
+    if (fsptr->nIndependent == nIndependent)
+      fsptr->fpr = totalFPR;
+    else
+      fsptr->fpr = fpr;
+  }
   return out;
 }
 
@@ -427,7 +433,7 @@ main(int argc, char **argv) {
 	detectionIndex[eptr->id[i]] = Detection(eptr,i);
     }
 
-    int orbitID = 0;
+    int orbitID = -1;
     // These are orbitID's that have already been "cleaned out" from an
     // excellent orbit and should be henceforth ignored.
     set<int> settledOrbitIDs;
@@ -455,6 +461,8 @@ main(int argc, char **argv) {
 	    members.push_back(detectionIndex[objectID]);
 	  }
       
+	  orbitID++;
+	  
 	  if (members.size() < 3)
 	    continue; // don't try these...
 
@@ -520,7 +528,6 @@ main(int argc, char **argv) {
 	  fitQueue.push_back(new FitStep(fitptr, possibleExposures, members,
 					 members.size(), orbitID,
 					 1000.)); // Set a high FPR so we don't trigger output on this
-	  ++orbitID; // Increment orbit id
 	} // End of input-reading loop.
 
 	if (fitQueue.empty()) {
@@ -553,6 +560,11 @@ main(int argc, char **argv) {
 	       << " FPR " << thisFit->fpr
 	       << endl;
 	  thisFit->fitptr->getABG().write(cout);
+	  cout << endl;
+	  // Line giving all detections
+	  cout << "ids:";
+	  for (auto& m : thisFit->members)
+	    cout << " " << m.eptr->id[m.objectRow];
 	  cout << endl;
 	}
 	
