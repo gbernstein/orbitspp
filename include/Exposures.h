@@ -75,14 +75,15 @@ namespace orbits {
 		  double searchRadius,  // Range of starting coords to cover (radians)
 		  string transientFile="data/zone029.transients.fits",  // File of transients
 		  string exposureFile="data/y4a1.exposure.positions.fits",  // File of exposure data
-		  double fieldRadius = 1.1*DEGREE); // Circumscribed field radius (radians)
+		  double fieldRadius = 1.1*DEGREE, // Circumscribed field radius (radians)
+		  bool loadTransients = true); // false to skip transient data
   // ?? Allow exclusion of filters?? seasons??
   // ?? Add CCD corners, detections ??
 
   class Node {
     // Node of a k-d tree of Exposures over time and position
   public:
-    typedef vector<const Exposure*>::iterator dataIter;
+    typedef vector<Exposure*>::iterator dataIter;
     Node( dataIter _begin, dataIter _end,
 	  const Ephemeris& ephem,
 	  const Frame& frame);
@@ -93,7 +94,7 @@ namespace orbits {
     
     enum Coordinate {TIME, X, Y};  // The three axes of the tree space
     
-    list<const Exposure*> find(const Fitter& path) const;
+    list<Exposure*> find(const Fitter& path) const;
     // Return a list of exposures that are close to the path.
 
     int countNodes() const {
@@ -144,14 +145,14 @@ namespace orbits {
      * first, then the binary-tree Nodes begin below there.
      */
   public:
-    DESTree(std::vector<const Exposure*>& exposurePointers,
+    DESTree(std::vector<Exposure*>& exposurePointers,
 	    const Ephemeris& ephem,
 	    const Frame& frame,
 	    double gamma0);
     ~DESTree();
     
     int countNodes() const;
-    list<const Exposure*> find(const Fitter& path) const;
+    list<Exposure*> find(const Fitter& path) const;
     // Return a list of exposures that are close to the path.
   private:
     std::list<Node*> years;

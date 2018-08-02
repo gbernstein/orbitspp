@@ -719,6 +719,7 @@ Fitter::augmentObservation(double tObs_,    // TDB since reference time
 			   double covXY_,
 			   const Vector3& xE_,     // Observatory posn at observations
 			   bool newGravity) const {
+
   // Create new Fitter with room for one more data point
   auto out = new Fitter(eph, grav);
   out->setFrame(f);
