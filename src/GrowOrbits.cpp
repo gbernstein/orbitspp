@@ -416,7 +416,8 @@ main(int argc, char **argv) {
 					dGamma,
 					searchRadius,
 					transientPath,
-					exposurePath);
+					exposurePath,
+					true);
 
     if (DEBUG) cerr << "Pool: "  << exposurePool.size() << " exposures" << endl;      
 

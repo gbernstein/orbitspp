@@ -19,6 +19,7 @@ namespace orbits {
     double mjd;
     double tdb;
     double tobs;  // Time relative to Frame tdb0
+    bool astrometric;  // True if exposure is part of astrometric solution
     Vector3 earth;  // Observatory position in Frame
     Point axis;   // Optical axis coords, in Frame gnomonic
     Matrix22 atmosphereCov;  // Atmospheric astrometric covariance for exposure.
@@ -45,21 +46,27 @@ namespace orbits {
     // of binary tables.  Information available quickly via expnum is MJD and the
     // ICRS position of the telescope at this MJD.
   public:
-    ExposureTable(string exposureFile="");
+    ExposureTable(string exposureFile=""); // ?? astrometricOnly=false);
     // Open exposure table.  Path to FITS file will be read from environment variable
     // DES_EXPOSURE_TABLE if none is given here.
 
+    int size() const {return astrometricTable.nrows() + nonAstrometricTable.nrows();}
+    int expnum(int index) const;     // Return exposure number at index
     bool isAstrometric(int expnum) const; // Is astrometric solution / covariance available?
     double mjd(int expnum) const;  // Return MJD_MID
     astrometry::CartesianICRS observatory(int expnum) const; //ICRS observatory position
+    astrometry::SphericalICRS axis(int expnum) const; // Exposure pointing
+    // Get all 3 of above at once, return false if expnum is not known:
+    bool observingInfo(int expnum, double& mjd, astrometry::CartesianICRS& observatory,
+		       astrometry::SphericalICRS& axis) const;
     Matrix22 atmosphereCov(int expnum) const; // Return atmospheric position covariance (radians), Diag(-1) if unknown
-    // Get both at once, return false if expnum is not known:
-    bool observingInfo(int expnum, double& mjd, astrometry::CartesianICRS& observatory) const;
   private:
     img::FTable astrometricTable;
     img::FTable nonAstrometricTable;
     map<int,int> astrometricIndex;   // These two map from expnum into table row number.
     map<int,int> nonAstrometricIndex;
+    vector<int> astrometricExpnum;   // Maps from row number (=index) to expnum
+    vector<int> nonAstrometricExpnum;
   };
   
   // This function finds all exposures from the FITS table that could

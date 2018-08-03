@@ -30,13 +30,12 @@ ExposureTable::ExposureTable(string exposureFile) {
   }
 
   // Build indices into each table from maps
-  vector<int> expnum;
-  astrometricTable.readCells(expnum,"EXPNUM");
-  for (int i=0; i<expnum.size(); i++)
-    astrometricIndex[expnum[i]] = i;
-  nonAstrometricTable.readCells(expnum,"EXPNUM");
-  for (int i=0; i<expnum.size(); i++)
-    nonAstrometricIndex[expnum[i]] = i;
+  astrometricTable.readCells(astrometricExpnum,"EXPNUM");
+  for (int i=0; i<astrometricExpnum.size(); i++)
+    astrometricIndex[astrometricExpnum[i]] = i;
+  nonAstrometricTable.readCells(nonAstrometricExpnum,"EXPNUM");
+  for (int i=0; i<nonAstrometricExpnum.size(); i++)
+    nonAstrometricIndex[nonAstrometricExpnum[i]] = i;
 }
 
 bool
@@ -44,6 +43,22 @@ ExposureTable::isAstrometric(int expnum) const {
   return astrometricIndex.count(expnum);
 }
 
+int
+ExposureTable::expnum(int index) const {
+  if (index<0) {
+    throw std::runtime_error("ExposureTable index out of range");
+  } else if (index < astrometricExpnum.size()) {
+    return astrometricExpnum[index];
+  }
+  index -= astrometricExpnum.size();
+  if (index < nonAstrometricExpnum.size()) {
+    return nonAstrometricExpnum[index];
+  } else {
+    throw std::runtime_error("ExposureTable index out of range");
+  }
+}
+  
+    
 double
 ExposureTable::mjd(int expnum) const {
   auto ptr = astrometricIndex.find(expnum);
@@ -101,10 +116,12 @@ ExposureTable::atmosphereCov(int expnum) const {
 bool
 ExposureTable::observingInfo(int expnum,
 			     double& mjd,
-			     astrometry::CartesianICRS& observatory) const {
+			     astrometry::CartesianICRS& observatory,
+			     astrometry::SphericalICRS& axis) const {
   auto ptr = astrometricIndex.find(expnum);
   int index;
   vector<double> v3;
+  double ra, dec;
   if (ptr==astrometricIndex.end()) {
     // Try non-ast table
     ptr = nonAstrometricIndex.find(expnum);
@@ -114,12 +131,17 @@ ExposureTable::observingInfo(int expnum,
     index = ptr->second;
     nonAstrometricTable.readCell(mjd,"MJD_MID",index);
     nonAstrometricTable.readCell(v3,"OBSERVATORY",index);
+    nonAstrometricTable.readCell(ra,"RA",index);
+    nonAstrometricTable.readCell(dec,"DEC",index);
   } else {
     index = ptr->second;
     astrometricTable.readCell(mjd,"MJD_MID",index);
     astrometricTable.readCell(v3,"OBSERVATORY",index);
+    astrometricTable.readCell(ra,"RA",index);
+    astrometricTable.readCell(dec,"DEC",index);
   }
   for (int i=0; i<3; i++) observatory[i] = v3[i];
+  axis = astrometry::SphericalICRS(ra*DEGREE, dec*DEGREE);
   return true;
 }
 
@@ -138,14 +160,7 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
   std::vector<Exposure*> out;  // This will be the returned array
   std::list<Exposure*> firstCut; // Make a list first, then toss those with no transient data.
   // Read the exposure information table
-  img::FTable exposureTable;
-  try {
-    FITS::FitsTable ft(exposureFile);
-    exposureTable = ft.extract();
-  } catch (FITS::FITSError& m) {
-    cerr << "Error reading exposure table" << endl;
-    quit(m);
-  }
+  ExposureTable et(exposureFile);
 
   // Create trajectories for initially stationary targets to
   // calculate parallax + gravity displacements
@@ -171,65 +186,45 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
   Trajectory trajectoryMax(ephem, s0, Gravity::BARY);
 
   // Step through all exposures
-  for (int iexp = 0; iexp<exposureTable.nrows(); iexp++) {
+  for (int iexp = 0; iexp<et.size(); iexp++) {
+    int expnum = et.expnum(iexp);
     // Skip exposures not pointed anywhere near right direction
-    // FITS table has RA, Dec in degrees.
-    double ra, dec;
-    exposureTable.readCell(ra, "ra", iexp);
-    exposureTable.readCell(dec, "dec", iexp);
-    astrometry::SphericalICRS pointing(ra*DEGREE, dec*DEGREE);
-
+    astrometry::SphericalICRS pointing;
+    astrometry::CartesianICRS observatory;
+    double mjd;
+    et.observingInfo(expnum, mjd, observatory, pointing);
+    
     if (pointing.distance(frame.orient.getPole()) > 60*DEGREE)  // 60 degree cut!!
       continue;
     
     // Fill Exposure structure, converting to Frame
     auto expo = new Exposure;
+    expo->expnum = expnum;
+    expo->mjd = mjd;
+    expo->tdb = ephem.mjd2tdb(mjd);
+    expo->tobs = ephem.mjd2tdb(mjd) - frame.tdb0;
+    expo->earth = frame.fromICRS(observatory.getVector());
+    expo->astrometric = et.isAstrometric(expnum);
     {
-      double mjd;
-      exposureTable.readCell(mjd, "mjd_mid", iexp);
-      expo->mjd = mjd;
-      expo->tdb = ephem.mjd2tdb(mjd);
-      expo->tobs = ephem.mjd2tdb(mjd) - frame.tdb0;
-    }
-
-    {
-      int expnum;
-      exposureTable.readCell(expnum, "expnum", iexp);
-      expo->expnum = expnum;
-    }
-    
-    {
+      // Put exposure axis into Frame projection
       astrometry::Gnomonic xy(pointing, frame.orient);
       double x,y;
       xy.getLonLat(x,y);
       expo->axis[0] = x;
       expo->axis[1] = y;
-      std::vector<double> cov;
-      // Read atmospheric covariance and rotate into Frame
-      exposureTable.readCell(cov, "cov", iexp);
-      Matrix22 covRADec;
-      covRADec(0,0) = cov[0];
-      covRADec(1,1) = cov[1];
-      covRADec(1,0) = cov[2];
-      covRADec(0,1) = cov[2];
-      covRADec *= pow(0.001*ARCSEC,2.);  // milliarcsec->rad
-      expo->atmosphereCov = frame.fromICRS(covRADec);
     }
-
-    astrometry::CartesianICRS earthICRS;
     {
-      std::vector<double> observatory;
-      exposureTable.readCell(observatory,"observatory",iexp);
-      for (int i=0; i<3; i++) earthICRS[i]=observatory[i];
-      expo->earth = frame.fromICRS(earthICRS.getVector());
+      // Read atmospheric covariance and rotate into Frame
+      Matrix22 covRADec = et.atmosphereCov(expnum);
+      expo->atmosphereCov = frame.fromICRS(covRADec);
     }
     
     // Get the center positions of the orbits at this time
     double xMin, xMax, yMin, yMax;
     astrometry::SphericalICRS posn =
-      trajectoryMin.observe(expo->tdb,earthICRS);
+      trajectoryMin.observe(expo->tdb,observatory);
     astrometry::Gnomonic(posn, frame.orient).getLonLat(xMin,yMin);
-    posn = trajectoryMax.observe(expo->tdb, earthICRS);
+    posn = trajectoryMax.observe(expo->tdb, observatory);
     astrometry::Gnomonic(posn, frame.orient).getLonLat(xMax,yMax);
 
     Point mean;
