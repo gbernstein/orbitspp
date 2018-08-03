@@ -304,10 +304,11 @@ int main(int argc,
       
       double mjdThis;
       astrometry::CartesianICRS xyz;
+      astrometry::SphericalICRS radec;
       for (int i=beginRow; i<endRow; i++) {
 	int ii = i - beginRow;
 	if (useExpnum) {
-	  if (!exposureTable->observingInfo(expnum[i],mjdThis,xyz)) {
+	  if (!exposureTable->observingInfo(expnum[i],mjdThis,xyz,radec)) {
 	    cerr << "ERROR: Missing information for exposure " << expnum[i] << endl;
 	    exit(1);
 	  }

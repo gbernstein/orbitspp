@@ -277,9 +277,10 @@ int main(int argc,
       DMatrix earth(3,endRow-beginRow);
       double mjdThis;
       astrometry::CartesianICRS xyz;
+      astrometry::SphericalICRS raDec;
       for (int i=beginRow; i<endRow; i++) {
 	if (useExpnum) {
-	  if (!exposureTable->observingInfo(expnum[i],mjdThis,xyz)) {
+	  if (!exposureTable->observingInfo(expnum[i],mjdThis,xyz,raDec)) {
 	    cerr << "ERROR: Missing information for exposure " << expnum[i] << endl;
 	    exit(1);
 	  }
