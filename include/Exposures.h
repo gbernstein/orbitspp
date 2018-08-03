@@ -60,6 +60,19 @@ namespace orbits {
     bool observingInfo(int expnum, double& mjd, astrometry::CartesianICRS& observatory,
 		       astrometry::SphericalICRS& axis) const;
     Matrix22 atmosphereCov(int expnum) const; // Return atmospheric position covariance (radians), Diag(-1) if unknown
+
+    // This method returns all exposures from the FITS table that could
+    // possibly contain a bound TNO that is in the given
+    // range of gamma and within searchRadius of frame origin at the frame reference epoch.
+    std::vector<Exposure*> getPool(const Frame& frame,
+				   const Ephemeris& ephem,
+				   double gamma0,        // Center and width of range 
+				   double dGamma,        // of gamma to cover
+				   double searchRadius,  // Range of starting coords to cover (radians)
+				   bool astrometricOnly = true,  // Only look for astrometric exposures
+				   double fieldRadius = 1.1*DEGREE) const; // Circumscribed FOV radius (radians)
+    // ?? Allow exclusion of filters?? seasons??
+    // ?? Add CCD corners, detections ??
   private:
     img::FTable astrometricTable;
     img::FTable nonAstrometricTable;
@@ -69,24 +82,22 @@ namespace orbits {
     vector<int> nonAstrometricExpnum;
   };
   
-  // This function finds all exposures from the FITS table that could
-  // possibly contain a bound TNO that is in the given
-  // range of alpha, beta, gamma at the frame reference epoch.
-  // Then it loads the transient lists for each
-  extern
-  std::vector<Exposure*>
-  selectExposures(const Frame& frame,   // Starting coordinates, time
-		  const Ephemeris& ephem,  // Ephemeris to use
-		  double gamma0,        // Center and width of range 
-		  double dGamma,        // of gamma to cover
-		  double searchRadius,  // Range of starting coords to cover (radians)
-		  string transientFile="data/zone029.transients.fits",  // File of transients
-		  string exposureFile="data/y4a1.exposure.positions.fits",  // File of exposure data
-		  double fieldRadius = 1.1*DEGREE, // Circumscribed field radius (radians)
-		  bool loadTransients = true); // false to skip transient data
-  // ?? Allow exclusion of filters?? seasons??
-  // ?? Add CCD corners, detections ??
-
+  class TransientTable {
+    // Class holding a table of transient detections.
+  public:
+    // Null string input will look to an environment variable.
+    TransientTable(const string transientFile="");
+    bool hasExpnum(int expnum) const;  // Are there transients for this exposure?
+    // Fill the exposure structure with info for all its transients, transforming
+    // to the selected Frame.  Return false if there are none.
+    bool fillExposure(const Frame& frame,
+		      Exposure* eptr) const;
+  private:
+    img::FTable transientTable;
+    img::FTable transientIndex;
+    std::map<int,int> findExpnum;  // Lookup table from expnum to transientIndex row number
+  };
+  
   class Node {
     // Node of a k-d tree of Exposures over time and position
   public:

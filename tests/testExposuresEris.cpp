@@ -102,11 +102,25 @@ int main(int argc,
     // Find exposures that potentially contain Eris
     double gamma0 = 1./90.;
     double dGamma = gamma0*0.1;
-    auto possibleExposures = orbits::selectExposures(frame, ephem,
-						     //***    gamma0, dGamma, 0.5);
-						     gamma0, dGamma, 0.5,
-						     "/Users/garyb/DES/TNO/zone029.transients.fits");
-
+    vector<Exposure*> possibleExposures;
+    {
+      ExposureTable et;
+      possibleExposures = et.getPool(frame, ephem,
+				     gamma0, dGamma, 1.0);
+    }
+    // Load transients
+    string transientPath; // ="/Users/garyb/DES/TNO/zone029.transients.fits";
+    {
+      vector<Exposure*> keep;
+      TransientTable tt(transientPath);
+      for (auto& eptr : possibleExposures)
+	if (tt.fillExposure(frame, eptr)) {
+	  keep.push_back(eptr);
+	} else {
+	  delete eptr;
+	}
+      possibleExposures = keep;
+    }
 
     cerr << "Possible exposures: " << possibleExposures.size() << endl;
     // Now make a tree

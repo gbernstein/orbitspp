@@ -41,12 +41,16 @@ main(int argc,
     
     Frame frame(origin, orient, tdb0);
     
-    auto answer = orbits::selectExposures(frame, ephem,
-					  gamma0, dGamma, 0.5);
+    ExposureTable et;
+    auto answer = et.getPool(frame, ephem,
+			     gamma0, dGamma, 0.5,
+			     false);   // Accept non-astrometric exposures
 
     for (auto& expo : answer) {
       cout << expo->expnum << " " << expo->tdb-tdb0
-	   << " " << expo->axis[0] << " " << expo->axis[1] << endl;
+	   << " " << expo->axis[0] << " " << expo->axis[1]
+	   << " " << expo->astrometric
+	   << endl;
     }
   } catch (std::runtime_error& e) {
     quit(e);

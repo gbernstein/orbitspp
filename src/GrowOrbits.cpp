@@ -372,7 +372,6 @@ main(int argc, char **argv) {
     // Open inputs
     // ??? read triplets
     transientPath = "/Users/garyb/DES/TNO/zone029.transients.fits";
-    exposurePath = "/Users/garyb/CODE/orbitspp/data/y4a1.exposure.positions.fits";
     
     {
       // Choose chisq cutoffs for numbers of detections
@@ -410,30 +409,39 @@ main(int argc, char **argv) {
 
     // Pluck out all relevant exposure data.  Then close
     // transient catalog and exposure catalog.
-    auto exposurePool = selectExposures(frame,
-					eph,
-					gamma0,
-					dGamma,
-					searchRadius,
-					transientPath,
-					exposurePath,
-					true);
-
-    if (DEBUG) cerr << "Pool: "  << exposurePool.size() << " exposures" << endl;      
-
-    // Make an initial exposure list of all of these for the input orbits
-    list<Exposure*> allExposureList;
-    allExposureList.insert(allExposureList.end(), exposurePool.begin(), exposurePool.end());
-    
-    // Make a lookup table from object ID back to the exposure it
-    // was taken in.  This keeps us from having to keep the
-    // transient file open.
-    std::map<int, Detection> detectionIndex;
-    for (auto& eptr : exposurePool) {
-      for (int i=0; i<eptr->id.size(); i++)
-	detectionIndex[eptr->id[i]] = Detection(eptr,i);
+    vector<Exposure*> exposurePool;
+    {
+      ExposureTable et(exposurePath);
+      exposurePool = et.getPool(frame,
+				eph,
+				gamma0,
+				dGamma,
+				searchRadius,
+				true); // astrometric exposures only
     }
-
+    // Get transient catalogs for all these exposures, deleting pool members with none
+    // And build a map from object ID back to the exposure it
+    // was taken in. 
+    std::map<int, Detection> detectionIndex;
+    list<Exposure*> allExposureList;  // List of valid exposures
+    {
+      TransientTable tt(transientPath);
+      for (auto iter = exposurePool.begin();
+	   iter != exposurePool.end();
+	   ++iter) {
+	if (tt.fillExposure(frame, *iter)) {
+	  // Add all these transients to the index
+	  for (int i=0; i<(*iter)->id.size(); i++)
+	    detectionIndex[(*iter)->id[i]] = Detection(*iter,i);
+	  // and add exposure to list of useful ones
+	  allExposureList.push_back(*iter);
+	} else {
+	  delete *iter;
+	  *iter = nullptr;
+	}
+      }
+    }
+	  
     int orbitID = -1;
     // These are orbitID's that have already been "cleaned out" from an
     // excellent orbit and should be henceforth ignored.
