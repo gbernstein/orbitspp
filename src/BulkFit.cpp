@@ -307,8 +307,9 @@ int main(int argc,
 
 	  double mjdThis;
 	  astrometry::CartesianICRS xyzThis;
+	  astrometry::SphericalICRS radecThis;
 	  // Get xE and mjd from the DECam table
-	  if (!exposureTable->observingInfo(expnumThis, mjdThis, xyzThis)) {
+	  if (!exposureTable->observingInfo(expnumThis, mjdThis, xyzThis, radecThis)) {
 	    /**/cerr << "Missing exposure info for " << expnumThis << endl;
 	    continue;
 	  }
