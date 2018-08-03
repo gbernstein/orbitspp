@@ -7,6 +7,7 @@ using namespace orbits;
 
 // Name of environment variable giving path to observatories file
 const string EXPOSURE_ENVIRON = "DES_EXPOSURE_TABLE";
+const string TRANSIENT_ENVIRON = "DES_TRANSIENT_TABLE";
 
 ExposureTable::ExposureTable(string exposureFile) {
   string path = exposureFile;
@@ -146,21 +147,15 @@ ExposureTable::observingInfo(int expnum,
 }
 
 std::vector<Exposure*>
-orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
-			const Ephemeris& ephem,  
-			double gamma0,        // Center and width of range 
-			double dGamma,        // of gamma to cover
-			double searchRadius,  // Range of starting coords to cover
-			string transientFile,
-			string exposureFile,
-			double fieldRadius,
-			bool loadTransients) { 
-
+ExposureTable::getPool(const Frame& frame,   // Starting coordinates, time
+		       const Ephemeris& ephem,  
+		       double gamma0,        // Center and width of range 
+		       double dGamma,        // of gamma to cover
+		       double searchRadius,  // Range of starting coords to cover
+		       bool astrometricOnly,
+		       double fieldRadius) const {
 
   std::vector<Exposure*> out;  // This will be the returned array
-  std::list<Exposure*> firstCut; // Make a list first, then toss those with no transient data.
-  // Read the exposure information table
-  ExposureTable et(exposureFile);
 
   // Create trajectories for initially stationary targets to
   // calculate parallax + gravity displacements
@@ -186,25 +181,28 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
   Trajectory trajectoryMax(ephem, s0, Gravity::BARY);
 
   // Step through all exposures
-  for (int iexp = 0; iexp<et.size(); iexp++) {
-    int expnum = et.expnum(iexp);
+  for (int iexp = 0; iexp<size(); iexp++) {
+    int num = expnum(iexp);
+    // Skip if this is not astrometric and we don't want it.
+    if (astrometricOnly && !isAstrometric(num))
+      continue;
     // Skip exposures not pointed anywhere near right direction
     astrometry::SphericalICRS pointing;
     astrometry::CartesianICRS observatory;
     double mjd;
-    et.observingInfo(expnum, mjd, observatory, pointing);
+    observingInfo(num, mjd, observatory, pointing);
     
     if (pointing.distance(frame.orient.getPole()) > 60*DEGREE)  // 60 degree cut!!
       continue;
     
     // Fill Exposure structure, converting to Frame
     auto expo = new Exposure;
-    expo->expnum = expnum;
+    expo->expnum = num;
     expo->mjd = mjd;
     expo->tdb = ephem.mjd2tdb(mjd);
     expo->tobs = ephem.mjd2tdb(mjd) - frame.tdb0;
     expo->earth = frame.fromICRS(observatory.getVector());
-    expo->astrometric = et.isAstrometric(expnum);
+    expo->astrometric = isAstrometric(num);
     {
       // Put exposure axis into Frame projection
       astrometry::Gnomonic xy(pointing, frame.orient);
@@ -215,7 +213,7 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
     }
     {
       // Read atmospheric covariance and rotate into Frame
-      Matrix22 covRADec = et.atmosphereCov(expnum);
+      Matrix22 covRADec = atmosphereCov(num);
       expo->atmosphereCov = frame.fromICRS(covRADec);
     }
     
@@ -245,93 +243,91 @@ orbits::selectExposures(const Frame& frame,   // Starting coordinates, time
 
     // Now test distance
     if ( mean.distanceSq(expo->axis) < radius*radius)
-      firstCut.push_back(expo);
+      out.push_back(expo);
     else
       delete expo;
   }
 
-  if (!loadTransients) {
-    // Go home without loading individual transients:
-    for (auto expoptr : firstCut) {
-      out.push_back(expoptr);
-    }
-    return out;
-  }
+  return out;
+}
 
-  // Now read in the transients for the exposures we're keeping.
-  img::FTable transientTable;
-  img::FTable transientIndex;
-  try {
-    FITS::FitsTable ft(transientFile, FITS::ReadOnly, "DATA");
-    std::vector<string> columnsOfInterest = {"RA","DEC","CCDNUM","ERRAWIN_WORLD"};
-    transientTable = ft.extract(0,-1,columnsOfInterest);
-    FITS::FitsTable ft2(transientFile, FITS::ReadOnly, "INDEX");
-    transientIndex = ft2.extract();
-  } catch (FITS::FITSError& m) {
-    cerr << "Error reading transient table" << endl;
-    quit(m);
+TransientTable::TransientTable(const string transientFile) {
+  string path = transientFile;
+  if (path.empty())  {
+    // Find FITS file name from environment variable
+    char *kpath = getenv(TRANSIENT_ENVIRON.c_str());
+    if (kpath == NULL) 
+      throw std::runtime_error("No path given for DES transient table FITS file");
+    path = kpath;
   }
+  // Read the tables
+  FITS::FitsTable ft(path, FITS::ReadOnly, "DATA");
+  std::vector<string> columnsOfInterest = {"RA","DEC","CCDNUM","ERRAWIN_WORLD"};
+  transientTable = ft.extract(0,-1,columnsOfInterest);
+  FITS::FitsTable ft2(path, FITS::ReadOnly, "INDEX");
+  transientIndex = ft2.extract();
 
   // Build an index into the index:
-  std::map<int,int> findExpnum;
   int expnum;
   for (int row=0; row<transientIndex.nrows(); row++) {
     transientIndex.readCell(expnum, "EXPNUM", row);
     findExpnum[expnum] = row;
   }
+}
 
-    for (auto expoptr : firstCut) {
-    if (findExpnum.count(expoptr->expnum)==0) {
-      // No transient file entry for this exposure.  Flush it.
-      delete expoptr;
-      continue;
-    }
+bool
+TransientTable::hasExpnum(int expnum) const {
+  return findExpnum.count(expnum);
+}
 
-    int begin,end;
-    transientIndex.readCell(begin, "FIRST", findExpnum[expoptr->expnum]);
-    transientIndex.readCell(end,  "LAST", findExpnum[expoptr->expnum]);
-    float density;
-    transientIndex.readCell(density, "DENSITY", findExpnum[expoptr->expnum]);
-    expoptr->detectionDensity = density / (DEGREE*DEGREE); // Change per sq deg to per sr
-    int nTransients = end-begin;
-    expoptr->xy.resize(nTransients, 2);
-    expoptr->covXX.resize(nTransients);
-    expoptr->covXY.resize(nTransients);
-    expoptr->covYY.resize(nTransients);
-    expoptr->ccdnum.resize(nTransients);
-    expoptr->id.resize(nTransients);
-    expoptr->valid = BVector(nTransients,true); //Everyone is valid to start with.
+bool
+TransientTable::fillExposure(const Frame& frame,
+			     Exposure* eptr) const {
+  auto iter = findExpnum.find(eptr->expnum);
+  if (iter == findExpnum.end())
+    return false; // No entries for this.
+  int index = iter->second;
+  int begin,end;
+  transientIndex.readCell(begin, "FIRST", index);
+  transientIndex.readCell(end,  "LAST", index);
+  float density;
+  transientIndex.readCell(density, "DENSITY", index);
+  eptr->detectionDensity = density / (DEGREE*DEGREE); // Change per sq deg to per sr
+  int nTransients = end-begin;
+  eptr->xy.resize(nTransients, 2);
+  eptr->covXX.resize(nTransients);
+  eptr->covXY.resize(nTransients);
+  eptr->covYY.resize(nTransients);
+  eptr->ccdnum.resize(nTransients);
+  eptr->id.resize(nTransients);
+  eptr->valid = BVector(nTransients,true); //Everyone is valid to start with.
 
-    std::vector<double> ra;
-    transientTable.readCells(ra, "RA", begin, end);
-    std::vector<double> dec;
-    transientTable.readCells(dec, "DEC", begin, end);
-    std::vector<double> sig;
-    transientTable.readCells(sig, "ERRAWIN_WORLD", begin, end);
-    std::vector<short int> ccd;
-    transientTable.readCells(ccd, "CCDNUM", begin, end);
+  std::vector<double> ra;
+  transientTable.readCells(ra, "RA", begin, end);
+  std::vector<double> dec;
+  transientTable.readCells(dec, "DEC", begin, end);
+  std::vector<double> sig;
+  transientTable.readCells(sig, "ERRAWIN_WORLD", begin, end);
+  std::vector<short int> ccd;
+  transientTable.readCells(ccd, "CCDNUM", begin, end);
     
-    // Fill in individual detections' properties
-    // Their coordinates and sigma are in degrees.
-    for (int i=0; i<nTransients; i++) {
-      expoptr->id[i] = i+begin;
-      expoptr->ccdnum[i] = ccd[i];
-      expoptr->covXX[i] = sig[i]*sig[i]*DEGREE*DEGREE + expoptr->atmosphereCov(0,0);
-      expoptr->covXY[i] = expoptr->atmosphereCov(1,0);
-      expoptr->covYY[i] = sig[i]*sig[i]*DEGREE*DEGREE + expoptr->atmosphereCov(1,1);
-      astrometry::SphericalICRS radec(ra[i]*DEGREE, dec[i]*DEGREE);
-      astrometry::Gnomonic xy(radec, frame.orient);
-      double x,y;
-      xy.getLonLat(x,y);
-      expoptr->xy(i,0) = x;
-      expoptr->xy(i,1) = y;
-    }
-
-    // Add to output
-    out.push_back(expoptr);
-  } // End exposure loop
-
-  return out;
+  // Fill in individual detections' properties
+  // Their coordinates and sigma are in degrees.
+  for (int i=0; i<nTransients; i++) {
+    eptr->id[i] = i+begin;
+    eptr->ccdnum[i] = ccd[i];
+    eptr->covXX[i] = sig[i]*sig[i]*DEGREE*DEGREE + eptr->atmosphereCov(0,0);
+    eptr->covXY[i] = eptr->atmosphereCov(1,0);
+    eptr->covYY[i] = sig[i]*sig[i]*DEGREE*DEGREE + eptr->atmosphereCov(1,1);
+    astrometry::SphericalICRS radec(ra[i]*DEGREE, dec[i]*DEGREE);
+    astrometry::Gnomonic xy(radec, frame.orient);
+    double x,y;
+    xy.getLonLat(x,y);
+    eptr->xy(i,0) = x;
+    eptr->xy(i,1) = y;
+    eptr->valid[i] = true;
+  }
+  return true;
 }
 
 ////////////////////////////////////////////////////////////////////////
