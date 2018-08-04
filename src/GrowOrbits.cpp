@@ -1,6 +1,8 @@
 // Find all additional detections that are consistent with orbit fitting input detections.
 #include <list>
 #include <vector>
+#include <map>
+#include <algorithm>
 #include "AstronomicalConstants.h"
 #include "Astrometry.h"
 #include "OrbitTypes.h"
@@ -19,25 +21,6 @@ const string usage =
   "one by one until nothing new fits the orbit.";
 
 const bool DEBUG=false;
-
-/**
-
-Parameters:
-Full detection catalog
-Initial orbit detection catalog
-
-exposure catalog
-ephemeris
-
-output file
-
-some parameters that will matter:
-* binding factor
-* chisq thresholds for refits
-* false positive rate or # detections to keep for output
-* max error region for N+1 exposure?
-
-**/
 
 const double FIELD_RADIUS = 1.1*DEGREE;  // Generous DECam field radius
 // Chisq small enough to consider old orbit matched to new detection:
@@ -81,7 +64,9 @@ struct Detection {
   Exposure* eptr;
   int objectRow;
   Detection(Exposure* eptr_, int objectRow_): eptr(eptr_), objectRow(objectRow_) {}
-  Detection(): eptr(nullptr), objectRow(0){}
+  Detection(): eptr(nullptr), objectRow(0) {}
+  int id() const {return eptr->id[objectRow];}
+  bool operator<(const Detection & rhs) const {return id() < rhs.id();}
 };
   
 class FitStep {
@@ -114,6 +99,15 @@ public:
   list<Exposure*> possibleExposures;
   
   vector<Detection> members;  // Detections that comprise the orbit
+
+  vector<int> sortedIDs() const {
+    vector<int> out;
+    out.reserve(members.size());
+    for (auto& m : members) 
+      out.push_back(m.id());
+    sort(out.begin(), out.end());
+    return out;
+  }
   
   // Number of detections (so far) with independent asteroids
   // (i.e. don't count consecutive exposures as >1)
@@ -125,6 +119,34 @@ public:
   // False positive rate for having found last detection,
   // summed over all images searched for it.
   double fpr;  
+};
+
+struct FitResults {
+  // What we'll save for a potentially real orbit
+  int orbitID;      // Starting orbit
+  int nIndependent; // Different nights in fit
+  double fpr;       // False positive rate
+  vector<int> detectionIDs;  // IDs of fitted transients, *ascending*
+  double chisq;     // Chisq of best fit
+  ABG abg;          // orbit
+  ABGCovariance invcov; // and covariance
+
+  EIGEN_NEW
+  
+  FitResults(const FitStep& fs): orbitID(fs.orbitID),
+				 nIndependent(fs.nIndependent),
+				 fpr(fs.fpr),
+				 detectionIDs(fs.sortedIDs()),
+				 chisq(fs.fitptr->getChisq()),
+				 abg(fs.fitptr->getABG()),
+				 invcov(fs.fitptr->getInvCovarABG()) {}
+    
+  // Comparison operators are looking at which detections were used to make orbits.
+  bool operator==(const FitResults& rhs) {return detectionIDs==rhs.detectionIDs;}
+  bool operator<(const FitResults& rhs) {return detectionIDs<rhs.detectionIDs;}
+  bool includes(const FitResults& rhs) {return std::includes(detectionIDs.begin(), detectionIDs.end(),
+					       	rhs.detectionIDs.begin(), rhs.detectionIDs.end());}
+  
 };
 
 
@@ -309,6 +331,8 @@ main(int argc, char **argv) {
   double gamma0;
   double dGamma;
   double searchRadius;
+  bool cullDuplicates;
+
   try {
     Pset parameters;
    
@@ -335,6 +359,8 @@ main(int argc, char **argv) {
 			   "Half-width of gamma search region", 0.01, 0.);
       parameters.addMember("searchRadius",&searchRadius, def | lowopen,
 			   "Radius of alpha/beta values at reference time", 1., 0.);
+      parameters.addMember("cull",&cullDuplicates, def,
+			   "Use memory to prune duplicate searches?", true);
     }
     parameters.setDefault();
 
@@ -450,6 +476,10 @@ main(int argc, char **argv) {
     // Now enter a loop of growing fits.
     list<FitStep*> fitQueue;
 
+    // Here we'll keep a list of detection combinations that have already been fit
+    // and have no need of repeating.  This saves time but takes memory.
+    set<vector<int>> alreadySearched;
+      
     while (true) {
       if (fitQueue.empty()) {
 	// Stock the queue with fresh orbit from input
@@ -554,6 +584,16 @@ main(int argc, char **argv) {
 	// We do not need to pursue this fit, it's finished elsewhere
 	delete thisFit;
 	continue;
+      }
+      if (cullDuplicates) {
+	vector<int> ids = thisFit->sortedIDs();
+	if (alreadySearched.count(ids)) {
+	  // Duplicate.  Skip.
+	  delete thisFit;
+	  continue;
+	} else {
+	  alreadySearched.insert(ids);
+	}
       }
       auto newFits = thisFit->search();
       if (DEBUG) cerr << "search returns " << newFits.size() << endl;
