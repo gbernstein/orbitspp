@@ -90,8 +90,8 @@ variable points to it.
 
 The CFITSIO software is a bit picky about data types, so beware of
 these details:  in the input FITS files to the _Bulk*cpp_ programs,
-the `ORBITID` and `EXPNUM` columns should 4-byte integers (FITS type
-"J") and the `OBJID` column should be 8-byte (FITS type "K"). The
+the `EXPNUM` column should 4-byte integers (FITS type
+"J") and the `ORBITID` and `OBJID` columns should be 8-byte (FITS type "K"). The
 `MJD` and other coordinate columns should be double-precision ("D").
 
 
