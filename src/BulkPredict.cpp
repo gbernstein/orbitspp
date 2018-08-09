@@ -119,9 +119,9 @@ int main(int argc,
       quit(m);
     }
 
-    map<int,int> orbitIndex;
+    map<LONGLONG,int> orbitIndex;
     {
-      vector<int> id;
+      vector<LONGLONG> id;
       orbitTable.readCells(id, "ORBITID");
       for (int i=0; i<id.size(); i++)
 	orbitIndex[id[i]]=i;
@@ -151,7 +151,7 @@ int main(int argc,
     bool useExpnum; // Set true if input will have expnum instead of MJD.
 
     // Input that is also output:
-    vector<int> orbitID;
+    vector<LONGLONG> orbitID;
     vector<int> expnum;
     vector<double> mjd;  // Might use this instead of expnum
     
@@ -172,7 +172,8 @@ int main(int argc,
       // Reading observation info from stdin.
       // Let's read in all the input at the start to simplify code
       string buffer;
-      int idThis, expnumThis;
+      int expnumThis;
+      LONGLONG idThis;
       double mjdThis;
       // Let's read one line to decide whether we are expnum or mjd people:
       stringstuff::getlineNoComment(cin, buffer);
@@ -223,7 +224,7 @@ int main(int argc,
 
       // Do all of the observations of a given orbitID at once
       int beginRow = inRow;
-      int idThis = orbitID[beginRow];
+      LONGLONG idThis = orbitID[beginRow];
       int endRow = beginRow;
       for ( ; endRow < orbitID.size() && orbitID[endRow]==idThis; endRow++) {}
 

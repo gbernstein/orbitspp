@@ -10,7 +10,7 @@
 #include "Ephemeris.h"
 #include "Fitter.h"
 #include "Exposures.h"
-#include "PSet.h"
+#include "Pset.h"
 
 using namespace std;
 using namespace orbits;

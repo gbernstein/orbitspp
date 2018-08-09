@@ -137,7 +137,7 @@ int main(int argc,
     bool observationsFromFile = !observationPath.empty();
     bool useExpnum; // Set true if input will have expnum instead of MJD.
     Frame frame;
-    vector<int> idIn;
+    vector<LONGLONG> idIn;
     vector<int> expnum;
     vector<double> mjd;
     vector<double> ra;
@@ -247,7 +247,7 @@ int main(int argc,
       
       // Read input observations until no more match orbit_id of first
       bool isFirst = true;
-      int idThis;
+      LONGLONG idThis;
       while (true) {
 	double raThis, decThis, sigmaThis;
 	int expnumThis;
@@ -275,7 +275,7 @@ int main(int argc,
 	} else {
 	  // Read data from input line.
 	  std::istringstream iss(inputLine);
-	  int idTest;
+	  LONGLONG idTest;
 	  iss >> idTest >> mjdThis >> raThis >> decThis >> sigmaThis;
 	  if (isFirst) {
 	    idThis = idTest;
