@@ -2,7 +2,7 @@
 #include "StringStuff.h"
 #include "Astrometry.h"
 #include "Exposures.h"
-#include "PSet.h"
+#include "Pset.h"
 
 const string usage=
   "GetExposurePool: Return list of all DES exposures that could\n"
