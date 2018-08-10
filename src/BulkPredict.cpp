@@ -275,7 +275,7 @@ int main(int argc,
       
       // Make arrays for observing time and location in our frame
       DVector tobs(endRow-beginRow);
-      DMatrix earth(3,endRow-beginRow);
+      DMatrix earth(endRow-beginRow,3);
       double mjdThis;
       astrometry::CartesianICRS xyz;
       astrometry::SphericalICRS raDec;
@@ -291,11 +291,11 @@ int main(int argc,
 	  xyz = eph.observatory(obscode, tdb);
 	  tobs[i - beginRow] = tdb;
 	}
-	earth.col(i-beginRow) = xyz.getVector();
+	earth.row(i-beginRow) = xyz.getVector().transpose();
       }
       // Put data into frame
       tobs.array() -= frame.tdb0;
-      DMatrix xE = frame.fromICRS(earth).transpose(); // Fitter wants Nx3, Frame is Nx3
+      DMatrix xE = frame.fromICRS(earth);
       // Destinations for prediction data
       DVector x(endRow-beginRow);
       DVector y(endRow-beginRow);

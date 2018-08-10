@@ -198,21 +198,23 @@ int main(int argc,
       }
       fit.predict(tobs,earth,&x,&y,&covxx,&covyy,&covxy);
       int totalCounts = 0;
-      //**double CHISQ_THRESHOLD=9.21; // 99% point of chisq
-      double CHISQ_THRESHOLD=50; //** ?? try more
+      double CHISQ_THRESHOLD=9.21; // 99% point of chisq
+      //**double CHISQ_THRESHOLD=50; //** ?? try more
       for (int i=0; i<n; i++) {
 	const Exposure& expo = *possibleExposures[i];
 	DVector chisq = expo.chisq(x[i], y[i], covxx[i], covyy[i], covxy[i]);
 	int counts = (chisq.array() < CHISQ_THRESHOLD).count();
 	totalCounts += counts;
 	if (counts>0) {
-	  cout << expo.expnum << " detects: ";
+	  cout << expo.expnum << " detects:";
 	  for (int j=0; j<chisq.size(); j++) {
 	    if (chisq[j] < CHISQ_THRESHOLD) {
-	      cout << expo.id[j]
+	      cout << " " << expo.id[j]
 		   << " " << chisq[j]
+		   << " dx " << (expo.xy(j,0)-x[i]) / ARCSEC
+		   << " " << (expo.xy(j,1)-y[i])/ARCSEC
 		   << " rate " << sqrt(covxx[i]*covyy[i]-covxy[i]*covxy[i]) *
-		      expo.detectionDensity*CHISQ_THRESHOLD; 
+		      expo.detectionDensity*CHISQ_THRESHOLD;
 	      // Add this observation for fitting later
 	      foundT.push_back(expo.tobs);
 	      foundX.push_back(expo.xy(j,0));
@@ -238,11 +240,12 @@ int main(int argc,
       DVector vY(n); for (int i=0; i<n; i++) vY[i] = foundY[i];
       DVector vXX(n); for (int i=0; i<n; i++) vXX[i] = foundCovXX[i];
       DVector vYY(n); for (int i=0; i<n; i++) vYY[i] = foundCovYY[i];
-      DVector vXY(n); for (int i=0; i<n; i++) vT[i] = foundT[i];
+      DVector vXY(n); for (int i=0; i<n; i++) vXY[i] = foundCovXY[i];
       DMatrix vXE(n,3); for (int i=0; i<n; i++) vXE.row(i) = foundXE[i].transpose();
       fit.setObservationsInFrame(vT,vX,vY,vXX,vYY,vXY,vXE);
     }
 
+    fit.setLinearOrbit();
     fit.newtonFit();
     cerr << "Chisq of new Eris fit: " << fit.getChisq() << endl;
     Elements::writeHeader(cerr);

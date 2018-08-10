@@ -2,12 +2,17 @@
 #include "Exposures.h"
 #include "FitsTable.h"
 #include "Trajectory.h"
+#include "StringStuff.h"
 
 using namespace orbits;
 
 // Name of environment variable giving path to observatories file
 const string EXPOSURE_ENVIRON = "DES_EXPOSURE_TABLE";
 const string TRANSIENT_ENVIRON = "DES_TRANSIENT_TABLE";
+const string CORNERS_ENVIRON = "DES_CORNER_TABLE";
+
+// Ignore any transient whose ERRAWIN_WORLD is above this:
+const double MAXIMUM_TRANSIENT_POSITION_ERROR = 1.*ARCSEC;
 
 ExposureTable::ExposureTable(string exposureFile) {
   string path = exposureFile;
@@ -90,6 +95,24 @@ ExposureTable::observatory(int expnum) const {
     astrometricTable.readCell(v3,"OBSERVATORY",index);
   }
   return astrometry::CartesianICRS(v3[0],v3[1],v3[2]);
+}
+
+astrometry::SphericalICRS
+ExposureTable::axis(int expnum) const {
+  auto ptr = astrometricIndex.find(expnum);
+  int index;
+  double ra, dec;
+  if (ptr==astrometricIndex.end()) {
+    // Try non-ast table; throw exception if not there.
+    index = nonAstrometricIndex.at(expnum);
+    nonAstrometricTable.readCell(ra,"RA",index);
+    nonAstrometricTable.readCell(dec,"DEC",index);
+  } else {
+    index = ptr->second;
+    astrometricTable.readCell(ra,"RA",index);
+    astrometricTable.readCell(dec,"DEC",index);
+  }
+  return astrometry::SphericalICRS(ra*DEGREE, dec*DEGREE);
 }
 
 Matrix22
@@ -187,42 +210,18 @@ ExposureTable::getPool(const Frame& frame,   // Starting coordinates, time
     if (astrometricOnly && !isAstrometric(num))
       continue;
     // Skip exposures not pointed anywhere near right direction
-    astrometry::SphericalICRS pointing;
-    astrometry::CartesianICRS observatory;
-    double mjd;
-    observingInfo(num, mjd, observatory, pointing);
-    
-    if (pointing.distance(frame.orient.getPole()) > 60*DEGREE)  // 60 degree cut!!
+    if (axis(num).distance(frame.orient.getPole()) > 60*DEGREE)  // 60 degree cut!!
       continue;
     
-    // Fill Exposure structure, converting to Frame
-    auto expo = new Exposure;
-    expo->expnum = num;
-    expo->mjd = mjd;
-    expo->tdb = ephem.mjd2tdb(mjd);
-    expo->tobs = ephem.mjd2tdb(mjd) - frame.tdb0;
-    expo->earth = frame.fromICRS(observatory.getVector());
-    expo->astrometric = isAstrometric(num);
-    {
-      // Put exposure axis into Frame projection
-      astrometry::Gnomonic xy(pointing, frame.orient);
-      double x,y;
-      xy.getLonLat(x,y);
-      expo->axis[0] = x;
-      expo->axis[1] = y;
-    }
-    {
-      // Read atmospheric covariance and rotate into Frame
-      Matrix22 covRADec = atmosphereCov(num);
-      expo->atmosphereCov = frame.fromICRS(covRADec);
-    }
+    // Read all the exposure's info:
+    auto expo = buildExposure(num, frame, ephem);
     
     // Get the center positions of the orbits at this time
     double xMin, xMax, yMin, yMax;
     astrometry::SphericalICRS posn =
-      trajectoryMin.observe(expo->tdb,observatory);
+      trajectoryMin.observe(expo->tdb,expo->earthICRS);
     astrometry::Gnomonic(posn, frame.orient).getLonLat(xMin,yMin);
-    posn = trajectoryMax.observe(expo->tdb, observatory);
+    posn = trajectoryMax.observe(expo->tdb, expo->earthICRS);
     astrometry::Gnomonic(posn, frame.orient).getLonLat(xMax,yMax);
 
     Point mean;
@@ -249,6 +248,77 @@ ExposureTable::getPool(const Frame& frame,   // Starting coordinates, time
   }
 
   return out;
+}
+
+std::vector<Exposure*>
+ExposureTable::getPool(const Frame& frame,   // Starting coordinates, time
+		       const Ephemeris& ephem,  
+		       double searchRadius,  // Range of coords to cover
+		       bool astrometricOnly) const {
+
+  std::vector<Exposure*> out;  // This will be the returned array
+
+  // Step through all exposures
+  for (int iexp = 0; iexp<size(); iexp++) {
+    int num = expnum(iexp);
+    // Skip if this is not astrometric and we don't want it.
+    if (astrometricOnly && !isAstrometric(num))
+      continue;
+    // Skip exposures not pointed anywhere near right direction
+    if (axis(num).distance(frame.orient.getPole()) > searchRadius)  
+      continue;
+    
+    // Read all the exposure's info:
+    out.push_back(buildExposure(num, frame, ephem));
+  }
+  return out;
+}
+
+Exposure*
+ExposureTable::buildExposure(int exposureNumber,
+			     const Frame& frame,
+			     const Ephemeris& ephem) const {
+    astrometry::SphericalICRS axisICRS;
+    astrometry::CartesianICRS earthICRS;
+    double mjd;
+    observingInfo(exposureNumber, mjd, earthICRS, axisICRS);
+    
+    // Fill Exposure structure, converting to Frame
+    auto expo = new Exposure;
+    expo->expnum = exposureNumber;
+    expo->mjd = mjd;
+    expo->tdb = ephem.mjd2tdb(mjd);
+    expo->tobs = ephem.mjd2tdb(mjd) - frame.tdb0;
+    expo->earthICRS = earthICRS;
+    expo->earth = frame.fromICRS(earthICRS.getVector());
+    expo->astrometric = isAstrometric(exposureNumber);
+    expo->axisICRS = axisICRS;
+    {
+      // Put exposure axis into Frame projection
+      astrometry::Gnomonic xy(axisICRS, frame.orient);
+      double x,y;
+      xy.getLonLat(x,y);
+      expo->axis[0] = x;
+      expo->axis[1] = y;
+    }
+    {
+      // Read atmospheric covariance and rotate into Frame
+      Matrix22 covRADec = atmosphereCov(exposureNumber);
+      expo->atmosphereCov = frame.fromICRS(covRADec);
+    }
+    return expo;
+}
+  
+int
+Exposure::whichCCD(const astrometry::SphericalICRS& radec) const {
+  double ra,dec;
+  radec.getLonLat(ra,dec);
+  if (ra > PI) ra-=TPI;  // Keep -pi<ra<pi
+  Point p(ra,dec);
+  for (int i=0; i<deviceBounds.size(); i++)
+    if (deviceBounds[i].inside(p))
+      return devices[i];
+  return 0;
 }
 
 TransientTable::TransientTable(const string transientFile) {
@@ -293,14 +363,6 @@ TransientTable::fillExposure(const Frame& frame,
   float density;
   transientIndex.readCell(density, "DENSITY", index);
   eptr->detectionDensity = density / (DEGREE*DEGREE); // Change per sq deg to per sr
-  int nTransients = end-begin;
-  eptr->xy.resize(nTransients, 2);
-  eptr->covXX.resize(nTransients);
-  eptr->covXY.resize(nTransients);
-  eptr->covYY.resize(nTransients);
-  eptr->ccdnum.resize(nTransients);
-  eptr->id.resize(nTransients);
-  eptr->valid = BVector(nTransients,true); //Everyone is valid to start with.
 
   std::vector<double> ra;
   transientTable.readCells(ra, "RA", begin, end);
@@ -311,23 +373,169 @@ TransientTable::fillExposure(const Frame& frame,
   std::vector<short int> ccd;
   transientTable.readCells(ccd, "CCDNUM", begin, end);
     
+  // Count number of usable detections
+  BVector use(end-begin);
+  for (int i=0; i<end-begin; i++)
+    use[i] = sig[i]*DEGREE < MAXIMUM_TRANSIENT_POSITION_ERROR;
+  
   // Fill in individual detections' properties
   // Their coordinates and sigma are in degrees.
-  for (int i=0; i<nTransients; i++) {
-    eptr->id[i] = i+begin;
-    eptr->ccdnum[i] = ccd[i];
-    eptr->covXX[i] = sig[i]*sig[i]*DEGREE*DEGREE + eptr->atmosphereCov(0,0);
+  int nTransients = use.array().count();
+  eptr->xy.resize(nTransients, 2);
+  eptr->covXX.resize(nTransients);
+  eptr->covXY.resize(nTransients);
+  eptr->covYY.resize(nTransients);
+  eptr->ccdnum.resize(nTransients);
+  eptr->id.resize(nTransients);
+  eptr->valid = BVector(nTransients,true); //Everyone is valid to start with.
+
+  for (int i=0, j=0; j<end-begin; j++) {
+    if (!use[j]) continue;
+    /**/if (i>=nTransients) cerr << "got too many points!!!" << endl;
+    eptr->id[i] = j+begin;
+    eptr->ccdnum[i] = ccd[j];
+    eptr->covXX[i] = sig[j]*sig[j]*DEGREE*DEGREE + eptr->atmosphereCov(0,0);
     eptr->covXY[i] = eptr->atmosphereCov(1,0);
-    eptr->covYY[i] = sig[i]*sig[i]*DEGREE*DEGREE + eptr->atmosphereCov(1,1);
-    astrometry::SphericalICRS radec(ra[i]*DEGREE, dec[i]*DEGREE);
-    astrometry::Gnomonic xy(radec, frame.orient);
-    double x,y;
-    xy.getLonLat(x,y);
-    eptr->xy(i,0) = x;
-    eptr->xy(i,1) = y;
-    eptr->valid[i] = true;
+    eptr->covYY[i] = sig[j]*sig[j]*DEGREE*DEGREE + eptr->atmosphereCov(1,1);
+    astrometry::SphericalICRS radec(ra[j]*DEGREE, dec[j]*DEGREE);
+    try {
+      astrometry::Gnomonic xy(radec, frame.orient);
+      double x,y;
+      xy.getLonLat(x,y);
+      eptr->xy(i,0) = x;
+      eptr->xy(i,1) = y;
+      eptr->valid[i] = true;
+    } catch (astrometry::AstrometryError& a) {
+      // Get here for projection out of gnomonic's hemisphere
+      eptr->xy(i,0) = 0.;
+      eptr->xy(i,1) = 0.;
+      eptr->valid[i] = false;
+    }
+    i++;
   }
   return true;
+}
+
+////////////////////////////////////////////////////////////////////////
+// Table for corner locations
+////////////////////////////////////////////////////////////////////////
+std::map<string,int>
+CornerTable::detpos2ccdnum;
+
+CornerTable::CornerTable(const string cornerFile) {
+  string path = cornerFile;
+  if (path.empty())  {
+    // Find FITS file name from environment variable
+    char *kpath = getenv(CORNERS_ENVIRON.c_str());
+    if (kpath == NULL) 
+      throw std::runtime_error("No path given for DES corner table FITS file");
+    path = kpath;
+  }
+  // Read the table
+  FITS::FitsTable ft(path, FITS::ReadOnly, 1);
+  cornerTable = ft.extract();
+
+  // Build an index from expnum to rows of the table
+  vector<int> expnum;
+  cornerTable.readCells(expnum,"EXPNUM");
+  
+  for (int row=0; row<expnum.size(); row++) {
+    findExpnum.emplace(expnum[row],row); // ??
+  }
+
+  // DETPOS table:
+  if (detpos2ccdnum.empty()) {
+    detpos2ccdnum["N1"]= 32;
+    detpos2ccdnum["N2"]= 33;
+    detpos2ccdnum["N3"]= 34;
+    detpos2ccdnum["N4"]= 35;
+    detpos2ccdnum["N5"]= 36;
+    detpos2ccdnum["N6"]= 37;
+    detpos2ccdnum["N7"]= 38;
+    detpos2ccdnum["N8"]= 39;
+    detpos2ccdnum["N9"]= 40;
+    detpos2ccdnum["N10"]= 41;
+    detpos2ccdnum["N11"]= 42;
+    detpos2ccdnum["N12"]= 43;
+    detpos2ccdnum["N13"]= 44;
+    detpos2ccdnum["N14"]= 45;
+    detpos2ccdnum["N15"]= 46;
+    detpos2ccdnum["N16"]= 47;
+    detpos2ccdnum["N17"]= 48;
+    detpos2ccdnum["N18"]= 49;
+    detpos2ccdnum["N19"]= 50;
+    detpos2ccdnum["N20"]= 51;
+    detpos2ccdnum["N21"]= 52;
+    detpos2ccdnum["N22"]= 53;
+    detpos2ccdnum["N23"]= 54;
+    detpos2ccdnum["N24"]= 55;
+    detpos2ccdnum["N25"]= 56;
+    detpos2ccdnum["N26"]= 57;
+    detpos2ccdnum["N27"]= 58;
+    detpos2ccdnum["N28"]= 59;
+    detpos2ccdnum["N29"]= 60;
+    detpos2ccdnum["N31"]= 62;
+    detpos2ccdnum["S1"]= 25;
+    detpos2ccdnum["S2"]= 26;
+    detpos2ccdnum["S3"]= 27;
+    detpos2ccdnum["S4"]= 28;
+    detpos2ccdnum["S5"]= 29;
+    detpos2ccdnum["S6"]= 30;
+    detpos2ccdnum["S7"]= 31;
+    detpos2ccdnum["S8"]= 19;
+    detpos2ccdnum["S9"]= 20;
+    detpos2ccdnum["S10"]= 21;
+    detpos2ccdnum["S11"]= 22;
+    detpos2ccdnum["S12"]= 23;
+    detpos2ccdnum["S13"]= 24;
+    detpos2ccdnum["S14"]= 13;
+    detpos2ccdnum["S15"]= 14;
+    detpos2ccdnum["S16"]= 15;
+    detpos2ccdnum["S17"]= 16;
+    detpos2ccdnum["S18"]= 17;
+    detpos2ccdnum["S19"]= 18;
+    detpos2ccdnum["S20"]=  8;
+    detpos2ccdnum["S21"]=  9;
+    detpos2ccdnum["S22"]= 10;
+    detpos2ccdnum["S23"]= 11;
+    detpos2ccdnum["S24"]= 12;
+    detpos2ccdnum["S25"]=  4;
+    detpos2ccdnum["S26"]=  5;
+    detpos2ccdnum["S27"]=  6;
+    detpos2ccdnum["S28"]=  7;
+    detpos2ccdnum["S29"]=  1;
+    detpos2ccdnum["S30"]=  2;
+    detpos2ccdnum["S31"]=  3;
+    detpos2ccdnum["N30"]= 61;
+  }
+}
+
+bool
+CornerTable::hasExpnum(int expnum) const {
+  return findExpnum.count(expnum)>0;
+}
+
+bool
+CornerTable::fillExposure(Exposure* eptr) const {
+  auto range = findExpnum.equal_range(eptr->expnum);
+  if (range.first==range.second)
+    return false; // No entries for this.
+  vector<double> ra;
+  vector<double> dec;
+  string detpos;
+  for (auto ptr = range.first; ptr!=range.second; ++ptr) {
+    int row = ptr->second;
+    cornerTable.readCell(detpos, "DETPOS", row);
+    stringstuff::stripWhite(detpos);
+    cornerTable.readCell(ra,  "RA", row);
+    cornerTable.readCell(dec,  "DEC", row);
+  
+    eptr->devices.push_back(detpos2ccdnum.at(detpos));
+    vector<Point> vertices;
+    for (int i=0; i<4; i++)
+      vertices.push_back(Point(ra[i]*DEGREE, dec[i]*DEGREE));
+    eptr->deviceBounds.push_back(ConvexPolygon(vertices));
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////

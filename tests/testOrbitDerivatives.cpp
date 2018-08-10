@@ -91,11 +91,11 @@ int main(int argc,
   // Then include rotation to ICRS
   Matrix66 dSdABG;
   
-  // Analytic:
-  DMatrix tmp = dSdABG_frame.subMatrix(0,3,0,6);
-  dSdABG.subMatrix(0,3,0,6) = f.toICRS(tmp , true);
-  tmp = dSdABG_frame.subMatrix(3,6,0,6);
-  dSdABG.subMatrix(3,6,0,6) = f.toICRS(tmp, true);
+  // Analytic; note that Frame takes Nx3 matrices so put xyz second
+  DMatrix tmp = dSdABG_frame.subMatrix(0,3,0,6).transpose();
+  dSdABG.subMatrix(0,3,0,6) = f.toICRS(tmp , true).transpose();
+  tmp = dSdABG_frame.subMatrix(3,6,0,6).transpose();
+  dSdABG.subMatrix(3,6,0,6) = f.toICRS(tmp, true).transpose();
   /**/cerr << "dSdABG: " << endl << dSdABG << endl;
   
   // Numeric version:

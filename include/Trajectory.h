@@ -40,8 +40,8 @@ namespace orbits {
 
     DMatrix position(const DVector& tdb,
 		     DMatrix* velocity=nullptr) const;
-    // Return 3 x N matrix of object positions at TDB's given in input array.
-    // If a pointer to velocity array is given, it is resized to 3xN and filled with v.
+    // Return Nx3 matrix of object positions at TDB's given in input array.
+    // If a pointer to velocity array is given, it is resized to Nx3 and filled with v.
 
     astrometry::CartesianICRS position(double tdb,
 				       astrometry::CartesianICRS* velocity=nullptr) const;
@@ -50,6 +50,10 @@ namespace orbits {
     // Return observed astrometric position from observer position/time.
     astrometry::SphericalICRS observe(double tdbObserve,
 				      const astrometry::CartesianICRS& observer);
+    // Return observed astrometric position in bulk.
+    // Input and output matrices are Nx3.  Output is ICRS direction cosines.
+    DMatrix observe(const DVector& tdbObserve,
+		    const DMatrix& observer);
     EIGEN_NEW
     
   private:

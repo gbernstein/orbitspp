@@ -104,17 +104,17 @@ Trajectory::span(double tdb) const {
 DMatrix
 Trajectory::position(const DVector& tdb,
 		     DMatrix* velocity) const {
-  DMatrix out(3,tdb.size());
+  DMatrix out(tdb.size(),3);
   if (velocity) {
-    velocity->resize(3,tdb.size());
+    velocity->resize(tdb.size(),3);
   }
   if (tdb.size()==0) return out;
   if (grav==INERTIAL) {
     // Inertial motion is just linear algebra
     for (int i=0; i<tdb.size(); i++)
-      out.col(i) = x0 + (tdb[i]-tdb0)*v0;
+      out.row(i) = (x0 + (tdb[i]-tdb0)*v0).transpose();
     if (velocity)
-      velocity->colwise() = v0;
+      velocity->rowwise() = v0.transpose();
   } else if (grav==WRONG) {
     // In this model we incorrectly use elliptical orbit
     // centered on the Sun, so we need to get state from
@@ -124,8 +124,8 @@ Trajectory::position(const DVector& tdb,
       State s = getState(el, tdb[i], true, &ephem);
       State sSun = ephem.state(orbits::SUN, tdb[i]);
       if (velocity)
-	velocity->col(i) = s.v.getVector() + sSun.v.getVector();
-      out.col(i) = s.x.getVector() + sSun.x.getVector();
+	velocity->row(i) = (s.v.getVector() + sSun.v.getVector()).transpose();
+      out.row(i) = (s.x.getVector() + sSun.x.getVector()).transpose();
     }
   } else {
     // Grow the integration of the orbit
@@ -142,17 +142,17 @@ Trajectory::position(const DVector& tdb,
       int i0 = static_cast<int> (istep[i]); // Index of time step nearer 0
       if (tstep[i]<0.) {
 	// Use backward integration
-	out.col(i) = xbwd[i0] + f[i]*(vbwd[i0] + f[i]*abwd[i0]);
+	out.row(i) = (xbwd[i0] + f[i]*(vbwd[i0] + f[i]*abwd[i0])).transpose();
 	//**/cerr << "tstep " << i << " bwd " << i0 << " f " << f[i] << " vbwd " << vbwd[i0] << endl;
 	if (velocity)
 	  // Negate the velocity because LUT is function of (-t)
-	  velocity->col(i) = -(vbwd[i0] + (2.*f[i])*abwd[i0]);
+	  velocity->row(i) = -(vbwd[i0] + (2.*f[i])*abwd[i0]).transpose();
       } else {
 	// Use forward integration
-	out.col(i) = xfwd[i0] + f[i]*(vfwd[i0] + f[i]*afwd[i0]);
+	out.row(i) = (xfwd[i0] + f[i]*(vfwd[i0] + f[i]*afwd[i0])).transpose();
 	//**/cerr << "tstep " << i << " fwd " << i0 << " f " << f[i] << " vfwd " << vfwd[i0] << endl;
 	if (velocity)
-	  velocity->col(i) = vfwd[i0] + (2.*f[i])*afwd[i0];
+	  velocity->row(i) = (vfwd[i0] + (2.*f[i])*afwd[i0]).transpose();
       } 
     }
     if (velocity) (*velocity)/=dt;
@@ -165,13 +165,13 @@ Trajectory::position(double tdb,
 		     astrometry::CartesianICRS* velocity) const {
   DVector tvec(1,tdb);
   if (velocity) {
-    DMatrix vmat(3,1);
+    DMatrix vmat(1,3);
     auto m = position(tvec, &vmat);
-    *velocity = CartesianICRS(vmat(0,0), vmat(1,0), vmat(2,0));
-    return CartesianICRS(m(0,0), m(1,0), m(2,0));
+    *velocity = CartesianICRS(vmat(0,0), vmat(0,1), vmat(0,2));
+    return CartesianICRS(m(0,0), m(0,1), m(0,2));
   } else {
     auto m = position(tvec);
-    return CartesianICRS(m(0,0), m(1,0), m(2,0));
+    return CartesianICRS(m(0,0), m(0,1), m(0,2));
   }
 }
 
@@ -214,4 +214,28 @@ Trajectory::observe(double tdbObserve,
   target = position(tEmit);
   target -= observer;
   return SphericalICRS(target);
+}
+
+DMatrix
+Trajectory::observe(const DVector& tdbObserve,
+		    const DMatrix& observer) {
+  DVector tEmit = tdbObserve;
+  // Get the light-travel time
+  DMatrix velocity;
+  DMatrix target = position(tEmit, &velocity);
+  target -= observer;
+  DVector targetRadius = target.rowwise().norm();
+  DVector v_los = (velocity.array()*target.array()).rowwise().sum() /
+    targetRadius.array();
+  tEmit = tdbObserve.array() - targetRadius.array() / (v_los.array() + SpeedOfLightAU);
+  
+  // Final position:
+  target = position(tEmit);
+  target -= observer;
+  // Return direction cosines
+  targetRadius = target.rowwise().norm();
+  target.col(0).array() /= targetRadius.array();
+  target.col(1).array() /= targetRadius.array();
+  target.col(2).array() /= targetRadius.array();
+  return target;
 }

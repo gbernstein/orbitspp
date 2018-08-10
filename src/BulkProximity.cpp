@@ -295,7 +295,7 @@ int main(int argc,
       
       // Make arrays for observing time, location, and observed pos'n in our frame
       DVector tobs(endRow-beginRow);
-      DMatrix earth(3,endRow-beginRow);
+      DMatrix earth(endRow-beginRow,3);
       DVector xobs(endRow-beginRow);
       DVector yobs(endRow-beginRow);
       DVector cxx(endRow-beginRow,0.);
@@ -318,7 +318,7 @@ int main(int argc,
 	  xyz = eph.observatory(obscode, tdb);
 	  tobs[ii] = tdb;
 	}
-	earth.col(i-beginRow) = xyz.getVector();
+	earth.row(i-beginRow) = xyz.getVector().transpose();
 	astrometry::SphericalICRS icrs(ra[i]*DEGREE, dec[i]*DEGREE);
 	astrometry::Gnomonic gn(icrs,frame.orient);
 	double xx,yy;
@@ -339,7 +339,7 @@ int main(int argc,
       }
       // Transform tobs, observatory data into frame
       tobs.array() -= frame.tdb0;
-      DMatrix xE = frame.fromICRS(earth).transpose(); // Fitter wants Nx3, Frame is Nx3
+      DMatrix xE = frame.fromICRS(earth);
 
       // Get prediction of orbit
       DVector x(endRow-beginRow);

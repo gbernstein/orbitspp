@@ -28,7 +28,7 @@ main(int argc,
 
     // Create Trajectory
     orbits::Trajectory qb(eph, s, orbits::GIANTS, 1.18*DAY);
-    
+
     // single future point
     auto x = qb.position((2459322.75-JD2000)*DAY);
     cout << x << endl;
@@ -242,13 +242,13 @@ main(int argc,
     auto m = qb.position(future, &velocity);
     for (int i=0; i<future.size(); i++) {
       cout << std::fixed << std::setprecision(3) << std::setw(8) << future[i] - s.tdb
-	   << " " << std::setw(8) << std::setprecision(2) <<  (m(0,i) - xx[i]) / (1000.*METER)
-	   << " " << std::setw(8) << std::setprecision(2) <<  (m(1,i) - yy[i]) / (1000.*METER)
-	   << " " << std::setw(8) << std::setprecision(2) <<  (m(2,i) - zz[i]) / (1000.*METER)
+	   << " " << std::setw(8) << std::setprecision(2) <<  (m(i,0) - xx[i]) / (1000.*METER)
+	   << " " << std::setw(8) << std::setprecision(2) <<  (m(i,1) - yy[i]) / (1000.*METER)
+	   << " " << std::setw(8) << std::setprecision(2) <<  (m(i,2) - zz[i]) / (1000.*METER)
 	   << endl;
-      if ( abs(m(0,i) - xx[i]) > tolerance ||
-	   abs(m(1,i) - yy[i]) > tolerance ||
-	   abs(m(2,i) - zz[i]) > tolerance)
+      if ( abs(m(i,0) - xx[i]) > tolerance ||
+	   abs(m(i,1) - yy[i]) > tolerance ||
+	   abs(m(i,2) - zz[i]) > tolerance)
 	fail = true;
     }
     if (fail)
@@ -264,7 +264,7 @@ main(int argc,
       cout << " DT (yrs)     x         y       z " << endl;
       cout << future[i] << std::setprecision(4);
       for (int j=0; j<3; j++) {
-	double diff = (velocity(j,i) - vv[j])*SECOND/METER;
+	double diff = (velocity(i,j) - vv[j])*SECOND/METER;
 	cout << "  " << diff;
 	if (abs(diff) > velocity_tolerance) vfail = true;
       }

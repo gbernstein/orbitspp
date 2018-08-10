@@ -20,10 +20,13 @@ namespace orbits {
     double tdb;
     double tobs;  // Time relative to Frame tdb0
     bool astrometric;  // True if exposure is part of astrometric solution
+    astrometry::SphericalICRS axisICRS; // Optic axis
+    astrometry::CartesianICRS earthICRS; // Position of observatory
     Vector3 earth;  // Observatory position in Frame
     Point axis;   // Optical axis coords, in Frame gnomonic
     Matrix22 atmosphereCov;  // Atmospheric astrometric covariance for exposure.
 
+    // Info on transients:
     double detectionDensity; // Density of transients, per sr
     DMatrix xy;   // Transient coordinates, in Frame
     DVector covXX;
@@ -37,7 +40,11 @@ namespace orbits {
     // by the given error ellipse.  Transients' measurement errors are added in.
     DVector chisq(double x0, double y0, double covxx, double covyy, double covxy) const;
     
-    // ??? Add per-CCD info on boundaries
+    // Info on CCDs:
+    vector<int> devices; // List of ccdnums of devices
+    vector<ConvexPolygon> deviceBounds;
+    // Return ccdnum of device containing the coordinates. 0 if none.
+    int whichCCD(const astrometry::SphericalICRS& radec) const; 
     EIGEN_NEW;
   };
 
@@ -72,7 +79,14 @@ namespace orbits {
 				   bool astrometricOnly = true,  // Only look for astrometric exposures
 				   double fieldRadius = 1.1*DEGREE) const; // Circumscribed FOV radius (radians)
     // ?? Allow exclusion of filters?? seasons??
-    // ?? Add CCD corners, detections ??
+
+    // This version simply returns all exposures centered within a given distance
+    // of the frame origin.
+    std::vector<Exposure*> getPool(const Frame& frame,
+				   const Ephemeris& ephem,
+				   double searchRadius,  // Range of starting coords to cover (radians)
+				   bool astrometricOnly = true) const;  // Only look for astrometric exposures
+
   private:
     img::FTable astrometricTable;
     img::FTable nonAstrometricTable;
@@ -80,6 +94,11 @@ namespace orbits {
     map<int,int> nonAstrometricIndex;
     vector<int> astrometricExpnum;   // Maps from row number (=index) to expnum
     vector<int> nonAstrometricExpnum;
+    // Build Exposure object for given exposure number, putting exposure-level
+    // info into specified reference frame
+    Exposure* buildExposure(int exposureNumber,
+			    const Frame& frame,
+			    const Ephemeris& ephem)  const;
   };
   
   class TransientTable {
@@ -98,6 +117,21 @@ namespace orbits {
     std::map<int,int> findExpnum;  // Lookup table from expnum to transientIndex row number
   };
   
+  class CornerTable {
+    // Class holding a table of CCD corner locations.
+  public:
+    // Null string input will look to an environment variable.
+    CornerTable(const string cornerFile="");
+    bool hasExpnum(int expnum) const;  // Are there corners for this exposure?
+    // Fill the exposure structure with info for its CCDs.
+    // Return false if there are none.
+    bool fillExposure(Exposure* eptr) const;
+  private:
+    img::FTable cornerTable;
+    std::multimap<int,int> findExpnum;  // Lookup table from expnum to cornerTable row numbers
+    static std::map<string,int> detpos2ccdnum; // DECam table of DETPOS vs CCDNUM.
+  };
+
   class Node {
     // Node of a k-d tree of Exposures over time and position
   public:

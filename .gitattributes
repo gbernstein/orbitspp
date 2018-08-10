@@ -1,0 +1,2 @@
+# Don't dig into fits files:
+*.fits binary
