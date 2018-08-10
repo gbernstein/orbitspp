@@ -152,9 +152,10 @@ namespace orbits {
     Frame(): ReferenceFrame(), tdb0(0.) {}
     double tdb0;  // Time coordinate origin
 
-    // Transform positions, or a 3xN array of positions,
+    // Transform positions, or a Nx3 array of positions,
     // to or from this Frame from or to ICRS.
-    // isVelocity=true will skip translation of origin
+    // isVelocity=true will skip translation of origin,
+    // so this will also work for transforming direction cosines.
     Vector3 toICRS(const Vector3& x,
 		   bool isVelocity=false) const;
     Vector3 fromICRS(const Vector3& x,

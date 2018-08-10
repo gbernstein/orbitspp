@@ -295,7 +295,6 @@ Fitter::createTrajectory() {
   s0.v = astrometry::CartesianICRS(f.toICRS(v0,true));
   s0.tdb = f.tdb0;
   
-  // Integrate - Trajectory returns 3xN matrix
   fullTrajectory = new Trajectory(eph, s0, grav);
 }
 
@@ -313,9 +312,9 @@ Fitter::calculateGravity() {
 
   // Convert back to Fitter reference frame and subtract inertial motion
   // Note Frame and Trajectory use 3 x n, we are using n x 3 here.
-  xGrav = f.fromICRS(xyz).transpose() - abg.getXYZ(tEmit);
+  xGrav = f.fromICRS(xyz) - abg.getXYZ(tEmit);
   if (false) /**/{
-    DMatrix x1 = f.fromICRS(xyz).transpose();
+    DMatrix x1 = f.fromICRS(xyz);
     DMatrix x2 = abg.getXYZ(tEmit);
     stringstuff::StreamSaver ss(cerr);
     cerr << std::fixed << std::showpos << std::setprecision(4);
@@ -550,7 +549,9 @@ Fitter::printResiduals(std::ostream& os) {
        << std::setprecision(3)
        << std::setw(7) << dx[i]/ARCSEC << " "
        << std::setw(7) << dy[i]/ARCSEC << " "
-       << std::noshowpos << std::setprecision(2) << chi << endl;
+       << std::noshowpos << std::setprecision(2) << chi
+      //** << " invcov " << invcovXX[i] << " " << invcovYY[i] << " " << invcovXY[i] /**/
+       << endl;
     chitot += chi;
   }
   os << " chisq w/o priors: " << chitot
@@ -581,10 +582,12 @@ Fitter::getElementCovariance() const {
 
   // Rotate x and v derivatives into ICRS
   Matrix66 dSdABG;
-  DMatrix tmp = dSdABG_frame.subMatrix(0,3,0,6);
-  dSdABG.subMatrix(0,3,0,6) = f.toICRS(tmp , true);
-  tmp = dSdABG_frame.subMatrix(3,6,0,6);
-  dSdABG.subMatrix(3,6,0,6) = f.toICRS(tmp, true);
+  // Note that Frame is working with Nx3 arrays so we need
+  // to put xyz on the 2nd index.
+  DMatrix tmp = dSdABG_frame.subMatrix(0,3,0,6).transpose();
+  dSdABG.subMatrix(0,3,0,6) = f.toICRS(tmp , true).transpose();
+  tmp = dSdABG_frame.subMatrix(3,6,0,6).transpose();
+  dSdABG.subMatrix(3,6,0,6) = f.toICRS(tmp, true).transpose();
 
   //**/cerr << "dSdABG: " << endl << dSdABG << endl;
   
@@ -633,9 +636,9 @@ Fitter::predict(const DVector& t_obs,    // Time of observations, relative to td
     // Note the Trajectory takes full TDB, not referred to our tdb0:
     DVector tEphem = t_obs.array() + f.tdb0;
     DMatrix v_ICRS;
-    target = f.fromICRS(fullTrajectory->position(tEphem,&v_ICRS)).transpose();
+    target = f.fromICRS(fullTrajectory->position(tEphem,&v_ICRS));
     // Transform body velocity too
-    velocity = f.fromICRS(v_ICRS,true).transpose();
+    velocity = f.fromICRS(v_ICRS,true);
   } else {
     target = abg.getXYZ(t_obs);
     Vector3 x,v;
@@ -658,7 +661,7 @@ Fitter::predict(const DVector& t_obs,    // Time of observations, relative to td
   DMatrix gravity(nobs,3,0.);
   if (fullTrajectory) {
     DVector tEphem = t_emit.array() + f.tdb0;
-    target = f.fromICRS(fullTrajectory->position(tEphem)).transpose();
+    target = f.fromICRS(fullTrajectory->position(tEphem));
     // Subtract inertial motion to get gravity
     gravity = target - abg.getXYZ(t_emit);
   } else {

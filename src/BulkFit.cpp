@@ -204,7 +204,7 @@ int main(int argc,
     }
 
     // Create vectors to hold output if we are writing FITS
-    vector<int> idOut;
+    vector<LONGLONG> idOut;
     vector<int> fitFlags;  // Record info on fitting
     vector<double> chisq;
     vector<int> dof;
@@ -385,7 +385,7 @@ int main(int argc,
 	fitFlags.push_back(errorCode);
 	// No useful chisq if no convergence:
 	chisq.push_back( errorCode == NONCONVERGENCE ? 0. : fit.getChisq()); 
-	dof.push_back(0);
+	dof.push_back(fit.getDOF());
 	if (errorCode>0) {
 	  // Failed fit just gets empty results
 	  vector<double> zero(6,0.);

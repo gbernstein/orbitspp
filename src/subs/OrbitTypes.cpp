@@ -200,9 +200,9 @@ Frame::fromICRS(const Vector3& x,
 DMatrix
 Frame::toICRS(const DMatrix& x,
 	      bool isVelocity) const {
-  DMatrix out = orient.m().transpose() * x;
+  DMatrix out = x * orient.m();
   if (!isVelocity)
-    out.colwise() += origin.getVector();
+    out.rowwise() += origin.getVector().transpose();
   return out;
 }
 
@@ -210,10 +210,10 @@ DMatrix
 Frame::fromICRS(const DMatrix& x,
 		bool isVelocity) const {
   if (isVelocity) {
-    return orient.m() * x;
+    return x * orient.m().transpose();
   } else {
-    DMatrix tmp = x.colwise() - origin.getVector();
-    return orient.m() * tmp;
+    DMatrix tmp = x.rowwise() - origin.getVector().transpose();
+    return tmp * orient.m().transpose();
   }
 }
 

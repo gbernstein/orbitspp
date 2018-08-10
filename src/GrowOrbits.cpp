@@ -397,7 +397,7 @@ main(int argc, char **argv) {
 
     // Open inputs
     // ??? read triplets
-    transientPath = "/Users/garyb/DES/TNO/zone029.transients.fits";
+    //??transientPath = "/Users/garyb/DES/TNO/zone029.transients.fits";
     
     {
       // Choose chisq cutoffs for numbers of detections
@@ -492,9 +492,11 @@ main(int argc, char **argv) {
 	  int objectID;
 	  while (iss >> objectID) {
 	    if (!detectionIndex.count(objectID)) {
-	      cerr << "Object with ID " << objectID
+	      // Silently skip - probably something
+	      // we're rejecting from large errors
+	      /**cerr << "Object with ID " << objectID
 		   << " is not in one of our search exposures"
-		   << endl;
+		   << endl; **/
 	      continue;
 	    }
 	    members.push_back(detectionIndex[objectID]);

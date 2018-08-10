@@ -29,15 +29,31 @@ namespace orbits {
   class Ray {
     // Class describing a directed line that goes from p1 to p2
   public:
-    Ray(const Point& p1_, const Point& p2_);
-    bool onRight(const Point& p) const;  // Is the point to the right of the right?
-    BVector onRight(const DMatrix& pts) const;  // same for Nx2 array of points
-    double distance(const Point& p) const; // Perp distance to point from line (signed???)
-    DVector distance(const DMatrix& p) const; // Distance to a list of points (Nx2 matrix)
+  Ray(const Point& p1_, const Point& p2_): p1(p1_), p2(p2_) {
+      Vector2 slope = p2-p1;
+      slope /= slope.norm();
+      perpUnit[0] = slope[1];
+      perpUnit[1] = -slope[0];
+    }
+    // Perp distance to point from line (signed, pos to right)
+    double distance(const Point& p) const {
+      return (p-p1).dot(perpUnit);
+    }
+    // Distance to a list of points (Nx2 matrix)
+    DVector distance(const DMatrix& p) const {
+      DMatrix dx = p.rowwise() - p1.transpose();
+      return dx * perpUnit; //dx.col(0)*perpUnit[0]+dx.col(1)*perpUnit[1];
+    }
+
+    // Is the point to the right of the ray?
+    bool onRight(const Point& p) const {return distance(p)>0.;}  
+    // same for Nx2 array of points
+    BVector onRight(const DMatrix& pts) const {return distance(pts).array()>0.;}
     
-  private:
     Point p1;
     Point p2;
+  private:
+    Vector2 perpUnit; // Unit vector perpendicular to ray (to right)
     EIGEN_NEW
   };
 
@@ -45,12 +61,46 @@ namespace orbits {
     // Convex polygon defined by clockwise list of vertices.  There is no automatic check
     // for convexity or clockwise.
   public:
-    ConvexPolygon(const std::vector<Point>& vertices);
-    bool isConvex() const; // Force check
-    double area() const;
+    ConvexPolygon(const std::vector<Point>& vertices) {
+      for (int i=0; i<vertices.size()-1; i++) 
+	edges.push_back(Ray(vertices[i],vertices[i+1]));
+      // Close polygon
+      edges.push_back(Ray(vertices.back(), vertices.front()));
+    }
+    // Force check of convexity - each edge's endpoint must be to
+    // right of previous edge (or colinear)
+    bool isConvex() const {
+      for (int i=0; i<edges.size()-1; i++) 
+	if (edges[i].distance(edges[i+1].p2)<0.)
+	  return false;
+      return edges.back().distance(edges.front().p2)>=0.;
+    }
+    double area() const {
+      // Use shoelaces formulae, relative to first point to avoid roundoff
+      double x0 = edges.front().p1[0];
+      double y0 = edges.front().p1[1];
+      double out=0.;
+      for (auto& e : edges)
+	out += (e.p1[0]-x0)*(e.p2[1]-y0)-(e.p1[1]-y0)*(e.p2[0]-x0);
+      return -0.5*out;
+    }
+    
     // Check whether one or many points are interior to polygon
-    bool inside(const Point& p) const;
-    BVector inside(const DMatrix& pts) const;
+    bool inside(const Point& p) const {
+      for (auto& e : edges)
+	if (!e.onRight(p)) return false;
+      return true;
+    }
+    BVector inside(const DMatrix& pts) const {
+      BVector out = edges.front().onRight(pts);
+      for (int i=1; i<edges.size(); i++)
+	out.array() *= edges[i].onRight(pts).array();
+      return out;
+    }
+    EIGEN_NEW
+    // ??? Eigen vector business ??
+  private:
+    vector<Ray> edges;
   };
     
   class Circle {
