@@ -204,7 +204,7 @@ int main(int argc,
     }
 
     // Create vectors to hold output if we are writing FITS
-    vector<int> idOut;
+    vector<LONGLONG> idOut;
     vector<int> fitFlags;  // Record info on fitting
     vector<double> chisq;
     vector<int> dof;
