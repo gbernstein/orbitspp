@@ -765,37 +765,39 @@ Fitter::augmentObservation(double tObs_,    // TDB since reference time
 
   out->newData(); // Invalidate state of new Fitter
   
-  // Do a single Newton iteration of refitting, starting from old solution
+  // Do Newton iterations, starting from old solution
   out->abg = abg;
   // And including same priors
   out->gamma0 = gamma0;
   out->gammaPriorSigma = gammaPriorSigma;
   out->bindingConstraintFactor = bindingConstraintFactor;
   
-  out->calculateChisq(true);
-  auto llt = out->A.llt();
-  out->abg += llt.solve(out->b);
-  out->newABG();
-  // Refine time delay
+  // Copy old trajectory if not making new one
+  if (!newGravity) out->fullTrajectory = new Trajectory(*fullTrajectory);
   out->iterateTimeDelay();
-  // Either adopt old trajectory or recalculate it
-  if (newGravity)
-    out->calculateGravity();
-  else
-    out->fullTrajectory = new Trajectory(*fullTrajectory);
-  // One more Newton
+  if (newGravity) out->calculateGravity();
   out->calculateChisq(true);
-  llt = out->A.llt();
-  Vector6 dp = llt.solve(out->b); 
-  out->abg += dp;
-  out->abgIsFit = true;
-  // Shortcut for new chisq assuming linearity
-  out->chisq -= dp.transpose() * out->A * dp;
-  out->chisqIsValid = true;
-  // We'll consider the A from previous iteration to be valid
-  // assuming that the last change was small
-  out->chisqDerivsAreValid = true;
+
+  // Now run the new fitter through Newton iterations, skipping
+  // gravity recalculation if newGravity==false.
   
+  int iterations = 0;
+  double oldChisq;
+  const int MAX_ITERATIONS=5;
+  const int CHISQ_TOLERANCE=0.1;
+  do {
+    oldChisq = out->chisq;
+    auto llt = out->A.llt();
+    out->abg += llt.solve(out->b);
+    // Update with new ABG
+    out->iterateTimeDelay();
+    if (newGravity) out->calculateGravity();
+    out->calculateChisq(true);
+    iterations++;
+  } while (iterations < MAX_ITERATIONS && abs(chisq-oldChisq) > CHISQ_TOLERANCE);
+  // Do not fuss over failure to converge.
+  out->abgIsFit = true;
+
   return out;
 }  
 
