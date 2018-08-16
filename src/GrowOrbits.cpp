@@ -14,6 +14,9 @@
 using namespace std;
 using namespace orbits;
 
+////////////////////////////////////////////////////////////////////////////////////
+// Constants / magic numbers 
+////////////////////////////////////////////////////////////////////////////////////
 const string usage =
   "GrowOrbits: Given lists of transient detections potentially corresponding to the same\n"
   "object, looks through the transient catalog added possible additional detections\n"
@@ -45,6 +48,10 @@ const int MIN_DETECTIONS_TO_OUTPUT = 4; // ???
 // starting orbit and pull the detections out of circulation.
 const double MAX_FPR_EXCLUSIVE = 0.001;
 const int MIN_DETECTIONS_EXCLUSIVE = 6;
+
+////////////////////////////////////////////////////////////////////////////////////
+// Helper classes
+////////////////////////////////////////////////////////////////////////////////////
 
 struct GlobalResources {
   vector<Exposure*> allExposures;
@@ -156,6 +163,54 @@ fitStepCompare(const FitStep* lhs, const FitStep* rhs) {
   // FitStep objects in increasing false positive order.
   return lhs->fpr < rhs->fpr;
 }
+
+class FPAccumulator: public DMatrix {
+  /** Class to keep track of total false positive expectations.
+      This is a 2d array whose rows indicate number of independent
+      detections in the orbit, and columns are for different upper
+      limits on false positive rate per orbit.
+      Elements of the array are the total expected false positive
+      counts, i.e. the sum over all contributed orbits with the
+      specified number of detections and upper limit on FPR.
+  **/
+public:
+  FPAccumulator(): DMatrix(nMax-nMin+1, nLogFPR, 0.),
+		   maxLogFPR(-2.), dLogFPR(-0.5) {}
+  static const int nMin=3; // Minimum number of independent detections
+  static const int nMax=10; // Max number of independent detections
+  const double maxLogFPR; // upper limit on FPR in first column
+  const double dLogFPR; // increment to bound per column
+  static const int nLogFPR=6; // Number of FPR threshold columns
+  void addOrbit(int nIndependent, double fpr) {
+    double logFPR = log10(fpr);
+    int i = nIndependent-nMin;
+    if (i<0) return;
+    if (i>=rows()) i=rows()-1; // Last n bin includes all higher n's too
+    int jmax = static_cast<int> (floor((log10(fpr)-maxLogFPR)/dLogFPR));
+    //**/cerr << "Adding " << nIndependet << " " << fpr << " " << i << " " << jmax << endl;
+    for (int j=0 ; j<cols() && j<jmax; j++)
+      (*this)(i,j) += fpr;
+    //**/cerr << "...done" << endl;
+  }
+  void write(std::ostream& os) const {
+    stringstuff::StreamSaver ss(os);
+    os << "# Expected false positives" << endl;
+    os << "# N=\\FPR<";
+    for (int j=0; j<nLogFPR; j++)
+      os << " " << setprecision(2) << setw(7) << std::pow(10., maxLogFPR+j*dLogFPR);
+    os << endl;
+    os << fixed << setprecision(3);
+    for (int i=0; i<this->rows(); i++) {
+      os << setw(3) << i+nMin+1 << "      ";
+      for (int j=0; j<nLogFPR; j++)
+	os << " " << setw(7) << (*this)(i,j);
+      os << endl;
+    }
+  }
+};
+
+////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////
 
 // This method of the FitStep is the key ingredient:
 list<FitStep*>
@@ -330,10 +385,9 @@ FitStep::search(double& totalFPR) {
   return out;
 }
 
-  /**
-      May wish to cull multiple fits that correspond to same input.
-      Have a "claimed" bit for each detection in the master Exposure list, which is altered when an exposure/fit reaches "terminal" stage (no children) with an adequately good fit?  If multithreaded this would starve any current /queued / future fitters from grabbing the likely additional detections.  Hopefully one of them would find everything it needs first.
-  **/
+////////////////////////////////////////////////////////////////////////////////////
+// Main begins here
+////////////////////////////////////////////////////////////////////////////////////
 
 int
 main(int argc, char **argv) {
@@ -480,7 +534,7 @@ main(int argc, char **argv) {
 
     // We're going to keep track of the total expected false positive count,
     // as a function of the number of independent epochs.
-    vector<double> falsePositiveEstimate(10,0.);
+    FPAccumulator accumulator;
     
     // Pluck out all relevant exposure data.  Then close
     // transient catalog and exposure catalog.
@@ -645,10 +699,7 @@ main(int argc, char **argv) {
 	if (fitQueue.empty()) {
 	  // Nothing left to fit!
 	  // Report total false positive rates, then quit
-	  cout << "# Total false positives expected with N independent detections:" << endl;
-	  cout << "# N  False" << endl;
-	  for (int n=3; n<falsePositiveEstimate.size(); n++)
-	    cout << n+1 << fixed << setprecision(3) << " " << falsePositiveEstimate[n] << endl;
+	  accumulator.write(cout);
 	  exit(0);
 	}
 
@@ -678,12 +729,8 @@ main(int argc, char **argv) {
 
       // Add the FPR of this search into the total for
       // searches with the same number of independent detections
-      if (totalFPR < maxFPR) {
-	int n = thisFit->nIndependent;
-	if (n>falsePositiveEstimate.size()-1)
-	  n = falsePositiveEstimate.size()-1;
-	falsePositiveEstimate[n] += 1.;//**totalFPR;
-      }
+      accumulator.addOrbit(thisFit->nIndependent, totalFPR);
+
       if (DEBUG) cerr << "search returns " << newFits.size() << endl;
       if (newFits.empty()) {
 	// No new points can be added to this fit.  So it's a completed search.

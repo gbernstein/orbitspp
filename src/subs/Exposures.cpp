@@ -370,7 +370,7 @@ TransientTable::fillExposure(const Frame& frame,
   transientTable.readCells(dec, "DEC", begin, end);
   std::vector<double> sig;
   transientTable.readCells(sig, "ERRAWIN_WORLD", begin, end);
-  std::vector<int> ccd; // ?? short ??
+  std::vector<short int> ccd; // ?? short ??
   transientTable.readCells(ccd, "CCDNUM", begin, end);
     
   // Count number of usable detections
@@ -391,7 +391,6 @@ TransientTable::fillExposure(const Frame& frame,
 
   for (int i=0, j=0; j<end-begin; j++) {
     if (!use[j]) continue;
-    /**/if (i>=nTransients) cerr << "got too many points!!!" << endl;
     eptr->id[i] = j+begin;
     eptr->ccdnum[i] = ccd[j];
     eptr->covXX[i] = sig[j]*sig[j]*DEGREE*DEGREE + eptr->atmosphereCov(0,0);
