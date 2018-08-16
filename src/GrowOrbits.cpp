@@ -10,6 +10,7 @@
 #include "Fitter.h"
 #include "Exposures.h"
 #include "Pset.h"
+#include "FitsImage.h"
 
 using namespace std;
 using namespace orbits;
@@ -19,8 +20,105 @@ using namespace orbits;
 ////////////////////////////////////////////////////////////////////////////////////
 const string usage =
   "GrowOrbits: Given lists of transient detections potentially corresponding to the same\n"
-  "object, looks through the transient catalog added possible additional detections\n"
-  "one by one until nothing new fits the orbit.";
+  "object, looks through the transient catalog adding possible additional detections\n"
+  "one by one until nothing new fits the orbit.  The output gives info on each orbit\n"
+  "that passes cuts on number of nights having detections, the chisq value of the\n"
+  "orbit fit to the data, and the calculated rate of false positive detections for\n"
+  "the last detection added to the fit.\n"
+  "\n"
+    "Usage:\n"
+  "  GrowOrbits [parameter file...] [-<key> <value>...]\n"
+  "  where any parameter file(s) given will be scanned first, then parameter key/value\n"
+  "  pairs on cmd line will be read and override file values.\n"
+  "  Program options are listed below.\n"
+  "\n"
+  "Here is detail on various options.\n"
+  " -transientFile names a FITS binary table file holding information on DES\n"
+  "                transients; look at such a file for format info.  The one\n"
+  "                important issue here is that the TRANSIENTID or OBJECTID values\n"
+  "                will refer to row numbers in this table.\n"
+  "                Also, if you do not specify this argument, the code will\n"
+  "                look for an environment variable DES_TRANSIENT_TABLE giving\n"
+  "                the file path.\n"
+  " -exposureFile  names a FITS binary table holding information on all DES\n"
+  "                exposures being searched.  If not given, the code will\n"
+  "                look for an environment variable DES_EXPOSURE_TABLE giving\n"
+  "                the file path.\n"
+  " -ephemerisFile names the SPICE input file.  If not given, the code will\n"
+  "                look for an environment variable SPICE_KERNEL giving\n"
+  "                the file path.\n"
+  " -tripletFile   is the name of a FITS file holding a binary table listing the\n"
+  "                sets of transients that define candidate orbits.  The table\n"
+  "                has columns ORBITID and TRANSIENTID (both 8-byte integers).\n"
+  "                Each row specifies that the given transient is part of the\n"
+  "                given orbit.  All transients with common ORBITID must be in\n"
+  "                consecutive rows.  Only ORBITIDs with >=3 valid transients\n"
+  "                will be fit. The \"triplets\" don't need to be exactly 3.\n"
+  "                The header of the triplet file must contain entries for:\n"
+  "                  RA0, DEC0: the reference direction, near center of orbits (deg)\n"
+  "                  TDB0: The reference time, ideally near center of initial\n"
+  "                        observations in the orbit, in years since J2000\n"
+  "                  GAMMA0: The central value of gamma=1/distance to be searched\n"
+  "                  DGAMMA: The half-width of the search range of gamma about GAMMA0\n"
+  "                If there is no value given for <tripletFile>, then the info\n"
+  "                will be read from standard input.  All blank lines or # are\n"
+  "                ignored.  The first non-comment line must contain\n"
+  "                  <ra0> <dec0> <tdb0> \n"
+  "                the second line\n"
+  "                  <gamma0> <dgamma>\n"
+  "                and any further lines are lists of transients making an initial\n"
+  "                orbit:\n"
+  "                  <id1> <id2> <id3> [id4] ...\n"
+  " -orbitFile     is the name of the output FITS file.  It will have three extensions.\n"
+  "                The ORBITS extension is a table containing these columns (and formats):\n"
+  "                  OLDID (K):   The ORBITID of the input orbit that grew into this\n"
+  "                  NDETECT (J): Number of transients linked into the orbits\n"
+  "                  NUNIQUE (J): Number of unique nights of transient detections\n"
+  "                  ARC (D):     number of years between first and last linked transients\n"
+  "                  CHISQ (D):   Chi-squared of the orbit fit, including priors\n"
+  "                  FPR (D):     Estimated false-positive rate for finding the final\n"
+  "                               transient linked to this orbit\n"
+  "                  ABG (6D):    alpha/beta/gamma of best-fit orbit in the reference\n"
+  "                               frame defined by ra0,dec0,tdb0 with ecliptic orientation\n"
+  "                  ABGINVCOV (36D): inverse covariance matrix of ABG\n"
+  "                  SKIPPED (L): True if the final transient search skipped any of the DES\n"
+  "                               exposures because the uncertainty ellipse was large enough\n"
+  "                               that many false-positive exposures would result\n"
+  "                  OVERLAP (L): True if this orbit shares transients with a distinct output\n"
+  "                               orbit.\n"
+  "                  The header of this table will contain RA0,DEC0,TDB0 entries specifying\n"
+  "                  the reference frame of the ABG's.\n"
+  "\n"
+  "                The OBJECTS extension will be another binary table with these columns:\n"
+  "                  ORBITID (K): Row number in the ORBITS table of the orbit to which this\n"
+  "                               transient was found to belong\n"
+  "                  OBJECTID (J):Row number in the transients table of the linked transient\n"
+  "\n"
+  "                The FP extension of the FITS file will be a small 2d floating-point image\n"
+  "                which gives the crudely estimated number of expected false-positive detections\n"
+  "                in these outputs as a function of NUNIQUE and of the maximum allowed FPR.\n"
+  "                Details of this will be found elsewhere.\n"
+  "                  If the orbitFile is not given, then all of the above information will\n"
+  "                be written to standard output in a readable form.  The only subtlety\n"
+  "                is that a '*' or '?' on an output line indicate OVERLAP or SKIPPED\n"
+  "                flags, respectively.\n"
+  " -searchRadius  is the max number of degrees from RA0,DEC0 at which candidate TNOs are\n"
+  "                located at TDB0.  It is used to find the pool of relevant DES exposures.\n"
+  " -maxFPR        is the FPR value that a completed orbit growth must be under in order\n"
+  "                to be passed to the output file.  Orbits must also have NUNIQUE>=4\n"
+  "                to be considered worth outputting.\n"
+  " -bindingFactor is passed to the orbit fitter as the strength of the chisq penalty assigned\n"
+  "                to marginally unbound orbits.\n"
+  " -cull          is set to true (the default) if the program should keep track of all\n"
+  "                combinations of transients that have been search, so that it does not\n"
+  "                needlessly repeat them after.  The list of searches takes up memory\n"
+  "                so it is possible one might need to set this to false, at the expense\n"
+  "                of significantly longer run times.\n"
+  "\n"
+  " An orbit that grows to NUNIQUE>=7 with FPR<0.001 is considered 'secure', and any transient\n"
+  " linked in this orbit is removed from the available linking pool.  Other orbits that have linked\n"
+  " to these transients are discarded (unless they are also secure).\n"
+  "\nParameters and defaults:\n";
 
 const bool DEBUG=false;
 
@@ -232,12 +330,12 @@ class FPAccumulator: public DMatrix {
   **/
 public:
   FPAccumulator(): DMatrix(nMax-nMin+1, nLogFPR, 0.),
-		   maxLogFPR(-2.), dLogFPR(-0.5) {}
+		   maxLogFPR(-1.5), dLogFPR(-0.5) {}
   static const int nMin=3; // Minimum number of independent detections
   static const int nMax=10; // Max number of independent detections
   const double maxLogFPR; // upper limit on FPR in first column
   const double dLogFPR; // increment to bound per column
-  static const int nLogFPR=6; // Number of FPR threshold columns
+  static const int nLogFPR=7; // Number of FPR threshold columns
   void addOrbit(int nIndependent, double fpr) {
     double logFPR = log10(fpr);
     int i = nIndependent-nMin;
@@ -261,6 +359,19 @@ public:
 	os << " " << setw(7) << (*this)(i,j);
       os << endl;
     }
+  }
+  img::Image<float> getImage() const {
+    img::Image<float> out(this->rows(), this->cols());
+    out = 0.;
+    for (int i=out.xMin(); i<=out.xMax(); i++)
+      for (int j=out.yMin(); j<=out.yMax(); j++) {
+	out(i,j) = (*this)(i-1,j-1);  // FITS is 1-indexed
+      }
+    int tmp = nMin;
+    out.setHdrValue("NMIN",tmp);
+    out.setHdrValue("MAXLOGFP",maxLogFPR);
+    out.setHdrValue("DLOGFP",dLogFPR);
+    return out;
   }
 };
 
@@ -482,7 +593,7 @@ main(int argc, char **argv) {
       parameters.addMember("searchRadius",&searchRadius, def | lowopen,
 			   "Radius enclosing TNO positions at reference time (degrees)", 4., 0.);
       parameters.addMember("maxFPR",&maxFPR, def | lowopen,
-			   "maximum false positive rate to keep", 0.01, 0.);
+			   "maximum false positive rate to keep", 0.03, 0.);
       parameters.addMember("cull",&cullDuplicates, def,
 			   "Use memory to prune duplicate searches?", true);
     }
@@ -558,7 +669,7 @@ main(int argc, char **argv) {
 
 	// Read the central gamma and half-width from header too
 	tab.header()->getValue("GAMMA0",gamma0);
-	tab.header()->getValue("DGAMMA0",dGamma);
+	tab.header()->getValue("DGAMMA0",dGamma); // ??? DGAMMA
       }
       astrometry::Orientation orient(astrometry::SphericalICRS(ra0*DEGREE, dec0*DEGREE));
       orient.alignToEcliptic();
@@ -823,6 +934,9 @@ main(int argc, char **argv) {
     // deleting anything whose detections are a subset of another,
     // and mark those that share detections with another.
 
+    // We don't need the big reservoir of culled lists, release its memory
+    alreadySearched.clear();
+
     cerr << "# Starting the purge" << endl;
     for (auto ptr1 = savedResults.begin();
 	 ptr1 != savedResults.end(); ) {
@@ -867,12 +981,86 @@ main(int argc, char **argv) {
       if (!dup) ++ptr1;
     }
     
-    // Print all results
-    for (auto& r : savedResults)
-      r.write(cout);
-	    
-    // Report total false positive rates, then quit
-    accumulator.write(cout);
+    // Output all results
+    if (orbitPath.empty()) {
+      // Output everything to stdout
+      for (auto& r : savedResults)
+	r.write(cout);
+      // Report total false positive rates, then quit
+      accumulator.write(cout);
+    } else {
+      // Make FITS tables for everything.  First collect into arrays.
+      vector<LONGLONG> startID; // The ID of the starting triplet.
+      vector<int> nDetect; // Number of detections
+      vector<int> nIndependent; // Number of independent nights
+      vector<double> chisq;
+      vector<vector<double>> abg;
+      vector<vector<double>> abgInvCov;
+      vector<double> arc;
+      vector<double> fpr;
+      vector<bool> skipped;
+      vector<bool> overlap;
+      // Table of individual detections:
+      vector<LONGLONG> orbitID;
+      vector<int> objectID;
+
+      // The orbits will get new orbit ID's that we assume are row
+      // number in the output table.  Cannot use the input ID's
+      // since there is potentially more than one final orbit
+      // for a given output.
+      for (auto& r : savedResults) {
+	startID.push_back(r.orbitID);
+	nDetect.push_back(r.detectionIDs.size());
+	nIndependent.push_back(r.nIndependent);
+	chisq.push_back(r.chisq);
+	fpr.push_back(r.fpr);
+	vector<double> v(6,0.);
+	for (int i=0; i<6; i++) v[i] = r.abg[i];
+	abg.push_back(v);
+	v.resize(36);
+	for (int i=0; i<6; i++)
+	  for (int j=0; j<6; j++)
+	    v[i*6+j] = r.invcov(i,j);
+	abgInvCov.push_back(v);
+	arc.push_back(r.arc);
+	skipped.push_back(r.skippedExposures);
+	overlap.push_back(r.hasOverlap);
+	LONGLONG newID = startID.size()-1; // New ID from row
+	for (auto obj : r.detectionIDs) {
+	  orbitID.push_back(newID);
+	  objectID.push_back(obj);
+	}
+      }
+      // Output FITS tables
+      {
+	// First the orbit table - make new file
+	FITS::FitsTable ft(orbitPath, FITS::ReadWrite | FITS::Create | FITS::OverwriteFile, "ORBITS");
+	img::FTable table = ft.use();
+	table.addColumn(startID,"OLDID");
+	table.addColumn(nDetect,"NDETECT");
+	table.addColumn(nIndependent,"NUNIQUE");
+	table.addColumn(chisq,"CHISQ");
+	table.addColumn(abg,"ABG");
+	table.addColumn(abgInvCov,"ABGINVCOV");
+	table.addColumn(arc,"ARC");
+	table.addColumn(fpr,"FPR");
+	table.addColumn(skipped,"SKIPPED");
+	table.addColumn(overlap,"OVERLAP");
+      }
+      {
+	// Now add detection table to the same file
+	FITS::FitsTable ft(orbitPath, FITS::ReadWrite | FITS::Create, "OBJECTS");
+	img::FTable table = ft.use();
+	table.addColumn(orbitID,"ORBITID");
+	table.addColumn(objectID,"OBJECTID");
+      }
+      {
+	// And an image of the false positive rate
+	img::FitsImage<float> fi(orbitPath,FITS::ReadWrite | FITS::Create, "FP");
+	fi.copy(accumulator.getImage());
+      }
+
+    } // End of output
     exit(0);
 
   } catch (std::runtime_error& e) {
