@@ -40,14 +40,13 @@ const int START_IGNORING_HIGH_FPR=4;
 const double INDEPENDENT_TIME_INTERVAL = 0.1*DAY;
 
 // What maximum FPR to retain?
-const double MAX_FPR_TO_OUTPUT = 1.; // ???
 const int MIN_DETECTIONS_TO_OUTPUT = 4; // ???
 
 // What combination of FPR and number of independent exposures are sufficient
 // to consider this a completed search and flush all other FitSteps from the same
 // starting orbit and pull the detections out of circulation.
 const double MAX_FPR_EXCLUSIVE = 0.001;
-const int MIN_DETECTIONS_EXCLUSIVE = 6;
+const int MIN_DETECTIONS_EXCLUSIVE = 7; 
 
 ////////////////////////////////////////////////////////////////////////////////////
 // Helper classes
@@ -87,16 +86,9 @@ public:
 	  double fpr_):
     fitptr(fitptr_), possibleExposures(possibleExposures_),
     members(members_), nIndependent(nIndependent_),
-    orbitID(orbitID_), fpr(fpr_) {}
+    orbitID(orbitID_), fpr(fpr_),
+    skippedExposures(false)  {}
   ~FitStep() {delete fitptr;}
-
-  const Fitter* getFitter() const {return fitptr;}
-
-  // return all possible N+1 -object FitSteps.
-  // They are sorted in order of increasing false positive rate,
-  // so the most secure one is first.
-  // The total expected number of false positives is returned.
-  list<FitStep*> search(double& totalFPR); 
 
   Fitter* fitptr;  // An orbit fit to the N objects
 
@@ -107,14 +99,9 @@ public:
   
   vector<Detection> members;  // Detections that comprise the orbit
 
-  vector<int> sortedIDs() const {
-    vector<int> out;
-    out.reserve(members.size());
-    for (auto& m : members) 
-      out.push_back(m.id());
-    sort(out.begin(), out.end());
-    return out;
-  }
+  // Flag to set if the search skipped some exposures for
+  // exceeding MAXIMUM_FPR_PER_EXPOSURE
+  bool skippedExposures;
   
   // Number of detections (so far) with independent asteroids
   // (i.e. don't count consecutive exposures as >1)
@@ -125,10 +112,38 @@ public:
   
   // False positive rate for having found last detection,
   // summed over all images searched for it.
-  double fpr;  
+  double fpr;
+
+  // Return constituent transient IDs, ascending order
+  vector<int> sortedIDs() const {
+    vector<int> out;
+    out.reserve(members.size());
+    for (auto& m : members) 
+      out.push_back(m.id());
+    sort(out.begin(), out.end());
+    return out;
+  }
+  
+  // Return time span of detections
+  double arc() const {
+    double t0 = members.front().eptr->tdb;
+    double t1 = t0;
+    for (auto& m : members) {
+      double t = m.eptr->tdb;
+      if (t<t0) t0=t;
+      if (t>t1) t1=t;
+    }
+    return t1-t0;
+  }
+
+  // return all possible N+1 -object FitSteps.
+  // They are sorted in order of increasing false positive rate,
+  // so the most secure one is first.
+  // The total expected number of false positives is returned.
+  list<FitStep*> search(double& totalFPR); 
 };
 
-struct FitResults {
+struct FitResult {
   // What we'll save for a potentially real orbit
   int orbitID;      // Starting orbit
   int nIndependent; // Different nights in fit
@@ -137,23 +152,65 @@ struct FitResults {
   double chisq;     // Chisq of best fit
   ABG abg;          // orbit
   ABGCovariance invcov; // and covariance
-
+  double arc;       // Time span from first to last detection
+  bool skippedExposures; // True if some exposures were skipped for large errors
+  bool hasOverlap;  // True if this shares detections with another FitResult
+  bool isSecure;    // No doubt that this is real, monopolize detections.
   EIGEN_NEW
   
-  FitResults(const FitStep& fs): orbitID(fs.orbitID),
-				 nIndependent(fs.nIndependent),
-				 fpr(fs.fpr),
-				 detectionIDs(fs.sortedIDs()),
-				 chisq(fs.fitptr->getChisq()),
-				 abg(fs.fitptr->getABG()),
-				 invcov(fs.fitptr->getInvCovarABG()) {}
+  FitResult(const FitStep& fs): orbitID(fs.orbitID),
+				nIndependent(fs.nIndependent),
+				fpr(fs.fpr),
+				detectionIDs(fs.sortedIDs()),
+				chisq(fs.fitptr->getChisq()),
+				abg(fs.fitptr->getABG()),
+				invcov(fs.fitptr->getInvCovarABG()),
+				arc(fs.arc()),
+				skippedExposures(fs.skippedExposures),
+				hasOverlap(false),
+				isSecure(false)  {}
     
   // Comparison operators are looking at which detections were used to make orbits.
-  bool operator==(const FitResults& rhs) {return detectionIDs==rhs.detectionIDs;}
-  bool operator<(const FitResults& rhs) {return detectionIDs<rhs.detectionIDs;}
-  bool includes(const FitResults& rhs) {return std::includes(detectionIDs.begin(), detectionIDs.end(),
-					       	rhs.detectionIDs.begin(), rhs.detectionIDs.end());}
-  
+  bool operator==(const FitResult& rhs) const {return detectionIDs==rhs.detectionIDs;}
+  bool operator<(const FitResult& rhs) const {return detectionIDs<rhs.detectionIDs;}
+  bool includes(const FitResult& rhs) const {return std::includes(detectionIDs.begin(), detectionIDs.end(),
+						       rhs.detectionIDs.begin(), rhs.detectionIDs.end());}
+  // Do detection lists intersect?
+  bool intersects(const FitResult& rhs) const {
+    if (detectionIDs.empty() || rhs.detectionIDs.empty()) return false;
+    auto ptr1 = detectionIDs.begin();
+    auto ptr2 = rhs.detectionIDs.begin();
+    while (true) {
+      if (*ptr1==*ptr2) {
+	return true;
+      } else if (*ptr1<*ptr2) {
+	if (++ptr1 == detectionIDs.end()) return false;
+      } else {
+	if (++ptr2 == rhs.detectionIDs.end()) return false;
+      }
+    }
+  }
+
+  void write(std::ostream& os) const {
+    stringstuff::StreamSaver ss(os);
+    os << "Orbit"
+       << (hasOverlap ? "*" : "-")
+       << (skippedExposures ? "?" : "-")
+       << " " << setw(5) << orbitID
+       << " detections " << setw(2) << detectionIDs.size() << " / " << setw(2) << nIndependent
+       << " arc " << fixed << setprecision(3) << setw(5) << arc
+       << " chisq/DOF " << fixed << setprecision(2) << setw(5) << chisq
+       << " / " << setw(2) << 2*detectionIDs.size() - 6
+       << " FPR " << defaultfloat << setprecision(3) << fpr
+       << endl;
+    abg.write(os);
+    os << endl;
+    // Line giving all detections
+    os << "ids:";
+    for (auto& m : detectionIDs)
+      os << " " << m;
+      os << endl;
+  }
 };
 
 
@@ -187,10 +244,8 @@ public:
     if (i<0) return;
     if (i>=rows()) i=rows()-1; // Last n bin includes all higher n's too
     int jmax = static_cast<int> (floor((log10(fpr)-maxLogFPR)/dLogFPR));
-    //**/cerr << "Adding " << nIndependet << " " << fpr << " " << i << " " << jmax << endl;
     for (int j=0 ; j<cols() && j<jmax; j++)
       (*this)(i,j) += fpr;
-    //**/cerr << "...done" << endl;
   }
   void write(std::ostream& os) const {
     stringstuff::StreamSaver ss(os);
@@ -309,6 +364,7 @@ FitStep::search(double& totalFPR) {
     if ((nIndependent>=START_IGNORING_HIGH_FPR)
 	&& (thisFPR > MAXIMUM_FPR_PER_EXPOSURE)) {
       // This exposure is too busy for this stage of linking, do not link to it.
+      skippedExposures = true;
       continue;
     } else {
       // Add this exposure to FPR
@@ -460,6 +516,7 @@ main(int argc, char **argv) {
       parameters.setFromArguments(argc, argv);
     }
 
+    cerr << "# Loading data" << endl;
     // Read the ephemeris
     Ephemeris eph(ephemerisPath);
 
@@ -572,6 +629,7 @@ main(int argc, char **argv) {
     }
 	  
     int orbitID = -1;  // Starting point for an orbitID counter, if using stdin
+
     // These are orbitID's that have already been "cleaned out" from an
     // excellent orbit and should be henceforth ignored.
     set<int> settledOrbitIDs;
@@ -579,6 +637,9 @@ main(int argc, char **argv) {
     // Now enter a loop of growing fits.
     list<FitStep*> fitQueue;
 
+    // And build a list of successful linkages
+    list<FitResult, Eigen::aligned_allocator<FitResult>> savedResults;
+    
     // Here we'll keep a list of detection combinations that have already been fit
     // and have no need of repeating.  This saves time but takes memory.
     // Set cull=false at command line to *not* do this.
@@ -586,6 +647,7 @@ main(int argc, char **argv) {
       
     int nextInputRow = 0;  // Counter used if we are getting input from FITS file
 
+    cerr << "# Starting linking" << endl;
     while (true) {
       if (fitQueue.empty()) {
 	// Stock the queue with fresh orbit from input
@@ -696,14 +758,10 @@ main(int argc, char **argv) {
 					 1000.)); // Set a high FPR so we don't trigger output on this
 	} // End of input-reading loop.
 
-	if (fitQueue.empty()) {
-	  // Nothing left to fit!
-	  // Report total false positive rates, then quit
-	  accumulator.write(cout);
-	  exit(0);
-	}
-
       } // End of searching for new inputs for queue.
+
+      if (fitQueue.empty())
+	break; 	  // Nothing left to fit!
 
       // Search the next item on the queue:
       if (DEBUG) cerr << "-->New search, queue size " << fitQueue.size() << endl;
@@ -735,26 +793,18 @@ main(int argc, char **argv) {
       if (newFits.empty()) {
 	// No new points can be added to this fit.  So it's a completed search.
 
+	// Is this a secure orbit, likely to have all relevant detections?
+	bool isSecure = thisFit->nIndependent >= MIN_DETECTIONS_EXCLUSIVE
+	  && thisFit->fpr <= MAX_FPR_EXCLUSIVE;
 	// Is it worthy of output?
 	if (thisFit->nIndependent >= MIN_DETECTIONS_TO_OUTPUT
 	    && thisFit->fpr <= maxFPR) {
-	  cout << "Orbit " << thisFit->orbitID
-	       << " detections " << thisFit->fitptr->nObservations() << " / " << thisFit->nIndependent
-	       << " chisq/DOF " << thisFit->fitptr->getChisq() << " / " << thisFit->fitptr->getDOF()
-	       << " FPR " << thisFit->fpr
-	       << endl;
-	  thisFit->fitptr->getABG().write(cout);
-	  cout << endl;
-	  // Line giving all detections
-	  cout << "ids:";
-	  for (auto& m : thisFit->members)
-	    cout << " " << m.eptr->id[m.objectRow];
-	  cout << endl;
+	  savedResults.push_back(FitResult(*thisFit));
+	  if (isSecure) savedResults.back().isSecure = true;
+	  if (DEBUG) savedResults.back().write(cout);
 	}
-	
 	// If this is a secure fit, shut down further use of its detections
-	if (thisFit->nIndependent >= MIN_DETECTIONS_EXCLUSIVE
-	    && thisFit->fpr <= MAX_FPR_EXCLUSIVE) {
+	if (isSecure) {
 	  for (auto& m : thisFit->members) {
 	    m.eptr->valid[m.objectRow] = false;
 	  }
@@ -769,7 +819,62 @@ main(int argc, char **argv) {
       delete thisFit;
     } // End of the queue loop.
 
-    cerr << "ERROR: Should not get here." << endl;
+    // Done searching!  Clean up the results by
+    // deleting anything whose detections are a subset of another,
+    // and mark those that share detections with another.
+
+    cerr << "# Starting the purge" << endl;
+    for (auto ptr1 = savedResults.begin();
+	 ptr1 != savedResults.end(); ) {
+      bool dup = false; // Set if this is contained in another
+      auto ptr2 = ptr1;
+      ++ptr2;
+      while (ptr2!=savedResults.end()) {
+	if (ptr2->includes(*ptr1)) {
+	  // ptr1 is a subset, delete it
+	  ptr1 = savedResults.erase(ptr1);
+	  dup = true;
+	  break;
+	} else if (ptr1->includes(*ptr2)) {
+	  // ptr2 is a subset, delete it
+	  ptr2 = savedResults.erase(ptr2);
+	} else if (ptr1->intersects(*ptr2)) {
+	  if (ptr1->isSecure && ptr2->isSecure) {
+	    // Weird to have distinct secure orbits overlap.  Keep both
+	    cout << "# WEIRD - two secure orbits overlap" << endl;
+	    ptr1->hasOverlap = true;
+	    ptr2->hasOverlap = true;
+	    ++ptr2;
+	  } else if (ptr1->isSecure) {
+	    // Eliminate #2
+	    ptr2 = savedResults.erase(ptr2);
+	  } else if (ptr2->isSecure) {
+	    // Eliminate #1
+	    ptr1 = savedResults.erase(ptr1);
+	    dup = true;
+	    break;
+	  } else {
+	    // Neither is secure, just mark both
+	    ptr1->hasOverlap = true;
+	    ptr2->hasOverlap = true;
+	    ++ptr2;
+	  }
+	} else {
+	  // Nothing interesting
+	  ++ptr2;
+	}
+      }
+      if (!dup) ++ptr1;
+    }
+    
+    // Print all results
+    for (auto& r : savedResults)
+      r.write(cout);
+	    
+    // Report total false positive rates, then quit
+    accumulator.write(cout);
+    exit(0);
+
   } catch (std::runtime_error& e) {
     quit(e,1);
   }
