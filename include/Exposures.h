@@ -111,6 +111,10 @@ namespace orbits {
     // to the selected Frame.  Return false if there are none.
     bool fillExposure(const Frame& frame,
 		      Exposure* eptr) const;
+    // Return an Observation object for the transient in selected row
+    Observation getObservation(int objectID,
+			       const Ephemeris& ephem,
+			       ExposureTable& exposures) const;
   private:
     img::FTable transientTable;
     img::FTable transientIndex;
