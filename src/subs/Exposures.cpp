@@ -332,8 +332,7 @@ TransientTable::TransientTable(const string transientFile) {
   }
   // Read the tables
   FITS::FitsTable ft(path, FITS::ReadOnly, "DATA");
-  std::vector<string> columnsOfInterest = {"RA","DEC","CCDNUM","ERRAWIN_WORLD"};
-  transientTable = ft.extract(0,-1,columnsOfInterest);
+  transientTable = ft.extract();
   FITS::FitsTable ft2(path, FITS::ReadOnly, "INDEX");
   transientIndex = ft2.extract();
 
@@ -349,6 +348,35 @@ bool
 TransientTable::hasExpnum(int expnum) const {
   return findExpnum.count(expnum);
 }
+
+Observation
+TransientTable::getObservation(int objectID,
+			       const Ephemeris& ephem,
+			       ExposureTable& exposures) const {
+  if (objectID<0 || objectID>transientTable.nrows())
+    throw std::runtime_error("TransientTable::getObservation objectID out of range");
+
+  Observation out;
+  double ra, dec, sig;
+  transientTable.readCell(ra,"RA", objectID);
+  transientTable.readCell(dec,"DEC", objectID);
+  out.radec = astrometry::SphericalICRS(ra*DEGREE, dec*DEGREE);
+
+  int expnum;
+  transientTable.readCell(expnum,"EXPNUM",objectID);
+
+  transientTable.readCell(sig, "ERRAWIN_WORLD", objectID);
+  double noiseCov = sig*sig*DEGREE*DEGREE;
+  out.cov = exposures.atmosphereCov(expnum);
+  out.cov(0,0) += noiseCov;
+  out.cov(1,1) += noiseCov;
+
+  out.tdb = ephem.mjd2tdb(exposures.mjd(expnum));
+  out.observer = exposures.observatory(expnum);
+
+  return out;
+}  
+
 
 bool
 TransientTable::fillExposure(const Frame& frame,

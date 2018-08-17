@@ -126,19 +126,22 @@ const double FIELD_RADIUS = 1.1*DEGREE;  // Generous DECam field radius
 // Chisq small enough to consider old orbit matched to new detection:
 const double SINGLE_CHISQ_THRESHOLD = 16.;  
 const double NOMINAL_POSITION_ERROR = 0.1*ARCSEC; // Position error for typical detections
+
 // Area to be used for assessing false positive rate:
 const double FALSE_POSITIVE_COUNTING_AREA = 0.5*DEGREE*DEGREE;
+
 // We won't attempt to link to exposures that have too many
 // expected detections, defined as being above this number
 const double MAXIMUM_FPR_PER_EXPOSURE=10.;
 // and at least this many independent detections so far:
 const int START_IGNORING_HIGH_FPR=4;
+
 // Time that must pass between exposures to be considered independent detections
 // (e.g. when asteroids or defects would have moved out of linking range)
 const double INDEPENDENT_TIME_INTERVAL = 0.1*DAY;
 
-// What maximum FPR to retain?
-const int MIN_DETECTIONS_TO_OUTPUT = 4; // ???
+// What minimum independent detection count to output?
+const int MIN_DETECTIONS_TO_OUTPUT = 4;
 
 // What combination of FPR and number of independent exposures are sufficient
 // to consider this a completed search and flush all other FitSteps from the same
