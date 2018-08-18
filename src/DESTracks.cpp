@@ -153,7 +153,7 @@ int main(int argc,
     for (int i=0; i<nExposures; i++) {
       tdb[i] = exposures[i]->tdb;
       earth.row(i) = exposures[i]->earthICRS.getVector().transpose();
-      axis.row(i) = exposures[i]->axisICRS.getUnitVector().transpose();
+      axis.row(i) = exposures[i]->localICRS.getPole().getUnitVector().transpose();
     }
 
     cerr << "# Read " << exposures.size() << " exposures" << endl;

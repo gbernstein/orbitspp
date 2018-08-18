@@ -292,7 +292,9 @@ ExposureTable::buildExposure(int exposureNumber,
     expo->earthICRS = earthICRS;
     expo->earth = frame.fromICRS(earthICRS.getVector());
     expo->astrometric = isAstrometric(exposureNumber);
-    expo->axisICRS = axisICRS;
+    expo->localICRS.setPole(axisICRS);
+    expo->localICRS.alignToICRS();
+    
     {
       // Put exposure axis into Frame projection
       astrometry::Gnomonic xy(axisICRS, frame.orient);
@@ -311,14 +313,36 @@ ExposureTable::buildExposure(int exposureNumber,
   
 int
 Exposure::whichCCD(const astrometry::SphericalICRS& radec) const {
-  double ra,dec;
-  radec.getLonLat(ra,dec);
-  if (ra > PI) ra-=TPI;  // Keep -pi<ra<pi
-  Point p(ra,dec);
-  for (int i=0; i<deviceBounds.size(); i++)
-    if (deviceBounds[i].inside(p))
+  // Convert radec to projection about axis
+  astrometry::Gnomonic gn(radec, localICRS);
+  double xx,yy;
+  gn.getLonLat(xx,yy);
+  Point p(xx,yy);
+  for (int i=0; i<deviceBoundsLocalICRS.size(); i++)
+    if (deviceBoundsLocalICRS[i].inside(p))
       return devices[i];
   return 0;
+}
+
+vector<int>
+Exposure::whichCCDs(const astrometry::SphericalCoords& radec,
+		    const Matrix22& cov) const {
+  // Convert input coord to projection about axis,
+  // obtaining information about local derivatives
+  astrometry::Gnomonic gn(localICRS);
+  Matrix22 dLocaldInput;
+  gn.convertFrom(radec, dLocaldInput);
+  // New covariance matrix:
+  Matrix22 localCov = dLocaldInput * cov * dLocaldInput.transpose();
+  double xx,yy;
+  gn.getLonLat(xx,yy);
+  Point p(xx,yy);
+  Ellipse e(p,localCov);
+  vector<int> out;
+  for (int i=0; i<deviceBoundsLocalICRS.size(); i++)
+    if (e.intersects(deviceBoundsLocalICRS[i]))
+      out.push_back(devices[i]);
+  return out;
 }
 
 TransientTable::TransientTable(const string transientFile) {
@@ -559,9 +583,15 @@ CornerTable::fillExposure(Exposure* eptr) const {
   
     eptr->devices.push_back(detpos2ccdnum.at(detpos));
     vector<Point> vertices;
-    for (int i=0; i<4; i++)
-      vertices.push_back(Point(ra[i]*DEGREE, dec[i]*DEGREE));
-    eptr->deviceBounds.push_back(ConvexPolygon(vertices));
+    double xx,yy;
+    for (int i=0; i<4; i++) {
+      // Convert vertex to local gnomonic system:
+      astrometry::Gnomonic gn(astrometry::SphericalICRS(ra[i]*DEGREE, dec[i]*DEGREE),
+			      eptr->localICRS);
+      gn.getLonLat(xx,yy);
+      vertices.push_back(Point(xx,yy));
+    }
+    eptr->deviceBoundsLocalICRS.push_back(ConvexPolygon(vertices));
   }
 }
 
