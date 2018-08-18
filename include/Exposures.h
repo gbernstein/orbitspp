@@ -20,7 +20,9 @@ namespace orbits {
     double tdb;
     double tobs;  // Time relative to Frame tdb0
     bool astrometric;  // True if exposure is part of astrometric solution
-    astrometry::SphericalICRS axisICRS; // Optic axis
+
+    // Coordinate system centered on optic axis, aligned to ICRS.:
+    astrometry::Orientation localICRS; 
     astrometry::CartesianICRS earthICRS; // Position of observatory
     Vector3 earth;  // Observatory position in Frame
     Point axis;   // Optical axis coords, in Frame gnomonic
@@ -42,9 +44,16 @@ namespace orbits {
     
     // Info on CCDs:
     vector<int> devices; // List of ccdnums of devices
-    vector<ConvexPolygon> deviceBounds;
+    // Device outlines, given in Gnomonic coords about axis aligned to RA/Dec
+    vector<ConvexPolygon> deviceBoundsLocalICRS; 
+    
     // Return ccdnum of device containing the coordinates. 0 if none.
-    int whichCCD(const astrometry::SphericalICRS& radec) const; 
+    int whichCCD(const astrometry::SphericalICRS& radec) const;
+    // Return vector of ccdnums that the specified error ellipse
+    // touches.  Input coordinates come in some other system and
+    // covariance matrix is assumed to be in this system too.
+    vector<int> whichCCDs(const astrometry::SphericalCoords& posn,
+			   const Matrix22& cov) const;
     EIGEN_NEW;
   };
 

@@ -204,7 +204,7 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   for (int i=0; i<nExposures; i++) {
     tdbAll[i] = exposures[i]->tdb;
     earthAll.row(i) = exposures[i]->earthICRS.getVector().transpose();
-    axisAll.row(i) = exposures[i]->axisICRS.getUnitVector().transpose();
+    axisAll.row(i) = exposures[i]->localICRS.getPole().getUnitVector().transpose();
   }
 
   // convert field radius to a maximum chord length between
