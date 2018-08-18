@@ -52,8 +52,9 @@ struct FitResult {
   class Opportunity {
     // Class representing an exposure that could have seen this
     Exposure* eptr;
-    SphericalICRS position;
-    double covXX, covYY, covXY;  // Model covariance
+    SphericalICRS radec;  // Orbit prediction
+    double xPred, yPred;  // prediction in frame
+    double covXX, covYY, covXY;  // Model covariance in frame
     int ccdnum;
   };
   vector<Opportunity, Eigen::aligned_allocator<Opportunity>> opportunities;
@@ -228,8 +229,6 @@ FitResult::fitAndFind(const Ephemeris& ephem,
       earthAll.row(opportunities.size()) = exposures[i]->earthICRS.getVector().transpose();
       // Load transient and corner information into each exposure
       transients.fillExposure(frame, opp.eptr);
-      if (!ccdTable.fillExposure(opp.eptr))
-	throw std::runtime_error("Missing CCD corners for exposure");
     }
   }
   // ??? Did we get all the exposures from original orbit?
@@ -244,8 +243,23 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   fit.predict(tdbAll, earthAll, &xPred, &yPred,
 	      &covxxPred, &covyyPred, &covxyPred);
 
-  // Save the predictions per exposure
-  // Get predicted CCD for each
+  // Save info on every exposure, find new detections
+  for (int i=0; i<nHits; i++) {
+    Opportunity& opp = opportunities[i];
+    opp.xPred = xPred[i];
+    opp.yPred = yPred[i];
+    opp.covXX = covxxPred[i];
+    opp.covYY = covyyPred[i];
+    opp.covXY = covxyPred[i];
+
+    // ?? Check in detail for error ellipse crossing a CCD
+
+    opp.radec = astrometry::SphericalICRS(astrometry::Gnomonic(opp.xPred,
+							       opp.yPred,
+							       frame.orient));
+
+    opp.ccdnum = opp.eptr->whichCCD(opp.radec);
+    
   // Find detections - did any change?? - do CCDNUM match prev?
   // Save residuals for each detection
 }
