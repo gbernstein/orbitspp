@@ -398,7 +398,7 @@ TransientTable::fillExposure(const Frame& frame,
   transientTable.readCells(dec, "DEC", begin, end);
   std::vector<double> sig;
   transientTable.readCells(sig, "ERRAWIN_WORLD", begin, end);
-  std::vector<short int> ccd; // ?? short ??
+  std::vector<short int> ccd; 
   transientTable.readCells(ccd, "CCDNUM", begin, end);
     
   // Count number of usable detections
