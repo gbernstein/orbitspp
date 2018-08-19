@@ -339,8 +339,8 @@ Exposure::whichCCDs(const astrometry::SphericalCoords& radec,
   Point p(xx,yy);
   Ellipse e(p,localCov);
   vector<int> out;
-  for (int i=0; i<deviceBoundsLocalICRS.size(); i++)
-    if (e.intersects(deviceBoundsLocalICRS[i]))
+  for (int i=0; i<deviceBoundsLocalICRS.size(); i++) 
+    if (e.intersects(deviceBoundsLocalICRS[i])) 
       out.push_back(devices[i]);
   return out;
 }
@@ -582,6 +582,7 @@ CornerTable::fillExposure(Exposure* eptr) const {
     cornerTable.readCell(dec,  "DEC", row);
   
     eptr->devices.push_back(detpos2ccdnum.at(detpos));
+
     vector<Point> vertices;
     double xx,yy;
     for (int i=0; i<4; i++) {
@@ -885,6 +886,7 @@ DESTree::find(const Fitter& path) const {
 
 DVector
 Exposure::chisq(double x0, double y0, double covxx, double covyy, double covxy) const {
+  if (xy.rows()==0) return DVector();
   DVector dx = xy.col(0).array() - x0;
   DVector dy = xy.col(1).array() - y0;
   DVector cxx = covXX.array() + covxx;

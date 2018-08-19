@@ -201,7 +201,7 @@ Trajectory::deltaV(const Vector3& x, double tdb) const {
 // Return observed astrometric position from observer position/time.
 astrometry::SphericalICRS
 Trajectory::observe(double tdbObserve,
-		    const astrometry::CartesianICRS& observer) {
+		    const astrometry::CartesianICRS& observer) const {
   double tEmit = tdbObserve;
   // Get the light-travel time
   CartesianICRS velocity;
@@ -218,7 +218,7 @@ Trajectory::observe(double tdbObserve,
 
 DMatrix
 Trajectory::observe(const DVector& tdbObserve,
-		    const DMatrix& observer) {
+		    const DMatrix& observer) const {
   DVector tEmit = tdbObserve;
   // Get the light-travel time
   DMatrix velocity;
