@@ -52,10 +52,10 @@ struct FitResult {
   class Opportunity {
     // Class representing an exposure that could have seen this
     Exposure* eptr;
-    SphericalICRS radec;  // Orbit prediction
-    double xPred, yPred;  // prediction in frame
-    double covXX, covYY, covXY;  // Model covariance in frame
-    int ccdnum;
+    Gnomonic orbitPred;  // Orbit prediction (with frame Orientation)
+    Matrix22 orbitCov;   // Model covariance in frame
+    vector<int> ccdnums;
+    bool hasDetection;   // set if there is a detection on the exposure
   };
   vector<Opportunity, Eigen::aligned_allocator<Opportunity>> opportunities;
 
@@ -70,6 +70,7 @@ struct FitResult {
   bool skippedExposures; // True if some exposures were skipped for large errors
   bool hasOverlap;  // True if this shares detections with another FitResult
   bool isSecure;    // No doubt that this is real, monopolize detections.
+  bool changedDetectionList; // set if detections were added / dropped
   EIGEN_NEW
 
   // Comparison operators are looking at which detections were used to make orbits.
@@ -142,15 +143,17 @@ public:
   }
 };
 
-void
+bool
 FitResult::fitAndFind(const Ephemeris& ephem,
 		      double tdb0,
 		      TransientTable& transients,
 		      ExposureTable& exposures,
 		      vector<Exposure*>& pool) {
   // First fit an orbit to the detectionID's currently in the vector.
-  // Then search all exposures for any additional transients
-  
+  // Then search all exposures for any additional transients.
+  // Return true if any detections changed.
+
+  const double SEARCH_CHISQ=9.; // Maximum chisq to consider a match in 2d
   // Acquire Observation for each detected transient
   obsICRS.clear();
   for (auto id : detectionIDs) {
@@ -227,8 +230,8 @@ FitResult::fitAndFind(const Ephemeris& ephem,
       opp.eptr = exposures[i];
       tdbAll[opportunities.size()] = exposures[i]->tdb;
       earthAll.row(opportunities.size()) = exposures[i]->earthICRS.getVector().transpose();
-      // Load transient and corner information into each exposure
-      transients.fillExposure(frame, opp.eptr);
+      opportunities.push_back(opp);
+      opportunities.hasDetection = false;
     }
   }
   // ??? Did we get all the exposures from original orbit?
@@ -244,24 +247,46 @@ FitResult::fitAndFind(const Ephemeris& ephem,
 	      &covxxPred, &covyyPred, &covxyPred);
 
   // Save info on every exposure, find new detections
+  vector<int> newDetectionIDs;
+  
   for (int i=0; i<nHits; i++) {
     Opportunity& opp = opportunities[i];
-    opp.xPred = xPred[i];
-    opp.yPred = yPred[i];
-    opp.covXX = covxxPred[i];
-    opp.covYY = covyyPred[i];
-    opp.covXY = covxyPred[i];
+    opp.orbitPred = astrometry::Gnomonic pred(xPred[i], yPred[i], frame.orient);
+    opp.orbitCov(0,0) = covxxPred[i];
+    opp.orbitCov(0,1) = covxyPred[i];
+    opp.orbitCov(1,0) = covyxPred[i];
+    opp.orbitCov(1,1) = covyyPred[i];
 
-    // ?? Check in detail for error ellipse crossing a CCD
+    // Check in detail for error ellipse crossing a CCD
+    opp.ccdnums = opp.eptr->whichCCDs(opp.orbitPred, opp.orbitCov*SEARCH_CHISQ);
 
-    opp.radec = astrometry::SphericalICRS(astrometry::Gnomonic(opp.xPred,
-							       opp.yPred,
-							       frame.orient));
+    // Load transient and corner information into each exposure, using frame
+    transients.fillExposure(frame, opp.eptr);
 
-    opp.ccdnum = opp.eptr->whichCCD(opp.radec);
-    
-  // Find detections - did any change?? - do CCDNUM match prev?
-  // Save residuals for each detection
+    // Find detections - did any change?? - do CCDNUM match prev?
+    DVector allChi = eptr->chisq(xPred[i], yPred[i],
+				 covxxPred[i], covyyPred[i], covxyPred[i]);
+    for (int iTrans=0; iTrans<allChi.size(); iTrans++) {
+      if (allChi[iTrans]<SEARCH_CHISQ) {
+	opp.hasDetection = true;
+	newDetectionIDs.push_back(eptr->id[iTrans]);
+	// Save residuals for each detection ?? (have the info to do this later)
+      }
+    }
+  }
+
+  // Compare new and old detection lists
+  std::sort(newDetectionIDs.begin(), newDetectionIDs.end());
+  std::sort(DetectionIDs.begin(), DetectionIDs.end());
+
+  bool changed = (newDetectionIDs==detectionIDs);
+  if (changed) changedDetectionList = true;
+
+  // ?? Check for detections lost from not on an candidate exposure??
+
+  // Replace detection list with new one.
+  detectionIDs = newDetectionIDs;
+  return changed;
 }
 ////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////
