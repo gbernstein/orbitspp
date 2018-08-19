@@ -1,7 +1,12 @@
 To do on the orbit-fitting software:
 
-* Load CCD corners into Exposure class, plus ICRS coordinates
-
+* MergeOrbits:
+  * Keep lowest FPR of two equal orbits
+  * maintain/test number of unique nights
+  * generate output information, save to files
+  * cut inputs on nunique/fpr?
+  * sum FPR tables, save output
+  
 * Inertial Trajectory crashing
 * start putting in OpenMP guards for multithreading: Ephemeris and Trajectory have internal states.
 Fitter should be single-threaded too, make new Fitters for different threads if re-fitting.

@@ -16,7 +16,8 @@
 using namespace std;
 using namespace orbits;
 
-const int DEBUGLEVEL=2;
+const int DEBUGLEVEL=1;
+const int MIN_DETECTIONS=4; // ??min detections to keep ??
 
 const string usage =
   "MergeOrbits:\n"
@@ -289,40 +290,48 @@ FitResult::fitAndFind(const Ephemeris& ephem,
     opp.orbitCov(1,0) = covxyPred[i];
     opp.orbitCov(1,1) = covyyPred[i];
 
-    /**/cerr << "call whichCCDs on " << opp.eptr->expnum << endl;
     // Check in detail for error ellipse crossing a CCD
     opp.ccdnums = opp.eptr->whichCCDs(opp.orbitPred, opp.orbitCov*SEARCH_CHISQ);
 
-    /**/cerr << "filling transients" << endl;
     // Load transient and corner information into each exposure, using frame
     transients.fillExposure(frame, opp.eptr);
 
-    /**/cerr << "calculate chisq" << endl;
     // Find detections - did any change?? - do CCDNUM match prev?
     DVector allChi = opp.eptr->chisq(xPred[i], yPred[i],
 				     covxxPred[i], covyyPred[i], covxyPred[i]);
-    /**/if (allChi.size()>0) cerr << "min chisq " << allChi.array().minCoeff() << endl;
     for (int iTrans=0; iTrans<allChi.size(); iTrans++) {
       if (allChi[iTrans]<SEARCH_CHISQ) {
-	/**/cerr << "Found detection!" << endl;
 	opp.hasDetection = true;
 	newDetectionIDs.push_back(opp.eptr->id[iTrans]);
 	// Save residuals for each detection ?? (have the info to do this later)
       }
     }
-    /**/cerr << "...done " << i << endl;
   }
 
-    /**/cerr << "sorting" << endl;
   // Compare new and old detection lists
   std::sort(newDetectionIDs.begin(), newDetectionIDs.end());
   std::sort(detectionIDs.begin(), detectionIDs.end());
 
-  bool changed = (newDetectionIDs==detectionIDs);
+  bool changed = (newDetectionIDs!=detectionIDs);
 
-  if (DEBUGLEVEL>1)
-    cerr << "# ...changed detections? " << changed << endl;
-
+  if (DEBUGLEVEL>1) {
+    set<int> s1;
+    s1.insert(detectionIDs.begin(), detectionIDs.end());
+    set<int> s2;
+    s2.insert(newDetectionIDs.begin(), newDetectionIDs.end());
+    cerr << "# ...detections lost: ";
+    set<int> result;
+    set_difference(s1.begin(), s1.end(), s2.begin(), s2.end(),
+		   std::inserter(result, result.end()));
+    for (auto id: result) cerr << " " << id;
+    cerr << endl;
+    cerr << "# ...detections gained: ";
+    result.clear();
+    set_difference(s2.begin(), s2.end(), s1.begin(), s1.end(),
+		   std::inserter(result, result.end()));
+    for (auto id: result) cerr << " " << id;
+    cerr << endl;
+  }
   if (changed) changedDetectionList = true;
 
   // ?? Check for detections lost from not on an candidate exposure??
@@ -480,6 +489,9 @@ int main(int argc,
 	for (int iter=0; iter<MAX_FIT_ITERATIONS; iter++) {
 	  if (!orb->fitAndFind(ephem, tdb0, transients, et, pool))
 	    break;
+	  // Also quit if we no longer have enough detections
+	  if (orb->detectionIDs.size() < MIN_DETECTIONS) //?? use unique ??
+	    break;
 	}
 
 	orbits.push_back(orb);
@@ -492,6 +504,12 @@ int main(int argc,
     
     cerr << "# Starting the purge" << endl;
     for (auto ptr1 : orbits) {
+      if (ptr1->detectionIDs.size() < MIN_DETECTIONS) { //?? use unique ??
+	// Throw it away
+	delete ptr1;
+	continue;
+      }
+
       list<FitResult*> itsFriends; // Collect all friends of this one.
       itsFriends.push_back(ptr1);
 
@@ -508,6 +526,7 @@ int main(int argc,
 	    // Merge friend groups
 	    mergeGroup = true;
 	    // Check each one as subset
+	    // ??? If both are same orbit, keep lowest FPR??
 	    if (ptr2->includes(*ptr1)) {
 	      // ptr1 is a subset, delete it, no need to continue
 	      itsFriends.remove(ptr1);
@@ -565,6 +584,7 @@ int main(int argc,
 	     << " " << fixed << setprecision(2) << setw(5) << orb->chisq
 	     << " " << orb->fpr
 	     << " " << orb->friendGroup
+	     << " " << (orb->changedDetectionList ? "T" : "F")
 	     << " " << setprecision(6) << setw(8) << orb->abg[ABG::G];
 	for (auto id : orb->detectionIDs)
 	  cout << " " << id;
