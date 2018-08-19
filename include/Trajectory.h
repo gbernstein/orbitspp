@@ -49,11 +49,11 @@ namespace orbits {
 
     // Return observed astrometric position from observer position/time.
     astrometry::SphericalICRS observe(double tdbObserve,
-				      const astrometry::CartesianICRS& observer);
+				      const astrometry::CartesianICRS& observer) const;
     // Return observed astrometric position in bulk.
     // Input and output matrices are Nx3.  Output is ICRS direction cosines.
     DMatrix observe(const DVector& tdbObserve,
-		    const DMatrix& observer);
+		    const DMatrix& observer) const;
     EIGEN_NEW
     
   private:

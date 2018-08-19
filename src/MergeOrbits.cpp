@@ -10,10 +10,13 @@
 #include "Exposures.h"
 #include "Pset.h"
 #include "FitsTable.h"
+#include "FitsImage.h"
 #include "Eigen/StdVector"
 
 using namespace std;
 using namespace orbits;
+
+const int DEBUGLEVEL=2;
 
 const string usage =
   "MergeOrbits:\n"
@@ -29,20 +32,12 @@ const string usage =
   "        and information on predicted positions on exposures";
 // ....
 
-struct Detection {
-  Exposure* eptr;
-  int objectRow;
-  Detection(Exposure* eptr_, int objectRow_): eptr(eptr_), objectRow(objectRow_) {}
-  Detection(): eptr(nullptr), objectRow(0) {}
-  int id() const {return eptr->id[objectRow];}
-  bool operator<(const Detection & rhs) const {return id() < rhs.id();}
-};
-
 struct FitResult {
   // Everything we need to know about an orbit
-  int orbitID;      // Starting orbit ID
-  int nIndependent; // Different nights in fit
-  double fpr;       // False positive rate
+  string inputFile; // Orbit file it came from
+  LONGLONG inputID;      // Starting orbit ID
+  int inputIndependent; // Different nights in original fit
+  double fpr;       // False positive rate in original search
 
   vector<int> detectionIDs;  // IDs of fitted detections, *ascending*
   // The observations in ICRS coords:
@@ -50,9 +45,11 @@ struct FitResult {
   double arc;       // Time span from first to last detection
 
   class Opportunity {
+  public:
+    Opportunity(): eptr(nullptr), orbitCov(0.), hasDetection(false) {}
     // Class representing an exposure that could have seen this
     Exposure* eptr;
-    Gnomonic orbitPred;  // Orbit prediction (with frame Orientation)
+    astrometry::Gnomonic orbitPred;  // Orbit prediction (with frame Orientation)
     Matrix22 orbitCov;   // Model covariance in frame
     vector<int> ccdnums;
     bool hasDetection;   // set if there is a detection on the exposure
@@ -60,7 +57,7 @@ struct FitResult {
   vector<Opportunity, Eigen::aligned_allocator<Opportunity>> opportunities;
 
   double chisq;     // Chisq of best fit
-  ReferenceFrame frame;  // Frame for its ABG
+  Frame frame;       // Frame for its ABG
   ABG abg;          // orbit
   ABGCovariance invcov; // and covariance
   Elements el;
@@ -93,6 +90,13 @@ struct FitResult {
       }
     }
   }
+  // This is the main function of the program:
+  bool fitAndFind(const Ephemeris& ephem,
+		  double tdb0,
+		  TransientTable& transients,
+		  ExposureTable& exposures,
+		  vector<Exposure*>& pool);
+
 };
 
 class FPAccumulator: public DMatrix {
@@ -147,7 +151,7 @@ bool
 FitResult::fitAndFind(const Ephemeris& ephem,
 		      double tdb0,
 		      TransientTable& transients,
-		      ExposureTable& exposures,
+		      ExposureTable& exposureTable,
 		      vector<Exposure*>& pool) {
   // First fit an orbit to the detectionID's currently in the vector.
   // Then search all exposures for any additional transients.
@@ -156,10 +160,14 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   const double SEARCH_CHISQ=9.; // Maximum chisq to consider a match in 2d
   // Acquire Observation for each detected transient
   obsICRS.clear();
+  if (DEBUGLEVEL>1)
+    cerr << "# fitAndFind: Reading detection info" << endl;
   for (auto id : detectionIDs) {
-    obsICRS.push_back(transients.getObservation(id, ephem, exposures));
+    obsICRS.push_back(transients.getObservation(id, ephem, exposureTable));
   }
 
+  if (DEBUGLEVEL>1)
+    cerr << "# ...Calculating arc length" << endl;
   // Calculate arc
   {
     double t1 = obsICRS.front().tdb;
@@ -170,18 +178,27 @@ FitResult::fitAndFind(const Ephemeris& ephem,
     }
     arc = t2 - t1;
   }
+
+  if (DEBUGLEVEL>1)
+    cerr << "# ...reference frame" << endl;
+
   // Choose a reference frame for this orbit.  Use provided TDB,
   // and mean RA/Dec.  Get this mean by summing 3d coords
   {
     Vector3 sum(0.);
     for (auto& obs : obsICRS)
       sum += obs.radec.getUnitVector();
-    astrometry::SphericalICRS pole(CartesianICRS(sum));
+    astrometry::CartesianICRS ss(sum);
+    astrometry::SphericalICRS pole(ss);
     frame.orient = astrometry::Orientation(pole);
     frame.orient.alignToEcliptic();
-    frame.tdb = tdb0;
-    frame.origin = ephem.observatory(807, frame.tdb);
+    frame.tdb0 = tdb0;
+    frame.origin = ephem.observatory(807, frame.tdb0);
   }
+
+  if (DEBUGLEVEL>1)
+    cerr << "# ...fitting in frame at "
+	 << frame.orient.getPole() << endl;
 
   // Execute fit
   Fitter fit(ephem, Gravity::GIANTS);
@@ -192,6 +209,9 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   fit.setLinearOrbit();
   fit.newtonFit();
 
+  if (DEBUGLEVEL>1)
+    cerr << "# ...Fit complete" << endl;
+
   // Save fit results
   chisq = fit.getChisq();
   abg = fit.getABG();
@@ -200,14 +220,14 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   elCov = fit.getElementCovariance();
 
   // Now go fishing for exposures this orbit crosses
-  int nExposures = exposures.size();
+  int nExposures = pool.size();
   DVector tdbAll(nExposures);
   DMatrix earthAll(nExposures,3);  // ICRS observatory position
   DMatrix axisAll(nExposures,3);   // ICRS direction cosines of pointings
   for (int i=0; i<nExposures; i++) {
-    tdbAll[i] = exposures[i]->tdb;
-    earthAll.row(i) = exposures[i]->earthICRS.getVector().transpose();
-    axisAll.row(i) = exposures[i]->localICRS.getPole().getUnitVector().transpose();
+    tdbAll[i] = pool[i]->tdb;
+    earthAll.row(i) = pool[i]->earthICRS.getVector().transpose();
+    axisAll.row(i) = pool[i]->localICRS.getPole().getUnitVector().transpose();
   }
 
   // convert field radius to a maximum chord length between
@@ -217,9 +237,12 @@ FitResult::fitAndFind(const Ephemeris& ephem,
 
   DMatrix target = fit.getTrajectory().observe(tdbAll, earthAll);
   // Find those within radius
-  BVector hits = (target - axis).rowwise().squaredNorm().array() < maxChordSq;
+  BVector hits = (target - axisAll).rowwise().squaredNorm().array() < maxChordSq;
   int nHits = hits.array().count();
   
+  if (DEBUGLEVEL>1)
+    cerr << "# ...exposure search has " << nHits << " hits" << endl;
+
   // Collect information on all candidate exposures (??? repetitive reading...)
   opportunities.clear();
   tdbAll.resize(nHits);
@@ -227,17 +250,22 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   for (int i=0; i<hits.size(); i++) {
     if (hits[i]) {
       Opportunity opp;
-      opp.eptr = exposures[i];
-      tdbAll[opportunities.size()] = exposures[i]->tdb;
-      earthAll.row(opportunities.size()) = exposures[i]->earthICRS.getVector().transpose();
+      opp.eptr = pool[i];
+      tdbAll[opportunities.size()] = pool[i]->tdb;
+      earthAll.row(opportunities.size()) = pool[i]->earthICRS.getVector().transpose();
+      opp.hasDetection = false;
       opportunities.push_back(opp);
-      opportunities.hasDetection = false;
     }
   }
   // ??? Did we get all the exposures from original orbit?
-  tdbAll.array() -= frame.tdb0;
   
+  if (DEBUGLEVEL>1)
+    cerr << "# ...getting predictions" << endl;
+
   // Predict orbit position at each exposure
+  // Convert into current frame:
+  tdbAll.array() -= frame.tdb0;
+  earthAll = frame.fromICRS(earthAll);
   DVector xPred(nHits);
   DVector yPred(nHits);
   DVector covxxPred(nHits);
@@ -249,37 +277,52 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   // Save info on every exposure, find new detections
   vector<int> newDetectionIDs;
   
+
+  if (DEBUGLEVEL>1)
+    cerr << "# ...finding detections" << endl;
+
   for (int i=0; i<nHits; i++) {
     Opportunity& opp = opportunities[i];
-    opp.orbitPred = astrometry::Gnomonic pred(xPred[i], yPred[i], frame.orient);
+    opp.orbitPred = astrometry::Gnomonic(xPred[i], yPred[i], frame.orient);
     opp.orbitCov(0,0) = covxxPred[i];
     opp.orbitCov(0,1) = covxyPred[i];
-    opp.orbitCov(1,0) = covyxPred[i];
+    opp.orbitCov(1,0) = covxyPred[i];
     opp.orbitCov(1,1) = covyyPred[i];
 
+    /**/cerr << "call whichCCDs on " << opp.eptr->expnum << endl;
     // Check in detail for error ellipse crossing a CCD
     opp.ccdnums = opp.eptr->whichCCDs(opp.orbitPred, opp.orbitCov*SEARCH_CHISQ);
 
+    /**/cerr << "filling transients" << endl;
     // Load transient and corner information into each exposure, using frame
     transients.fillExposure(frame, opp.eptr);
 
+    /**/cerr << "calculate chisq" << endl;
     // Find detections - did any change?? - do CCDNUM match prev?
-    DVector allChi = eptr->chisq(xPred[i], yPred[i],
-				 covxxPred[i], covyyPred[i], covxyPred[i]);
+    DVector allChi = opp.eptr->chisq(xPred[i], yPred[i],
+				     covxxPred[i], covyyPred[i], covxyPred[i]);
+    /**/if (allChi.size()>0) cerr << "min chisq " << allChi.array().minCoeff() << endl;
     for (int iTrans=0; iTrans<allChi.size(); iTrans++) {
       if (allChi[iTrans]<SEARCH_CHISQ) {
+	/**/cerr << "Found detection!" << endl;
 	opp.hasDetection = true;
-	newDetectionIDs.push_back(eptr->id[iTrans]);
+	newDetectionIDs.push_back(opp.eptr->id[iTrans]);
 	// Save residuals for each detection ?? (have the info to do this later)
       }
     }
+    /**/cerr << "...done " << i << endl;
   }
 
+    /**/cerr << "sorting" << endl;
   // Compare new and old detection lists
   std::sort(newDetectionIDs.begin(), newDetectionIDs.end());
-  std::sort(DetectionIDs.begin(), DetectionIDs.end());
+  std::sort(detectionIDs.begin(), detectionIDs.end());
 
   bool changed = (newDetectionIDs==detectionIDs);
+
+  if (DEBUGLEVEL>1)
+    cerr << "# ...changed detections? " << changed << endl;
+
   if (changed) changedDetectionList = true;
 
   // ?? Check for detections lost from not on an candidate exposure??
@@ -299,15 +342,14 @@ int main(int argc,
   string exposurePath;
   string cornerPath;  // File with CCD corners per exposure
 
+  string transientPath;
+
   double ra0;    // Center of field (ignore exposures >60 degrees away)
   double dec0;
-  double searchRadius;
+  double radius;
   double tdb0;   // Reference time (=epoch of orbits or state vectors)
   // Else orbital elements
 
-  const int obscode=807;
-  const double fieldRadius = 1.1*DEGREE;
-  
   Pset parameters;
    
   try {
@@ -318,6 +360,8 @@ int main(int argc,
       const int lowopen = low | PsetMember::openLowerBound;
       const int upopen = up | PsetMember::openUpperBound;
 
+      parameters.addMember("transientFile",&transientPath, def,
+			   "transient catalog (null=>environment", "");
       parameters.addMember("ephemerisFile",&ephemerisPath, def,
 			   "SPICE file (null=>environment", "");
       parameters.addMember("exposureFile",&exposurePath, def,
@@ -328,7 +372,7 @@ int main(int argc,
 			   "RA of field center (deg)", 10.);
       parameters.addMember("dec0",&dec0, def,
 			   "Dec of field center (deg)", -20.);
-      parameters.addMember("radius",&searchRadius, def || lowopen || up,
+      parameters.addMember("radius",&radius, def || lowopen || up,
 			   "Radius of search area (deg)", 85.,0.,85.);
       parameters.addMember("TDB0",&tdb0, def,
 			   "TDB of reference time (=orbit epoch), yrs since J2000", 0.);
@@ -366,146 +410,170 @@ int main(int argc,
     ExposureTable et(exposurePath);
 
     // Get all exposures of relevance and build big arrays
-    vector<Exposure*> exposures = et.getPool(frame, ephem, searchRadius*DEGREE);
-    int nExposures = exposures.size();
-    DVector tdb(nExposures);
-    DMatrix earth(nExposures,3);  // ICRS observatory position
-    DMatrix axis(nExposures,3);   // ICRS direction cosines of pointings
-    for (int i=0; i<nExposures; i++) {
-      tdb[i] = exposures[i]->tdb;
-      earth.row(i) = exposures[i]->earthICRS.getVector().transpose();
-      axis.row(i) = exposures[i]->axisICRS.getUnitVector().transpose();
-    }
+    vector<Exposure*> pool = et.getPool(frame, ephem, radius*DEGREE);
 
-    cerr << "# Read " << exposures.size() << " exposures" << endl;
+    cerr << "# Read " << pool.size() << " exposures" << endl;
+    cerr << "# reading corners" << endl;
     
     // Load CCD corners
     {
       CornerTable tt(cornerPath);
-      for (auto& eptr : exposures)
+      for (auto& eptr : pool)
 	tt.fillExposure(eptr);
     }
 
-    // convert field radius to a maximum chord length between
-    // unit vectors
-    const double maxChordSq = pow(2. * sin(fieldRadius/2.),2.);
+    cerr << "# reading transients" << endl;
 
+    // Open the transients table
+    TransientTable transients(transientPath);
+    
     // Start reading input orbits, giving each one its own
     // reference frame
     list<FitResult*> orbits;
 
     for (auto orbitPath : orbitFiles) {
+      cerr << "# Reading orbits from " << orbitPath << endl;
       // Open the tables/files
-
-      // Sum the Accumulators
-      
-      for (int row=0; row<orbitTable.nrows(); row++) {
-	// Collect known transients
-
-	// Make a ReferenceFrame
-
-	// Refit orbit, no priors
-
-	// Find all exposure crossings, 
-
-	// (Re-)Find all transients along orbit
-
-	// Re-fit if any new detections
-	// Update exposure crossings, CCD, cov
-	// Save new chisq
+      img::FTable inputOrbitTable;
+      img::FTable inputObjectTable;
+      {
+        FITS::FitsTable ft(orbitPath, FITS::ReadOnly,"ORBITS");
+	inputOrbitTable = ft.extract();
       }
-    }
+      {
+        FITS::FitsTable ft(orbitPath, FITS::ReadOnly, "OBJECTS");
+	inputObjectTable = ft.extract();
+      }
 
-    // Purge duplicates and subsets
+      // Sum the Accumulators ???
+      
+      int objectTableRow = 0; // Current location in object table
 
-    // Establish overlapping groups, assign group numbers
+      // Step through orbits
+      for (int row=0; row<inputOrbitTable.nrows(); row++) {
+	auto orb = new FitResult;
+	orb->inputFile = orbitPath;
+	orb->inputID = row;
+	inputOrbitTable.readCell(orb->inputIndependent, "NUNIQUE", row);
+	inputOrbitTable.readCell(orb->fpr, "FPR", row);
 	
-    // Loop through surviving orbits {
-
-      // Save orbit info, including elements
-
-      // save detections, get residuals, chisq per point, and band, mag, magerr
-    
-      // save non-detections
-    // }
-
-    // Write orbit and object tables
-    
-    // Save the summed accumulator
-
-    
-    vector<LONGLONG> idOut;
-    vector<int> expnumOut;
-    vector<int> ccdnumOut;
-    vector<double> tdbOut;
-    vector<double> raOut;
-    vector<double> decOut;
-    
-
-    // Begin reading input lines
-    string buffer;
-    while (stringstuff::getlineNoComment(cin, buffer)) {
-      State xv;
-      LONGLONG orbitID;
-      xv.tdb = tdb0;
-      istringstream iss(buffer);
-      if (readState) {
-	// Read state and orbitID
-	iss >> orbitID
-	    >> xv.x[0] >> xv.x[1] >> xv.x[2]
-	    >> xv.v[0] >> xv.v[1] >> xv.v[2];
-      } else {
-	// Read elements and orbitID
-	Elements el;
-	iss >> orbitID >> el;
-	// convert to state
-	xv = getState(el, tdb0);
-      }
-
-      // Predict for all relevant exposures - get ICRS direction cosines
-      Trajectory orbit(ephem, xv, Gravity::GIANTS);
-      DMatrix target = orbit.observe(tdb, earth);
-      // Find those within radius
-      BVector hits = (target - axis).rowwise().squaredNorm().array() < maxChordSq;
-      
-      for (int i=0; i<nExposures; i++) {
-	if (!hits[i]) continue;
-
-	astrometry::SphericalICRS radec;
-	radec.setUnitVector(target.row(i).transpose());
-	double ra,dec;
-	radec.getLonLat(ra,dec);
-
-	if (useStdout) {
-	  cout << setw(8) << orbitID
-	       << " " << setw(6) << exposures[i]->expnum
-	       << " " << fixed << setprecision(8) << setw(11) << exposures[i]->tdb
-	       << " " << setprecision(7) << setw(11) << ra/DEGREE
-	       << " " << showpos << setprecision(7) << setw(11) << dec/DEGREE
-	       << " " << noshowpos << setw(2) << exposures[i]->whichCCD(radec)
-	       << endl;
-	} else {
-	  idOut.push_back(orbitID);
-	  expnumOut.push_back(exposures[i]->expnum);
-	  ccdnumOut.push_back(exposures[i]->whichCCD(radec));
-	  tdbOut.push_back(exposures[i]->tdb);
-	  raOut.push_back(ra/DEGREE);
-	  decOut.push_back(dec/DEGREE);
+	// Collect known transients for this orbit.
+	while (true) {
+	  LONGLONG id;
+	  inputObjectTable.readCell(id, "ORBITID", objectTableRow);
+	  if (id!=orb->inputID) break;
+	  int objectID;
+	  inputObjectTable.readCell(objectID, "OBJECTID", objectTableRow);
+	  orb->detectionIDs.push_back(objectID);
+	  ++objectTableRow;
 	}
-      }
-    } // End the input reading loop.
 
-    if (!useStdout) {
-      // Write the results to a FITS file
-      FITS::FitsTable ft(positionPath, FITS::Create + FITS::OverwriteFile);
-      img::FTable out = ft.use();
-      out.addColumn(idOut,"ORBITID");
-      out.addColumn(expnumOut,"EXPNUM");
-      out.addColumn(ccdnumOut,"CCDNUM");
-      out.addColumn(tdbOut,"TDB");
-      out.addColumn(raOut,"RA");
-      out.addColumn(decOut,"DEC");
+	// Set some initial flags
+	orb->friendGroup = -1;
+	orb->skippedExposures = false;
+	orb->hasOverlap = false;
+	orb->isSecure = false;
+	orb->changedDetectionList = false;
+
+	// Iterate fit and search
+	int MAX_FIT_ITERATIONS=5;
+	for (int iter=0; iter<MAX_FIT_ITERATIONS; iter++) {
+	  if (!orb->fitAndFind(ephem, tdb0, transients, et, pool))
+	    break;
+	}
+
+	orbits.push_back(orb);
+      }
     }
+
+    // Purge duplicates and subsets, group overlapping sets by friends
+    // of friends.
+    list<list<FitResult*>> friendGroups;
+    
+    cerr << "# Starting the purge" << endl;
+    for (auto ptr1 : orbits) {
+      list<FitResult*> itsFriends; // Collect all friends of this one.
+      itsFriends.push_back(ptr1);
+
+      // Loop through previous orbits, finding friends/supersets/subsets
+      for (auto groupPtr = friendGroups.begin();
+	   groupPtr != friendGroups.end(); ) {
+	bool mergeGroup = false; // Set if overlap with any friend
+	bool isSubset = false; // Set if redundant orbit
+	// Start loop over members of friend group
+	for (auto pptr2 = groupPtr->begin();
+	     pptr2 != groupPtr->end(); ) {
+	  auto ptr2 = *pptr2; // pptr2 is iterator to pointer...
+	  if (ptr1->intersects(*ptr2)) {
+	    // Merge friend groups
+	    mergeGroup = true;
+	    // Check each one as subset
+	    if (ptr2->includes(*ptr1)) {
+	      // ptr1 is a subset, delete it, no need to continue
+	      itsFriends.remove(ptr1);
+	      isSubset = true;
+	      break;
+	    } else if (ptr1->includes(*ptr2)) {
+	      // ptr2 is a subset, delete it from its group
+	      pptr2 = groupPtr->erase(pptr2);
+	      // And delete the whole thing
+	      delete ptr2;
+	    } else {
+	      // Proceed to next 2nd orbit
+	      ++pptr2;
+	    }
+	  } else {
+	    // No intersection, proceed to next 2nd orbit
+	    ++pptr2;
+	  }
+	} // End loop over members of friend group
+	if (mergeGroup) {
+	  // Absorb 2nd group and delete it
+	  itsFriends.insert(itsFriends.end(),
+			    groupPtr->begin(), groupPtr->end());
+	  groupPtr = friendGroups.erase(groupPtr);
+	} else {
+	  // Advance to next group
+	  ++groupPtr;
+	}
+	if (isSubset) {
+	  // ptr1 is a duplicate, no need to proceed through other groups
+	  delete ptr1;
+	  break;
+	}
+      } // End of loop over friend groups.
+      // Add this group to friend list
+      friendGroups.push_back(itsFriends);
+    } // End loop over all orbits.
+
+    // Now all orbits are grouped into friend sets.
+    // Do any purging of overlapping orbits ??
+    
+    // Create result arrays/tables ??
+    
+    // Loop through surviving orbits
+    int groupCounter = -1;
+    for (auto& group : friendGroups) {
+      ++groupCounter;
+      for (auto& orb : group) {
+	// Process each output orbit:
+	orb->friendGroup = groupCounter;
+	// save detections, get residuals, chisq per point, and band, mag, magerr
+	// ???
+	cout << orb->inputID
+	     << " " << orb->detectionIDs.size()
+	     << " " << fixed << setprecision(2) << setw(5) << orb->chisq
+	     << " " << orb->fpr
+	     << " " << orb->friendGroup
+	     << " " << setprecision(6) << setw(8) << orb->abg[ABG::G];
+	for (auto id : orb->detectionIDs)
+	  cout << " " << id;
+	cout << endl;
+
+	delete orb;
+      }
+    }
+    
   } catch (std::runtime_error& e) {
     quit(e);
   }
