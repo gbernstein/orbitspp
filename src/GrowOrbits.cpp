@@ -669,7 +669,7 @@ main(int argc, char **argv) {
 
 	// Read the central gamma and half-width from header too
 	tab.header()->getValue("GAMMA0",gamma0);
-	tab.header()->getValue("DGAMMA0",dGamma); // ??? DGAMMA
+	tab.header()->getValue("DGAMMA",dGamma); // ??? DGAMMA
       }
       astrometry::Orientation orient(astrometry::SphericalICRS(ra0*DEGREE, dec0*DEGREE));
       orient.alignToEcliptic();
