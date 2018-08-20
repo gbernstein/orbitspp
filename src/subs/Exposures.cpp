@@ -81,6 +81,22 @@ ExposureTable::mjd(int expnum) const {
   return mjd;
 }
 
+string
+ExposureTable::band(int expnum) const {
+  auto ptr = astrometricIndex.find(expnum);
+  int index;
+  string band;
+  if (ptr==astrometricIndex.end()) {
+    // Try non-ast table; throw exception if not there.
+    index = nonAstrometricIndex.at(expnum);
+    nonAstrometricTable.readCell(band,"FILTER",index);
+  } else {
+    index = ptr->second;
+    astrometricTable.readCell(band,"FILTER",index);
+  }
+  return band;
+}
+
 astrometry::CartesianICRS
 ExposureTable::observatory(int expnum) const {
   auto ptr = astrometricIndex.find(expnum);
