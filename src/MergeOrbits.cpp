@@ -17,7 +17,11 @@ using namespace std;
 using namespace orbits;
 
 const int DEBUGLEVEL=1;
-const int MIN_DETECTIONS=4; // ??min detections to keep ??
+const int MIN_UNIQUE=4; // min number of independent detections to retain orbit
+
+// Time that must pass between exposures to be considered independent detections
+// (e.g. when asteroids or defects would have moved out of linking range)
+const double INDEPENDENT_TIME_INTERVAL = 0.1*DAY;
 
 const string usage =
   "MergeOrbits:\n"
@@ -37,11 +41,12 @@ struct FitResult {
   // Everything we need to know about an orbit
   string inputFile; // Orbit file it came from
   LONGLONG inputID;      // Starting orbit ID
-  int inputIndependent; // Different nights in original fit
+  int inputUnique; // Different nights in original fit
   double fpr;       // False positive rate in original search
 
   vector<int> detectionIDs;  // IDs of fitted detections, *ascending*
   // The observations in ICRS coords:
+  int nUnique;      // Number of distinct detection times
   vector<Observation, Eigen::aligned_allocator<Observation>> obsICRS;  
   double arc;       // Time span from first to last detection
 
@@ -65,9 +70,6 @@ struct FitResult {
   ElementCovariance elCov;
 
   int friendGroup;  // Number of its overlap group (-1=loner)
-  bool skippedExposures; // True if some exposures were skipped for large errors
-  bool hasOverlap;  // True if this shares detections with another FitResult
-  bool isSecure;    // No doubt that this is real, monopolize detections.
   bool changedDetectionList; // set if detections were added / dropped
   EIGEN_NEW
 
@@ -98,54 +100,6 @@ struct FitResult {
 		  ExposureTable& exposures,
 		  vector<Exposure*>& pool);
 
-};
-
-class FPAccumulator: public DMatrix {
-  /** Class to keep track of total false positive expectations.
-      This is a 2d array whose rows indicate number of independent
-      detections in the orbit, and columns are for different upper
-      limits on false positive rate per orbit.
-      Elements of the array are the total expected false positive
-      counts, i.e. the sum over all contributed orbits with the
-      specified number of detections and upper limit on FPR.
-  **/
-public:
-  FPAccumulator(): DMatrix(nMax-nMin+1, nLogFPR, 0.),
-		   maxLogFPR(-1.5), dLogFPR(-0.5) {}
-  static const int nMin=3; // Minimum number of independent detections
-  static const int nMax=10; // Max number of independent detections
-  const double maxLogFPR; // upper limit on FPR in first column
-  const double dLogFPR; // increment to bound per column
-  static const int nLogFPR=7; // Number of FPR threshold columns
-
-  void write(std::ostream& os) const {
-    stringstuff::StreamSaver ss(os);
-    os << "# Expected false positives" << endl;
-    os << "# N=\\FPR<";
-    for (int j=0; j<nLogFPR; j++)
-      os << " " << setprecision(2) << setw(7) << std::pow(10., maxLogFPR+j*dLogFPR);
-    os << endl;
-    os << fixed << setprecision(3);
-    for (int i=0; i<this->rows(); i++) {
-      os << setw(3) << i+nMin+1 << "      ";
-      for (int j=0; j<nLogFPR; j++)
-	os << " " << setw(7) << (*this)(i,j);
-      os << endl;
-    }
-  }
-  img::Image<float> getImage() const {
-    img::Image<float> out(this->rows(), this->cols());
-    out = 0.;
-    for (int i=out.xMin(); i<=out.xMax(); i++)
-      for (int j=out.yMin(); j<=out.yMax(); j++) {
-	out(i,j) = (*this)(i-1,j-1);  // FITS is 1-indexed
-      }
-    int tmp = nMin;
-    out.setHdrValue("NMIN",tmp);
-    out.setHdrValue("MAXLOGFP",maxLogFPR);
-    out.setHdrValue("DLOGFP",dLogFPR);
-    return out;
-  }
 };
 
 bool
@@ -207,6 +161,9 @@ FitResult::fitAndFind(const Ephemeris& ephem,
     fit.addObservation(obs);
   fit.setFrame(frame);
   // ! No priors on the orbit.
+  // ?? maybe a little
+  fit.setBindingConstraint(1.);
+  fit.setLinearOrbit();
   fit.setLinearOrbit();
   fit.newtonFit();
 
@@ -258,7 +215,6 @@ FitResult::fitAndFind(const Ephemeris& ephem,
       opportunities.push_back(opp);
     }
   }
-  // ??? Did we get all the exposures from original orbit?
   
   if (DEBUGLEVEL>1)
     cerr << "# ...getting predictions" << endl;
@@ -277,7 +233,8 @@ FitResult::fitAndFind(const Ephemeris& ephem,
 
   // Save info on every exposure, find new detections
   vector<int> newDetectionIDs;
-  
+  nUnique = 0; // reset counter of unique times
+  vector<double> timesOfDetections; // used for counting unique
 
   if (DEBUGLEVEL>1)
     cerr << "# ...finding detections" << endl;
@@ -296,14 +253,24 @@ FitResult::fitAndFind(const Ephemeris& ephem,
     // Load transient and corner information into each exposure, using frame
     transients.fillExposure(frame, opp.eptr);
 
-    // Find detections - did any change?? - do CCDNUM match prev?
     DVector allChi = opp.eptr->chisq(xPred[i], yPred[i],
 				     covxxPred[i], covyyPred[i], covxyPred[i]);
     for (int iTrans=0; iTrans<allChi.size(); iTrans++) {
-      if (allChi[iTrans]<SEARCH_CHISQ) {
+      if (allChi[iTrans]<SEARCH_CHISQ && opp.eptr->valid[iTrans]) {
 	opp.hasDetection = true;
 	newDetectionIDs.push_back(opp.eptr->id[iTrans]);
-	// Save residuals for each detection ?? (have the info to do this later)
+	// Is this a unique detection?
+	bool isUnique = true;
+	for (auto tdb : timesOfDetections) {
+	  if ( abs(tdb-tdbAll[i]) < INDEPENDENT_TIME_INTERVAL) {
+	    isUnique = false;
+	    break;
+	  }
+	}
+	if (isUnique)
+	  nUnique++;
+	else
+	  timesOfDetections.push_back(tdbAll[i]);
       }
     }
   }
@@ -350,8 +317,8 @@ int main(int argc,
   string ephemerisPath;
   string exposurePath;
   string cornerPath;  // File with CCD corners per exposure
-
   string transientPath;
+  string outPath; // location of output file
 
   double ra0;    // Center of field (ignore exposures >60 degrees away)
   double dec0;
@@ -369,10 +336,12 @@ int main(int argc,
       const int lowopen = low | PsetMember::openLowerBound;
       const int upopen = up | PsetMember::openUpperBound;
 
+      parameters.addMember("o",&outPath, 0,
+			   "Output orbit/object table");
       parameters.addMember("transientFile",&transientPath, def,
-			   "transient catalog (null=>environment", "");
+			   "transient catalog (null=>environment)", "");
       parameters.addMember("ephemerisFile",&ephemerisPath, def,
-			   "SPICE file (null=>environment", "");
+			   "SPICE file (null=>environment)", "");
       parameters.addMember("exposureFile",&exposurePath, def,
 			   "DECam exposure info file (null=>environment)", "");
       parameters.addMember("cornerFile",&cornerPath, def,
@@ -384,7 +353,7 @@ int main(int argc,
       parameters.addMember("radius",&radius, def || lowopen || up,
 			   "Radius of search area (deg)", 85.,0.,85.);
       parameters.addMember("TDB0",&tdb0, def,
-			   "TDB of reference time (=orbit epoch), yrs since J2000", 0.);
+			   "TDB of reference time (=orbit epoch), yrs since J2000", 16.);
     }
     parameters.setDefault();
 
@@ -440,6 +409,8 @@ int main(int argc,
     // reference frame
     list<FitResult*> orbits;
 
+    img::Image<float> fpImage; // Summed false-positive image
+    
     for (auto orbitPath : orbitFiles) {
       cerr << "# Reading orbits from " << orbitPath << endl;
       // Open the tables/files
@@ -453,9 +424,17 @@ int main(int argc,
         FITS::FitsTable ft(orbitPath, FITS::ReadOnly, "OBJECTS");
 	inputObjectTable = ft.extract();
       }
-
-      // Sum the Accumulators ???
-      
+      {
+	// Sum the false-positive estimates
+	img::FitsImage<float> fi(orbitPath, FITS::ReadOnly, "FP");
+	if (!fpImage.getBounds()) {
+	  // first image
+	  fpImage = fi.extract();
+	} else {
+	  fpImage += fi.extract();
+	}
+      }
+	
       int objectTableRow = 0; // Current location in object table
 
       // Step through orbits
@@ -463,7 +442,8 @@ int main(int argc,
 	auto orb = new FitResult;
 	orb->inputFile = orbitPath;
 	orb->inputID = row;
-	inputOrbitTable.readCell(orb->inputIndependent, "NUNIQUE", row);
+	inputOrbitTable.readCell(orb->inputUnique, "NUNIQUE", row);
+	orb->nUnique = orb->inputUnique;
 	inputOrbitTable.readCell(orb->fpr, "FPR", row);
 	
 	// Collect known transients for this orbit.
@@ -473,28 +453,39 @@ int main(int argc,
 	  if (id!=orb->inputID) break;
 	  int objectID;
 	  inputObjectTable.readCell(objectID, "OBJECTID", objectTableRow);
+	  if (objectID<0) continue;  // negative ID is non-detection
 	  orb->detectionIDs.push_back(objectID);
 	  ++objectTableRow;
 	}
 
 	// Set some initial flags
 	orb->friendGroup = -1;
-	orb->skippedExposures = false;
-	orb->hasOverlap = false;
-	orb->isSecure = false;
 	orb->changedDetectionList = false;
 
+	bool success=false; // We will throw away fitting failures
 	// Iterate fit and search
 	int MAX_FIT_ITERATIONS=5;
-	for (int iter=0; iter<MAX_FIT_ITERATIONS; iter++) {
-	  if (!orb->fitAndFind(ephem, tdb0, transients, et, pool))
-	    break;
-	  // Also quit if we no longer have enough detections
-	  if (orb->detectionIDs.size() < MIN_DETECTIONS) //?? use unique ??
-	    break;
+	try {
+	  for (int iter=0; iter<MAX_FIT_ITERATIONS; iter++) {
+	    if (!orb->fitAndFind(ephem, tdb0, transients, et, pool)) {
+	      success = true;
+	      break;
+	    }
+	    // Also quit if we no longer have enough detections
+	    if (orb->nUnique < MIN_UNIQUE) 
+	      break;
+	    if (iter==MAX_FIT_ITERATIONS-1) cerr << "# WARNING: Not converging at " << orb->inputID << endl;
+	  }
+	} catch (std::runtime_error& e) {
+	  cerr << "# Fitting failure " << orb->inputFile << "/" << orb->inputID
+	       << " nUnique " << orb->nUnique << " arc " << orb->arc << endl;
+	  cerr << e.what() << endl;
 	}
 
-	orbits.push_back(orb);
+	if (success)
+	  orbits.push_back(orb);
+	else
+	  delete orb;
       }
     }
 
@@ -504,7 +495,7 @@ int main(int argc,
     
     cerr << "# Starting the purge" << endl;
     for (auto ptr1 : orbits) {
-      if (ptr1->detectionIDs.size() < MIN_DETECTIONS) { //?? use unique ??
+      if (ptr1->nUnique < MIN_UNIQUE) { 
 	// Throw it away
 	delete ptr1;
 	continue;
@@ -525,9 +516,20 @@ int main(int argc,
 	  if (ptr1->intersects(*ptr2)) {
 	    // Merge friend groups
 	    mergeGroup = true;
-	    // Check each one as subset
-	    // ??? If both are same orbit, keep lowest FPR??
-	    if (ptr2->includes(*ptr1)) {
+	    // Check relations between pairs
+	    if ((*ptr1)==(*ptr2)) {
+	      // If both are same orbit, keep lowest FPR
+	      if (ptr1->fpr > ptr2->fpr) {
+		// Delete ptr1
+		itsFriends.remove(ptr1);
+		isSubset = true;
+		break;
+	      } else {
+		// Delete ptr2
+		pptr2 = groupPtr->erase(pptr2);
+		delete ptr2;
+	      }		
+	    } else if (ptr2->includes(*ptr1)) {
 	      // ptr1 is a subset, delete it, no need to continue
 	      itsFriends.remove(ptr1);
 	      isSubset = true;
@@ -568,7 +570,38 @@ int main(int argc,
     // Now all orbits are grouped into friend sets.
     // Do any purging of overlapping orbits ??
     
-    // Create result arrays/tables ??
+    // Save for each orbit:
+    vector<string> startFile; // File holding source orbit
+    vector<LONGLONG> startID; // and its id
+    vector<int> nDetect; // Number of detections
+    vector<int> nUnique; // Number of independent nights
+    vector<double> chisq;
+    vector<vector<double>> abg;
+    vector<vector<double>> abgInvCov;
+    vector<vector<double>> elements;  // Elements
+    vector<vector<double>> elementCov;
+    vector<double> arc;
+    vector<double> fpr;
+    vector<bool> overlap;
+    vector<bool> changed;
+    vector<int> friendGroup;
+    vector<vector<double>> outFrame; // Reference frame, stored as 7 numbers
+    
+    // Save for each detection or possible missed detection CCD
+    vector<LONGLONG>       orbitID;     // Row number of orbit
+    vector<int>            objectID;    // ID from transient table, -1 if no detection
+    vector<double>         tdb;         // TDB of exposure
+    vector<int>            expnum;
+    vector<short int>      ccdnum;      // exposure/ccd of (possible non-)detection
+    vector<vector<double>> prediction;  //RA, Dec of predicted position
+    vector<vector<double>> predCov;     //ICRS covariance matrix of prediction
+    vector<vector<double>> detection;   //RA, Dec of detection (if any)
+    vector<vector<double>> detectCov;   //Cov matrix of detection
+    vector<vector<double>> residual;    //Det - pred, in ICRS tangent plane
+    vector<double>         detectChisq; //Det - pred chisq (meas errors only)
+    vector<string>         band;
+    vector<double>         mag;
+    vector<double>         sn;          //S/N level of flux detection
     
     // Loop through surviving orbits
     int groupCounter = -1;
@@ -577,21 +610,178 @@ int main(int argc,
       for (auto& orb : group) {
 	// Process each output orbit:
 	orb->friendGroup = groupCounter;
-	// save detections, get residuals, chisq per point, and band, mag, magerr
-	// ???
-	cout << orb->inputID
-	     << " " << orb->detectionIDs.size()
-	     << " " << fixed << setprecision(2) << setw(5) << orb->chisq
-	     << " " << orb->fpr
-	     << " " << orb->friendGroup
-	     << " " << (orb->changedDetectionList ? "T" : "F")
-	     << " " << setprecision(6) << setw(8) << orb->abg[ABG::G];
-	for (auto id : orb->detectionIDs)
-	  cout << " " << id;
-	cout << endl;
+	startFile.push_back(orb->inputFile);
+	startID.push_back(orb->inputID);
+	nDetect.push_back(orb->detectionIDs.size());
+	nUnique.push_back(orb->nUnique);
+	chisq.push_back(orb->chisq);
+	fpr.push_back(orb->fpr);
+	vector<double> v(6);
+	for (int i=0; i<6; i++) v[i] = orb->abg[i];
+	abg.push_back(v);
+	for (int i=0; i<6; i++) v[i] = orb->el[i];
+	elements.push_back(v);
+	v.resize(36);
+	for (int i=0; i<6; i++)
+	  for (int j=0; j<6; j++) v[i*6+j] = orb->invcov(i,j);
+	abgInvCov.push_back(v);
+	for (int i=0; i<6; i++)
+	  for (int j=0; j<6; j++) v[i*6+j] = orb->elCov(i,j);
+	elementCov.push_back(v);
+	arc.push_back(orb->arc);
+	overlap.push_back(group.size() > 1); // Does orbit overlap others?
+	changed.push_back(orb->changedDetectionList);
+	v.resize(7);
+	orb->frame.orient.getPole().getLonLat(v[0],v[1]);
+	v[2] = frame.orient.getPA();
+	v[3] = frame.origin.getVector()[0];
+	v[4] = frame.origin.getVector()[1];
+	v[5] = frame.origin.getVector()[2];
+	v[6] = frame.tdb0;
+	outFrame.push_back(v);
+	
+	// save detections and non-detections, transforming into ICRS
+	// First make a multimap holding expnum/detection pairs
+	std::multimap<int,int> detectionFinder;
+	for (int id : orb->detectionIDs) {
+	  int expnum = transients.getValue<int>("EXPNUM",id);
+	  detectionFinder.emplace(expnum,id);
+	}
+	// Now loop through all exposures.  Different if it has
+	// detections or not.
+	for (auto& opp: orb->opportunities) {
+	  const Exposure& expo = *(opp.eptr);
 
+	  // Transform orbit prediction and error into
+	  // ICRS (cov in local gnomonic, ICRS aligned)
+	  astrometry::SphericalICRS radecPred(opp.orbitPred);
+	  astrometry::Orientation localICRS(radecPred);
+	  astrometry::Gnomonic gn(radecPred, localICRS);
+	  Matrix22 covICRS = gn.convertWithCovariance(opp.orbitPred,
+						      opp.orbitCov);
+	  if (opp.hasDetection) {
+	    // Produce one output line per detection
+	    auto dptr = detectionFinder.begin(); // declare outside of while
+	    while ( (dptr=detectionFinder.find(expo.expnum))!=detectionFinder.end()) {
+	      int id = dptr->second;
+	      detectionFinder.erase(dptr);
+
+	      expnum.push_back(expo.expnum);
+	      tdb.push_back(expo.tdb);
+	      band.push_back(et.band(expo.expnum));
+	      vector<double> v(2);
+	      radecPred.getLonLat(v[0],v[1]);
+	      prediction.push_back(v);
+	      v.resize(3);
+	      v[0] = covICRS(0,0); v[1]=covICRS(1,1); v[2]=covICRS(0,1);
+	      predCov.push_back(v);
+	      orbitID.push_back(startID.size()-1);  // How big are orbit arrays so far?
+	      objectID.push_back(id);
+	      ccdnum.push_back( transients.getValue<short int>("CCDNUM",id));
+	      auto obs = transients.getObservation(id, ephem, et);
+	      v.resize(2);
+	      obs.radec.getLonLat(v[0],v[1]);
+	      detection.push_back(v);
+	      v.resize(3);
+	      v[0] = obs.cov(0,0); v[1]=obs.cov(1,1); v[2]=obs.cov(0,1);
+	      detectCov.push_back(v);
+	      // Calculate residual from prediction in local gnomonic
+	      gn.convertFrom(obs.radec);
+	      v.resize(2);
+	      gn.getLonLat(v[0],v[1]);
+	      residual.push_back(v);
+	      // And chisq for this point
+	      double detCov = obs.cov(0,0)*obs.cov(1,1)-obs.cov(1,0)*obs.cov(0,1);
+	      detectChisq.push_back( (v[0]*v[0]*obs.cov(1,1)
+				+ v[1]*v[1]*obs.cov(0,0) +
+				- 2.*v[1]*v[0]*obs.cov(1,1))/detCov);
+	      mag.push_back(transients.getValue<double>("MAG",id));
+	      sn.push_back(transients.getValue<double>("FLUX_AUTO",id)
+			   / transients.getValue<double>("FLUXERR_AUTO",id) );
+	    }
+	  } else {
+	    // No detection in this exposure.  Output a row for every CCD it might be on.
+	    // Possibly none if orbit doesn't really touch a CCD here.
+	    for (short int ccd : opp.ccdnums) {
+	      expnum.push_back(expo.expnum);
+	      tdb.push_back(expo.tdb);
+	      band.push_back(et.band(expo.expnum));
+	      vector<double> v(2);
+	      radecPred.getLonLat(v[0],v[1]);
+	      prediction.push_back(v);
+	      v.resize(3);
+	      v[0] = covICRS(0,0); v[1]=covICRS(1,1); v[2]=covICRS(0,1);
+	      predCov.push_back(v);
+	      orbitID.push_back(startID.size()-1);  // How big are orbit arrays so far?
+	      objectID.push_back(-1); // Negative object ID signals no detection
+	      ccdnum.push_back(ccd);
+	      detection.push_back(vector<double>(2,0.));
+	      detectCov.push_back(vector<double>(3,0.));
+	      residual.push_back(vector<double>(2,0.));
+	      detectChisq.push_back(0.);
+	      mag.push_back(0.);
+	      sn.push_back(0.);
+	    }
+	  }
+	} // End loop over opportunities
+
+	// Should not be anything left in the detectionFinder:
+	for (auto pr : detectionFinder) {
+	  cerr << "#WEIRD: detection " << pr.second
+	       << " in exposure " << pr.first
+	       << " was not output for orbit " << orb->inputID
+	       << endl;
+	}
+
+	// Done with this orbit
 	delete orb;
-      }
+      } // close orbit loop
+    } // close friend-group loop
+    
+    // Now write tables to output file
+    {
+      // First the orbit table - make new file
+      FITS::FitsTable ft(outPath, FITS::ReadWrite | FITS::Create | FITS::OverwriteFile, "ORBITS");
+      img::FTable table = ft.use();
+      table.addColumn(startFile,"OLDFILE");
+      table.addColumn(startID,"OLDID");
+      table.addColumn(nDetect,"NDETECT");
+      table.addColumn(nUnique,"NUNIQUE");
+      table.addColumn(chisq,"CHISQ");
+      table.addColumn(outFrame,"FRAME");
+      table.addColumn(abg,"ABG");
+      table.addColumn(abgInvCov,"ABGINVCOV");
+      table.addColumn(elements,"ELEMENTS");
+      table.addColumn(elementCov,"ELEMENTCOV");
+      table.addColumn(arc,"ARC");
+      table.addColumn(fpr,"FPR");
+      table.addColumn(changed,"CHANGED");
+      table.addColumn(overlap,"OVERLAP");
+      table.addColumn(friendGroup,"GROUP");
+    }
+    {
+      // Now add detection table to the same file
+      FITS::FitsTable ft(outPath, FITS::ReadWrite | FITS::Create, "OBJECTS");
+      img::FTable table = ft.use();
+      table.addColumn(orbitID,"ORBITID");
+      table.addColumn(objectID,"OBJECTID");
+      table.addColumn(tdb,"TDB");
+      table.addColumn(expnum,"EXPNUM");
+      table.addColumn(ccdnum,"CCDNUM");
+      table.addColumn(band,"BAND");
+      table.addColumn(prediction,"PREDICT");
+      table.addColumn(predCov,"PREDCOV");
+      table.addColumn(detection,"DETECT");
+      table.addColumn(detectCov,"DETCOV");
+      table.addColumn(residual,"RESIDUAL");
+      table.addColumn(detectChisq,"CHISQ");
+      table.addColumn(mag,"MAG");
+      table.addColumn(sn,"SN");
+    }
+    {
+      // And an image of the false positive rate
+      img::FitsImage<float> fi(outPath,FITS::ReadWrite | FITS::Create, "FP");
+      fi.copy(fpImage);
     }
     
   } catch (std::runtime_error& e) {
@@ -599,6 +789,7 @@ int main(int argc,
   }
   exit(0);
 }
+
 
     
 

@@ -69,6 +69,7 @@ namespace orbits {
     int size() const {return astrometricTable.nrows() + nonAstrometricTable.nrows();}
     int expnum(int index) const;     // Return exposure number at index
     bool isAstrometric(int expnum) const; // Is astrometric solution / covariance available?
+    string band(int expnum) const;
     double mjd(int expnum) const;  // Return MJD_MID
     astrometry::CartesianICRS observatory(int expnum) const; //ICRS observatory position
     astrometry::SphericalICRS axis(int expnum) const; // Exposure pointing
@@ -124,6 +125,13 @@ namespace orbits {
     Observation getObservation(int objectID,
 			       const Ephemeris& ephem,
 			       ExposureTable& exposures) const;
+    // Return value of some named quantity
+    template<class T>
+    T getValue(const string& column, int row) const {
+      T out;
+      transientTable.readCell(out, column, row);
+      return out;
+    }
   private:
     img::FTable transientTable;
     img::FTable transientIndex;
