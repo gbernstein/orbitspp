@@ -707,6 +707,7 @@ int main(int argc,
       for (auto& orb : group) {
 	// Process each output orbit:
 	orb->friendGroup = groupCounter;
+	friendGroup.push_back(orb->friendGroup);
 	startFile.push_back(orb->inputFile);
 	startID.push_back(orb->inputID);
 	nDetect.push_back(orb->detectionIDs.size());
