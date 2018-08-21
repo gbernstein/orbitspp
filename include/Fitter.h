@@ -19,6 +19,10 @@ namespace orbits {
     Fitter(const Ephemeris& eph_, Gravity grav_=Gravity::GIANTS);
     // Initialize fitter with ephemeris and choice of gravity approximation
 
+    ~Fitter() {
+      if (fullTrajectory) delete fullTrajectory;
+    }
+    
     // Give Fitter a previous result (can be used for prediction without Observations)
     void setABG(const ABG& abg_, const ABGCovariance& cov_);
     

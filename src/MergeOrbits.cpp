@@ -16,7 +16,7 @@
 using namespace std;
 using namespace orbits;
 
-const int DEBUGLEVEL=1;
+const int DEBUGLEVEL=0;
 const int MIN_UNIQUE=4; // min number of independent detections to retain orbit
 
 // Time that must pass between exposures to be considered independent detections
@@ -24,18 +24,98 @@ const int MIN_UNIQUE=4; // min number of independent detections to retain orbit
 const double INDEPENDENT_TIME_INTERVAL = 0.1*DAY;
 
 const string usage =
-  "MergeOrbits:\n"
+  "MergeOrbits: program to combine multiple orbit files (produced by\n"
+  "   GrowOrbits or by this program) into a single file with duplicates\n"
+  "   removed.  Every input orbit is refit, with minimal priors, to all\n"
+  "   detections listed in the transientFile.  The output FITS file\n"
+  "   contains two tables and one image.  The ORBITS table contains\n"
+  "   one row per orbit that survives the merge.  The OBJECTS table\n"
+  "   contains one row per either a detection that is assigned to \n"
+  "   an orbit, or an exposure/CCD combination that is within the\n"
+  "   error ellipse for a fitted orbit but has no detection on the\n"
+  "   exposure, i.e. a missed opportunity.  The FP extension is\n"
+  "   an image that holds a 2d table of estimated total number of false\n"
+  "   positive detections, summed over all the searches creating the\n"
+  "   input files.\n"
+  "\n"
+  "   As well as re-finding all detections (or non-detections)\n"
+  "   consistent with each input orbit and re-fitting the orbits,\n"
+  "   this program discards all refit orbits whose detection list\n"
+  "   is a duplicate or subset of those in another orbit.  Orbits\n"
+  "   which share one or more detections are marked as \"overlap\"\n"
+  "   and put into groups by a friends-of-friends algorithm.\n"
+  "   [??? add culling of these friend groups later ???]\n"
   "\n"
   "Usage: MergeOrbits <orbitfile1> [orbitfile2] ... [-parameter value]\n"
   "   <orbitfileN> are any number >=1 of outputs from GrowOrbits\n"
   "   [-parameter value] are additional parameter name/value pairs.\n"
   "   Parameters are listed below.\n"
   "\n"
-  "Outputs: New FITS file with orbit and detection tables that are\n"
-  "        merged and updated, including orbital elements,\n"
-  "        a custom reference frame for each orbit,\n"
-  "        and information on predicted positions on exposures";
-// ....
+  "Input files formats: Any output from this program or GrowOrbits\n"
+  "        is valid input here.  The three extension names described\n"
+  "        above must be present.  Only the following columns are\n"
+  "        used from the ORBITS table: FPR, NUNIQUE\n"
+  "        & used from the OBJECTS table: ORBITID, OBJECTID\n"
+  "Output file format: These are the columns in the ORBITS table.\n"
+  "Parentheses give the FITS column type.\n"
+  "   OLDFILE:    (A) The input file from which the orbit came\n"
+  "   OLDID:      (K) The row number of the orbit in that file\n"
+  "   FPR:        (D) Estimated false positive rate for finding\n"
+  "               the final detection of the orbit in its original\n"
+  "               search (no new FPR is calculated during merge; if\n"
+  "               two orbits from different searches are merged we\n"
+  "               retain the lower FPR)\n"
+  "   NDETECT:    (J) Total number of detections found for this orbit\n"
+  "   NUNIQUE:    (J) Total number of \"unique\" detections, i.e. not\n"
+  "               within a few hours of each other\n"
+  "   ARC:        (6D) Time interval between first and last detection (yrs)\n"
+  "   CHANGED:    (L) Flag is set if detection list was different when\n"
+  "               re-searching the transient catalog for this orbit.\n"
+  "   OVERLAP:    (L) Flag is set if this orbit shares detection(s) with\n"
+  "               any other surviving orbit.\n"
+  "   GROUP:      (J) Integer code that will be common to all orbits\n"
+  "               sharing detections with this one (by friends-of-\n"
+  "               friends algorithm)\n"
+  "   FRAME:      (7D) The reference frame for this orbit's ABG, stored\n"
+  "               as an array of seven numbers giving\n"
+  "               [RA0, DEC0, PA0, X0, Y0, Z0, TDB0] where first 3\n"
+  "               are the spherical coord orientation (rad), second 3\n"
+  "               are ICRS origin (in AU), and last is reference TDB\n"
+  "               in years past J2000\n"
+  "   ABG:        (6D) The best-fit orbit, in alpha/beta/gamma values\n"
+  "   ABGINVCOV:  (36D) Inverse covariance matrix of ABG after fit\n"
+  "   ELEMENTS:   (6D) Best-fit orbital elements (radians)\n"
+  "               [A E I LAN LOP TOP]\n"
+  "   ELEMENTCOV: (36D) Covariance matrix of orbital elements.\n"
+  "\n"
+  "The columns in the OBJECTS table are:\n"
+  "   ORBITID:    (K) Row number in ORBITS table of the orbit to which\n"
+  "               this (non-) detection belongs.\n"
+  "   OBJECTID:   (J) Row number of detection in transient table.\n"
+  "               If <0, there is no detection, and this row is\n"
+  "               indicating and exposure/ccd pair which is within\n"
+  "               the search ellipse for the orbit on an exposure\n"
+  "               with no detection\n"
+  "   EXPNUM:     (J) Exposure number of the (non-)detection\n"
+  "   CCDNUM:     (I) Device (CCD) number of the (non-) detection\n"
+  "   TDB:        (D) Time of midpoint of exposure (years past J2000)\n"
+  "   BAND:       (A) Filter band name of the observation\n"
+  "   PREDICT:    (2D) RA, Dec (radians) of orbit prediction of position\n"
+  "   PREDCOV:    (3D) Covariance matrix elements (xx,yy,xy) of \n"
+  "               uncertainty ellipse for prediction of orbit fit.\n"
+  "               The x axis is to ICRS east, y to N, values in\n"
+  "               rad^2.\n"
+  "   DETECT:     (2D) RA,Dec of detected object (if any)\n"
+  "   DETCOV:     (3D) Measurement covariance matrix for DETECT, same\n"
+  "               format as PREDCOV.\n"
+  "   RESIDUAL:   (2D) (detected-predicted) position, in radianss,\n"
+  "               same x/y system.\n"
+  "   CHISQ:      (D) The chisq signficance of residual compared to\n"
+  "               DETCOV ellipse\n"
+  "   MAG:        (D) Magnitude of detection\n"
+  "   SN:         (D) S/N ratio of detection (flux / fluxerr)\n"
+  "\n"
+  "The contents of the FP image are documented elsewhere";
 
 struct FitResult {
   // Everything we need to know about an orbit
@@ -116,7 +196,9 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   // Acquire Observation for each detected transient
   obsICRS.clear();
   if (DEBUGLEVEL>1)
-    cerr << "# fitAndFind: Reading detection info" << endl;
+    cerr << "# fitAndFind: Reading detection info "
+	 << inputID << " has " << detectionIDs.size()
+	 << " " << nUnique << endl;
   for (auto id : detectionIDs) {
     obsICRS.push_back(transients.getObservation(id, ephem, exposureTable));
   }
@@ -176,6 +258,10 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   invcov = fit.getInvCovarABG();
   el = fit.getElements();
   elCov = fit.getElementCovariance();
+
+  if (DEBUGLEVEL>1)
+    cerr << "# ...chisq " << chisq << " abg " << abg
+	 << " a,e " << el[Elements::A] << "," << el[Elements::E] << endl;
 
   // Now go fishing for exposures this orbit crosses
   int nExposures = pool.size();
@@ -255,10 +341,18 @@ FitResult::fitAndFind(const Ephemeris& ephem,
 
     DVector allChi = opp.eptr->chisq(xPred[i], yPred[i],
 				     covxxPred[i], covyyPred[i], covxyPred[i]);
+    if (DEBUGLEVEL>2) {
+      double t = 0.5*(covxxPred[i]+covyyPred[i]);
+      double e = hypot(0.5*(covxxPred[i]-covyyPred[i]),covxyPred[i]);
+      cerr << "...exposure " << opp.eptr->expnum << " a/b "
+	   << setprecision(3) << sqrt(t+e)/ARCSEC << "/" << sqrt(t-e)/ARCSEC
+	   << " finds: ";
+    }
     for (int iTrans=0; iTrans<allChi.size(); iTrans++) {
       if (allChi[iTrans]<SEARCH_CHISQ && opp.eptr->valid[iTrans]) {
 	opp.hasDetection = true;
 	newDetectionIDs.push_back(opp.eptr->id[iTrans]);
+	if (DEBUGLEVEL>2) cerr << opp.eptr->id[iTrans] << " ";
 	// Is this a unique detection?
 	bool isUnique = true;
 	for (auto tdb : timesOfDetections) {
@@ -267,12 +361,14 @@ FitResult::fitAndFind(const Ephemeris& ephem,
 	    break;
 	  }
 	}
-	if (isUnique)
-	  nUnique++;
-	else
+	if (isUnique) {
 	  timesOfDetections.push_back(tdbAll[i]);
+	  nUnique++;
+	}
       }
     }
+    if (DEBUGLEVEL>2) cerr << endl;
+
   }
 
   // Compare new and old detection lists
@@ -447,14 +543,15 @@ int main(int argc,
 	inputOrbitTable.readCell(orb->fpr, "FPR", row);
 	
 	// Collect known transients for this orbit.
-	while (true) {
+	while (objectTableRow < inputObjectTable.nrows()) {
 	  LONGLONG id;
 	  inputObjectTable.readCell(id, "ORBITID", objectTableRow);
 	  if (id!=orb->inputID) break;
 	  int objectID;
 	  inputObjectTable.readCell(objectID, "OBJECTID", objectTableRow);
-	  if (objectID<0) continue;  // negative ID is non-detection
-	  orb->detectionIDs.push_back(objectID);
+	  if (objectID>=0)
+	    // negative ID is non-detection
+	    orb->detectionIDs.push_back(objectID);
 	  ++objectTableRow;
 	}
 
@@ -603,7 +700,7 @@ int main(int argc,
     vector<double>         mag;
     vector<double>         sn;          //S/N level of flux detection
     
-    // Loop through surviving orbits
+    // Loop through surviving orbits to collect outputs
     int groupCounter = -1;
     for (auto& group : friendGroups) {
       ++groupCounter;
@@ -783,6 +880,10 @@ int main(int argc,
       img::FitsImage<float> fi(outPath,FITS::ReadWrite | FITS::Create, "FP");
       fi.copy(fpImage);
     }
+
+    // Clean up.
+    // Drain the exposure pool
+    for (auto& ptr : pool) delete ptr;
     
   } catch (std::runtime_error& e) {
     quit(e);
