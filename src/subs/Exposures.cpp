@@ -393,7 +393,7 @@ Observation
 TransientTable::getObservation(int objectID,
 			       const Ephemeris& ephem,
 			       ExposureTable& exposures) const {
-  if (objectID<0 || objectID>transientTable.nrows())
+  if (objectID<0 || objectID>=transientTable.nrows())
     throw std::runtime_error("TransientTable::getObservation objectID out of range");
 
   Observation out;

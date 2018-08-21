@@ -486,7 +486,6 @@ Fitter::newtonFit(double chisqTolerance, bool dump) {
 
     // Recalculate with new ABG
     calculateChisq(true);
-    //**/cerr << " .chisq. " << chisq  << " abg " << abg <<  endl;
     if (dump) cerr << endl << " New chisq: " << chisq << endl;
     iterations++;
   } while (iterations < MAX_ITERATIONS && abs(chisq-oldChisq) > chisqTolerance);
@@ -550,7 +549,6 @@ Fitter::printResiduals(std::ostream& os) {
        << std::setw(7) << dx[i]/ARCSEC << " "
        << std::setw(7) << dy[i]/ARCSEC << " "
        << std::noshowpos << std::setprecision(2) << chi
-      //** << " invcov " << invcovXX[i] << " " << invcovYY[i] << " " << invcovXY[i] /**/
        << endl;
     chitot += chi;
   }
