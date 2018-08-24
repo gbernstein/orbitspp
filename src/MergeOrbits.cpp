@@ -129,6 +129,7 @@ struct FitResult {
   int nUnique;      // Number of distinct detection times
   vector<Observation, Eigen::aligned_allocator<Observation>> obsICRS;  
   double arc;       // Time span from first to last detection
+  double arccut;    // Shortest time span after we cut out any one night.
 
   class Opportunity {
   public:
@@ -150,7 +151,10 @@ struct FitResult {
   ElementCovariance elCov;
 
   int friendGroup;  // Number of its overlap group (-1=loner)
+  list<FitResult*> *itsGroup; // Will point to group of intersecting orbits
+  
   bool changedDetectionList; // set if detections were added / dropped
+  bool secure;      // Object is sure enough to claim the detections
   EIGEN_NEW
 
   // Comparison operators are looking at which detections were used to make orbits.
@@ -205,7 +209,7 @@ FitResult::fitAndFind(const Ephemeris& ephem,
 
   if (DEBUGLEVEL>1)
     cerr << "# ...Calculating arc length" << endl;
-  // Calculate arc
+  // Calculate arc, and arc after dropping one night
   {
     double t1 = obsICRS.front().tdb;
     double t2 = t1;
@@ -214,6 +218,14 @@ FitResult::fitAndFind(const Ephemeris& ephem,
       if (obs.tdb > t2) t2 = obs.tdb;
     }
     arc = t2 - t1;
+    // Now go back and find second-highest/lowest
+    double t1a = t2;
+    double t2a = t1;
+    for (auto& obs : obsICRS) {
+      if (obs.tdb-t1 > 0.7*DAY &&  obs.tdb < t1a) t1a = obs.tdb;
+      if (t2-obs.tdb > 0.7*DAY &&  obs.tdb > t2a) t2a = obs.tdb;
+    }
+    arccut = MIN(t2-t1a, t2a-t1);
   }
 
   if (DEBUGLEVEL>1)
@@ -579,6 +591,9 @@ int main(int argc,
 	  cerr << e.what() << endl;
 	}
 
+	/**/if (orb->inputID==129) cerr << "Success " << success 
+				      << " for " << orb->inputID
+				      << " id1 " << orb->detectionIDs[1] << endl;
 	if (success)
 	  orbits.push_back(orb);
 	else
@@ -586,86 +601,219 @@ int main(int argc,
       }
     }
 
-    // Purge duplicates and subsets, group overlapping sets by friends
-    // of friends.
-    list<list<FitResult*>> friendGroups;
+    cerr << "# Processed " << orbits.size() << " orbits" << endl;
+    cerr << "# Finding secure orbits" << endl;
+
+    set<int> secureDetections;
+    // "secure" detections meet these criteria:
+    const int MIN_SECURE_UNIQUE=7;
+    const double MIN_ARCCUT = 0.7;
+    const double MAX_FPR = 0.001;
+    int nSecure = 0;
+    for (auto ptr : orbits) {
+      ptr->secure = ( ptr->nUnique > MIN_SECURE_UNIQUE
+		      && ptr->fpr < MAX_FPR
+		      && ptr->arccut > MIN_ARCCUT);
+      if (ptr->secure) {
+	secureDetections.insert(ptr->detectionIDs.begin(),
+				ptr->detectionIDs.end());
+	++nSecure;
+      }
+    }
+      
+    cerr << "# Found " << nSecure
+	 << " secure orbits with " << secureDetections.size()
+	 << " distinct detections" << endl;
     
-    cerr << "# Starting the purge" << endl;
-    for (auto ptr1 : orbits) {
-      if (ptr1->nUnique < MIN_UNIQUE) { 
+    // Sweep through all orbits, deleting those that
+    // are too small or share detections with secure
+    // orbits.
+
+    // This multimap will contain all detection/orbit 
+    // pairs.
+
+    class Obj2Orbit: public multimap<int, FitResult*> {
+    public:
+      typedef multimap<int,FitResult*>::iterator iter;
+      // Add all the detections of a FitResult to the map
+      void add(FitResult* fptr) {
+	for (auto id : fptr->detectionIDs)
+	  emplace(id,fptr);
+      }
+      // Remove all detections from FitResult in this
+      // element, delete the FitResult,
+      // and return iterator to next element of the multimap.
+      multimap<int,FitResult*>::iterator remove(iter killit) {
+	auto out = killit;
+	++out;  // Save this as we will soon delete this guy
+	FitResult* fptr = killit->second;
+	for (auto id : fptr->detectionIDs) {
+	  // Search all map elements having this ID as key
+	  // for the one we want to kill.
+	  auto pr = this->equal_range(id);
+	  for (iter ptr = pr.first;
+	       ptr != pr.second;
+	       ++ptr) {
+	    if (ptr->second == fptr) {
+	      // This is the one to delete
+	      // Be careful if it was going to be the output
+	      if (ptr == out)
+		out = this->erase(ptr);
+	      else
+		this->erase(ptr);
+	      break;
+	    }
+	  }
+	}
+	/**/if (true/*fptr->inputID==129*/) cerr << "KILLing " << fptr->inputFile
+					<< "/" << fptr->inputID
+					<< " id1 " << fptr->detectionIDs[1] << endl;
+	delete fptr;
+	return out;
+      }
+    } obj2orbit;
+    
+    cerr << "# Purging insufficient orbits and shards" << endl;
+    int nLeft = 0;
+    for (auto ptr : orbits) {
+      if (ptr->nUnique < MIN_UNIQUE) { 
 	// Throw it away
-	delete ptr1;
+	/**/if (true/*fptr->inputID==129*/) cerr << "KILLing " << ptr->inputFile
+					<< "/" << ptr->inputID
+					<< " id1 " << ptr->detectionIDs[1] << endl;
+	delete ptr;
 	continue;
       }
 
-      list<FitResult*> itsFriends; // Collect all friends of this one.
-      itsFriends.push_back(ptr1);
-
-      // Loop through previous orbits, finding friends/supersets/subsets
-      for (auto groupPtr = friendGroups.begin();
-	   groupPtr != friendGroups.end(); ) {
-	bool mergeGroup = false; // Set if overlap with any friend
-	bool isSubset = false; // Set if redundant orbit
-	// Start loop over members of friend group
-	for (auto pptr2 = groupPtr->begin();
-	     pptr2 != groupPtr->end(); ) {
-	  auto ptr2 = *pptr2; // pptr2 is iterator to pointer...
-	  if (ptr1->intersects(*ptr2)) {
-	    // Merge friend groups
-	    mergeGroup = true;
-	    // Check relations between pairs
-	    if ((*ptr1)==(*ptr2)) {
-	      // If both are same orbit, keep lowest FPR
-	      if (ptr1->fpr > ptr2->fpr) {
-		// Delete ptr1
-		itsFriends.remove(ptr1);
-		isSubset = true;
-		break;
-	      } else {
-		// Delete ptr2
-		pptr2 = groupPtr->erase(pptr2);
-		delete ptr2;
-	      }		
-	    } else if (ptr2->includes(*ptr1)) {
-	      // ptr1 is a subset, delete it, no need to continue
-	      itsFriends.remove(ptr1);
-	      isSubset = true;
-	      break;
-	    } else if (ptr1->includes(*ptr2)) {
-	      // ptr2 is a subset, delete it from its group
-	      pptr2 = groupPtr->erase(pptr2);
-	      // And delete the whole thing
-	      delete ptr2;
-	    } else {
-	      // Proceed to next 2nd orbit
-	      ++pptr2;
-	    }
-	  } else {
-	    // No intersection, proceed to next 2nd orbit
-	    ++pptr2;
+      // is this a mis-track of a secure orbit?
+      if (!ptr->secure) {
+	bool kill = false;
+	for (auto id : ptr->detectionIDs)
+	  if (secureDetections.count(id)>0) {
+	    kill = true;
+	    break;
 	  }
-	} // End loop over members of friend group
-	if (mergeGroup) {
-	  // Absorb 2nd group and delete it
-	  itsFriends.insert(itsFriends.end(),
-			    groupPtr->begin(), groupPtr->end());
-	  groupPtr = friendGroups.erase(groupPtr);
-	} else {
-	  // Advance to next group
-	  ++groupPtr;
+	if (kill) {
+	/**/if (true/*fptr->inputID==129*/) cerr << "KILLing " << ptr->inputFile
+					<< "/" << ptr->inputID
+					<< " id1 " << ptr->detectionIDs[1] << endl;
+	  delete ptr;
+	  continue;
 	}
-	if (isSubset) {
-	  // ptr1 is a duplicate, no need to proceed through other groups
-	  delete ptr1;
+      }
+
+      nLeft++;
+      obj2orbit.add(ptr); // Valid orbit, we will continue with it.
+      ptr->itsGroup = nullptr;  // Prepare for grouping
+      /**/if (ptr->inputID==129) cerr << "Keeping " << ptr->inputFile
+				      << "/" << ptr->inputID
+				      << " id1 " << ptr->detectionIDs[1] << endl;
+    }
+    secureDetections.clear();  // Done with this list.
+    
+    cerr << "# Remaining orbits: " << nLeft << endl;
+    
+    // Purge subsets or duplicates.  We only bother
+    // to compare orbits that share a detection.
+    cerr << "# Starting purge of duplicates/subsets" << endl;
+    for (auto ptr1 = obj2orbit.begin();
+	 ptr1 != obj2orbit.end(); ) {
+      // Compare to all orbits sharing detection,
+      // which will be adjacent in multimap
+      auto ptr2 = ptr1;
+      ++ptr2;
+      bool kill1 = false; // Set if we should delete ptr1's orbit
+      while (ptr2!=obj2orbit.end() && ptr2->first==ptr1->first) {
+	// These orbits share a detection.  Compare.
+	if (*(ptr1->second)==*(ptr2->second)) {
+	  // If both are same orbit, keep lowest FPR
+	  if (ptr1->second->fpr > ptr2->second->fpr) {
+	    // Delete ptr1
+	    kill1 = true;
+	    break;
+	  } else {
+	    // Delete ptr2
+	    ptr2 = obj2orbit.remove(ptr2);
+	    nLeft--;
+	  }
+	} else if (ptr2->second->includes(*(ptr1->second))) {
+	  // ptr1 is a subset, delete it, no need to continue
+	  kill1 = true;
 	  break;
+	} else if (ptr1->second->includes(*(ptr2->second))) {
+	  // ptr2 is a subset, delete it
+	  ptr2 = obj2orbit.remove(ptr2);
+	  nLeft--;
+	} else {
+	  // Neither contains the other, proceed.
+	  ++ptr2;
 	}
-      } // End of loop over friend groups.
-      // Add this group to friend list
-      friendGroups.push_back(itsFriends);
-    } // End loop over all orbits.
+      }
+      if (kill1) {
+	ptr1 = obj2orbit.remove(ptr1);
+	nLeft--;
+      } else {
+	/**/if (ptr1->second->inputID==129) cerr << "Keeping " << ptr1->second->inputFile
+				      << "/" << ptr1->second->inputID
+				      << " id1 " << ptr1->second->detectionIDs[1] << endl;
+	++ptr1;
+      }
+    }
+    
+    cerr << "# Remaining orbits: " << nLeft << endl;
+    
+    // Now we group orbits into friends-of-friends.
+    cerr << "# Beginning FoF grouping" << endl;
+    typedef list<FitResult*> Group;
+
+    // Maintain a set of all the Groups.
+    set<Group*> allGroups;
+
+    for (auto ptr1 = obj2orbit.begin();
+	 ptr1 != obj2orbit.end(); ) {
+      // If this orbit is not in a friend group, make one
+      // for it:
+      if (!ptr1->second->itsGroup) {
+	ptr1->second->itsGroup = new Group;
+	ptr1->second->itsGroup->push_back(ptr1->second);
+	allGroups.insert(ptr1->second->itsGroup);
+	/**/if (ptr1->second->inputID==129) cerr << "Initializing " << ptr1->second->inputFile
+					 << "/" << ptr1->second->inputID
+					 << " id1 " << ptr1->second->detectionIDs[1] << endl;
+      }
+      auto destGroup = ptr1->second->itsGroup;  // put all friends here
+      // Loop over all other orbits sharing this detection
+      auto ptr2 = ptr1;
+      auto endptr = obj2orbit.upper_bound(ptr1->first);
+      for (++ptr2; ptr2!=endptr; ++ptr2) {
+	auto srcGroup = ptr2->second->itsGroup;
+	if (!srcGroup) {
+	  // ptr2 is not yet a member of a group, just add it here
+	  /**/if (ptr2->second->inputID==129) cerr << "Initializing " << ptr2->second->inputFile
+					   << "/" << ptr2->second->inputID
+					   << " id1 " << ptr2->second->detectionIDs[1] << endl;
+	  ptr2->second->itsGroup = destGroup;
+	} else if (srcGroup!=destGroup) {
+	  // absorb the srcGroup members
+	  for (auto ptr3 : *srcGroup) {
+	    /**/if (ptr3->inputID==129) cerr << "Moving " << ptr3->inputFile
+					     << "/" << ptr3->inputID
+					     << " id1 " << ptr3->detectionIDs[1] << endl;
+	    
+	    ptr3->itsGroup = destGroup; // Redirect each
+	  }
+	  destGroup->insert(destGroup->end(), srcGroup->begin(), srcGroup->end());
+	  // Source group no longer exists
+	  allGroups.erase(srcGroup);
+	}
+      }
+      ptr1 = endptr;
+    }
+    
+    cerr << "# Creating outputs" << endl;
 
     // Now all orbits are grouped into friend sets.
-    // Do any purging of overlapping orbits ??
+    // Do any further purging within overlap Groups ??
     
     // Save for each orbit:
     vector<string> startFile; // File holding source orbit
@@ -702,9 +850,10 @@ int main(int argc,
     
     // Loop through surviving orbits to collect outputs
     int groupCounter = -1;
-    for (auto& group : friendGroups) {
+    for (auto& group : allGroups) {
       ++groupCounter;
-      for (auto& orb : group) {
+      /**/cerr << "munch group " << groupCounter << " size " << group->size() << endl;
+      for (auto orb : *group) {
 	// Process each output orbit:
 	orb->friendGroup = groupCounter;
 	friendGroup.push_back(orb->friendGroup);
@@ -727,7 +876,7 @@ int main(int argc,
 	  for (int j=0; j<6; j++) v[i*6+j] = orb->elCov(i,j);
 	elementCov.push_back(v);
 	arc.push_back(orb->arc);
-	overlap.push_back(group.size() > 1); // Does orbit overlap others?
+	overlap.push_back(group->size() > 1); // Does orbit overlap others?
 	changed.push_back(orb->changedDetectionList);
 	v.resize(7);
 	orb->frame.orient.getPole().getLonLat(v[0],v[1]);
@@ -742,8 +891,17 @@ int main(int argc,
 	// First make a multimap holding expnum/detection pairs
 	std::multimap<int,int> detectionFinder;
 	for (int id : orb->detectionIDs) {
+	  /**/try {
 	  int expnum = transients.getValue<int>("EXPNUM",id);
 	  detectionFinder.emplace(expnum,id);
+	  } catch (std::runtime_error& m) {
+	    cerr << "**Caught " << m.what() << endl;
+	    cerr << " at orbit " << orb->inputFile << " " << orb->inputID
+		 << endl;
+	    for (int id : orb->detectionIDs)
+	      cerr << "id " << id << endl;
+	    exit(1);
+	  }
 	}
 	// Now loop through all exposures.  Different if it has
 	// detections or not.
