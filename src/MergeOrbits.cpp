@@ -591,9 +591,6 @@ int main(int argc,
 	  cerr << e.what() << endl;
 	}
 
-	/**/if (orb->inputID==129) cerr << "Success " << success 
-				      << " for " << orb->inputID
-				      << " id1 " << orb->detectionIDs[1] << endl;
 	if (success)
 	  orbits.push_back(orb);
 	else
@@ -665,9 +662,6 @@ int main(int argc,
 	    }
 	  }
 	}
-	/**/if (true/*fptr->inputID==129*/) cerr << "KILLing " << fptr->inputFile
-					<< "/" << fptr->inputID
-					<< " id1 " << fptr->detectionIDs[1] << endl;
 	delete fptr;
 	return out;
       }
@@ -678,9 +672,6 @@ int main(int argc,
     for (auto ptr : orbits) {
       if (ptr->nUnique < MIN_UNIQUE) { 
 	// Throw it away
-	/**/if (true/*fptr->inputID==129*/) cerr << "KILLing " << ptr->inputFile
-					<< "/" << ptr->inputID
-					<< " id1 " << ptr->detectionIDs[1] << endl;
 	delete ptr;
 	continue;
       }
@@ -694,9 +685,6 @@ int main(int argc,
 	    break;
 	  }
 	if (kill) {
-	/**/if (true/*fptr->inputID==129*/) cerr << "KILLing " << ptr->inputFile
-					<< "/" << ptr->inputID
-					<< " id1 " << ptr->detectionIDs[1] << endl;
 	  delete ptr;
 	  continue;
 	}
@@ -705,9 +693,6 @@ int main(int argc,
       nLeft++;
       obj2orbit.add(ptr); // Valid orbit, we will continue with it.
       ptr->itsGroup = nullptr;  // Prepare for grouping
-      /**/if (ptr->inputID==129) cerr << "Keeping " << ptr->inputFile
-				      << "/" << ptr->inputID
-				      << " id1 " << ptr->detectionIDs[1] << endl;
     }
     secureDetections.clear();  // Done with this list.
     
@@ -753,9 +738,6 @@ int main(int argc,
 	ptr1 = obj2orbit.remove(ptr1);
 	nLeft--;
       } else {
-	/**/if (ptr1->second->inputID==129) cerr << "Keeping " << ptr1->second->inputFile
-				      << "/" << ptr1->second->inputID
-				      << " id1 " << ptr1->second->detectionIDs[1] << endl;
 	++ptr1;
       }
     }
@@ -777,9 +759,6 @@ int main(int argc,
 	ptr1->second->itsGroup = new Group;
 	ptr1->second->itsGroup->push_back(ptr1->second);
 	allGroups.insert(ptr1->second->itsGroup);
-	/**/if (ptr1->second->inputID==129) cerr << "Initializing " << ptr1->second->inputFile
-					 << "/" << ptr1->second->inputID
-					 << " id1 " << ptr1->second->detectionIDs[1] << endl;
       }
       auto destGroup = ptr1->second->itsGroup;  // put all friends here
       // Loop over all other orbits sharing this detection
@@ -789,17 +768,11 @@ int main(int argc,
 	auto srcGroup = ptr2->second->itsGroup;
 	if (!srcGroup) {
 	  // ptr2 is not yet a member of a group, just add it here
-	  /**/if (ptr2->second->inputID==129) cerr << "Initializing " << ptr2->second->inputFile
-					   << "/" << ptr2->second->inputID
-					   << " id1 " << ptr2->second->detectionIDs[1] << endl;
 	  ptr2->second->itsGroup = destGroup;
+	  destGroup->push_back(ptr2->second);
 	} else if (srcGroup!=destGroup) {
 	  // absorb the srcGroup members
 	  for (auto ptr3 : *srcGroup) {
-	    /**/if (ptr3->inputID==129) cerr << "Moving " << ptr3->inputFile
-					     << "/" << ptr3->inputID
-					     << " id1 " << ptr3->detectionIDs[1] << endl;
-	    
 	    ptr3->itsGroup = destGroup; // Redirect each
 	  }
 	  destGroup->insert(destGroup->end(), srcGroup->begin(), srcGroup->end());
@@ -826,6 +799,7 @@ int main(int argc,
     vector<vector<double>> elements;  // Elements
     vector<vector<double>> elementCov;
     vector<double> arc;
+    vector<double> arccut;
     vector<double> fpr;
     vector<bool> overlap;
     vector<bool> changed;
@@ -852,7 +826,6 @@ int main(int argc,
     int groupCounter = -1;
     for (auto& group : allGroups) {
       ++groupCounter;
-      /**/cerr << "munch group " << groupCounter << " size " << group->size() << endl;
       for (auto orb : *group) {
 	// Process each output orbit:
 	orb->friendGroup = groupCounter;
@@ -876,6 +849,7 @@ int main(int argc,
 	  for (int j=0; j<6; j++) v[i*6+j] = orb->elCov(i,j);
 	elementCov.push_back(v);
 	arc.push_back(orb->arc);
+	arccut.push_back(orb->arccut);
 	overlap.push_back(group->size() > 1); // Does orbit overlap others?
 	changed.push_back(orb->changedDetectionList);
 	v.resize(7);
@@ -891,17 +865,8 @@ int main(int argc,
 	// First make a multimap holding expnum/detection pairs
 	std::multimap<int,int> detectionFinder;
 	for (int id : orb->detectionIDs) {
-	  /**/try {
 	  int expnum = transients.getValue<int>("EXPNUM",id);
 	  detectionFinder.emplace(expnum,id);
-	  } catch (std::runtime_error& m) {
-	    cerr << "**Caught " << m.what() << endl;
-	    cerr << " at orbit " << orb->inputFile << " " << orb->inputID
-		 << endl;
-	    for (int id : orb->detectionIDs)
-	      cerr << "id " << id << endl;
-	    exit(1);
-	  }
 	}
 	// Now loop through all exposures.  Different if it has
 	// detections or not.
@@ -1010,6 +975,7 @@ int main(int argc,
       table.addColumn(elements,"ELEMENTS");
       table.addColumn(elementCov,"ELEMENTCOV");
       table.addColumn(arc,"ARC");
+      table.addColumn(arccut,"ARCCUT");
       table.addColumn(fpr,"FPR");
       table.addColumn(changed,"CHANGED");
       table.addColumn(overlap,"OVERLAP");
