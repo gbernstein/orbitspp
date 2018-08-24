@@ -1,5 +1,6 @@
 To do on the orbit-fitting software:
 
+* Change all FITS array writes to fixed length
 * Inertial Trajectory crashing
 * start putting in OpenMP guards for multithreading: Ephemeris and Trajectory have internal states.
 Fitter should be single-threaded too, make new Fitters for different threads if re-fitting.

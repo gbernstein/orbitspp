@@ -1,6 +1,4 @@
 // Program to do cleanup of orbit sets
-
-
 #include <iostream>
 
 #include "StringStuff.h"
@@ -17,7 +15,7 @@ using namespace std;
 using namespace orbits;
 
 const int DEBUGLEVEL=0;
-const int MIN_UNIQUE=4; // min number of independent detections to retain orbit
+const int MIN_UNIQUE_FIT=4; // min number of independent detections to fit
 
 // Time that must pass between exposures to be considered independent detections
 // (e.g. when asteroids or defects would have moved out of linking range)
@@ -68,11 +66,14 @@ const string usage =
   "   NDETECT:    (J) Total number of detections found for this orbit\n"
   "   NUNIQUE:    (J) Total number of \"unique\" detections, i.e. not\n"
   "               within a few hours of each other\n"
-  "   ARC:        (6D) Time interval between first and last detection (yrs)\n"
+  "   ARC:        (D) Time interval between first and last detection (yrs)\n"
+  "   ARCCUT:     (D) Shortest arc obtained from dropping any one night\n"
   "   CHANGED:    (L) Flag is set if detection list was different when\n"
   "               re-searching the transient catalog for this orbit.\n"
   "   OVERLAP:    (L) Flag is set if this orbit shares detection(s) with\n"
   "               any other surviving orbit.\n"
+  "   MAXOVERLAP: (J) Largest NUNIQUE value for any other orbit which\n"
+  "               shares a detection with this one.\n"
   "   GROUP:      (J) Integer code that will be common to all orbits\n"
   "               sharing detections with this one (by friends-of-\n"
   "               friends algorithm)\n"
@@ -152,6 +153,7 @@ struct FitResult {
 
   int friendGroup;  // Number of its overlap group (-1=loner)
   list<FitResult*> *itsGroup; // Will point to group of intersecting orbits
+  int mostPopulousOverlap; // Highest nUnique for any orbit it shares detection with
   
   bool changedDetectionList; // set if detections were added / dropped
   bool secure;      // Object is sure enough to claim the detections
@@ -432,7 +434,10 @@ int main(int argc,
   double dec0;
   double radius;
   double tdb0;   // Reference time (=epoch of orbits or state vectors)
-  // Else orbital elements
+
+  int minUnique;  // Min number unique nights to retain orbit for output and FoF
+  double maxFPR;  // Max (initial) FPR value to retain
+  // ??? make unique/FPR pairs
 
   Pset parameters;
    
@@ -460,6 +465,10 @@ int main(int argc,
 			   "Dec of field center (deg)", -20.);
       parameters.addMember("radius",&radius, def || lowopen || up,
 			   "Radius of search area (deg)", 85.,0.,85.);
+      parameters.addMember("minUnique",&minUnique, def || low,
+			   "Minimum unique nights in output orbit", 5,MIN_UNIQUE_FIT);
+      parameters.addMember("maxFPR",&maxFPR, def || lowopen,
+			   "Maximum FPR input orbit to use", 0.03,0.);
       parameters.addMember("TDB0",&tdb0, def,
 			   "TDB of reference time (=orbit epoch), yrs since J2000", 16.);
     }
@@ -567,6 +576,12 @@ int main(int argc,
 	  ++objectTableRow;
 	}
 
+	if (orb->fpr > maxFPR) {
+	  // Don't use this one.
+	  delete orb;
+	  continue;
+	}
+	
 	// Set some initial flags
 	orb->friendGroup = -1;
 	orb->changedDetectionList = false;
@@ -581,7 +596,7 @@ int main(int argc,
 	      break;
 	    }
 	    // Also quit if we no longer have enough detections
-	    if (orb->nUnique < MIN_UNIQUE) 
+	    if (orb->nUnique < MIN_UNIQUE_FIT) 
 	      break;
 	    if (iter==MAX_FIT_ITERATIONS-1) cerr << "# WARNING: Not converging at " << orb->inputID << endl;
 	  }
@@ -608,9 +623,9 @@ int main(int argc,
     const double MAX_FPR = 0.001;
     int nSecure = 0;
     for (auto ptr : orbits) {
-      ptr->secure = ( ptr->nUnique > MIN_SECURE_UNIQUE
-		      && ptr->fpr < MAX_FPR
-		      && ptr->arccut > MIN_ARCCUT);
+      ptr->secure = ( ptr->nUnique >= MIN_SECURE_UNIQUE
+		      && ptr->fpr <= MAX_FPR
+		      && ptr->arccut >= MIN_ARCCUT);
       if (ptr->secure) {
 	secureDetections.insert(ptr->detectionIDs.begin(),
 				ptr->detectionIDs.end());
@@ -627,7 +642,12 @@ int main(int argc,
     // orbits.
 
     // This multimap will contain all detection/orbit 
-    // pairs.
+    // pairs.  Sorting by detection id's eliminates the
+    // need to compare all pairs of orbits/detections
+    // to make the subset and friend identifications.
+    // Once this map is constructed, it becomes
+    // the repository of all valid FitResult pointers.
+
 
     class Obj2Orbit: public multimap<int, FitResult*> {
     public:
@@ -670,7 +690,7 @@ int main(int argc,
     cerr << "# Purging insufficient orbits and shards" << endl;
     int nLeft = 0;
     for (auto ptr : orbits) {
-      if (ptr->nUnique < MIN_UNIQUE) { 
+      if (ptr->nUnique < minUnique) { 
 	// Throw it away
 	delete ptr;
 	continue;
@@ -693,6 +713,7 @@ int main(int argc,
       nLeft++;
       obj2orbit.add(ptr); // Valid orbit, we will continue with it.
       ptr->itsGroup = nullptr;  // Prepare for grouping
+      ptr->mostPopulousOverlap = 0; // Will track quality of friends
     }
     secureDetections.clear();  // Done with this list.
     
@@ -765,6 +786,13 @@ int main(int argc,
       auto ptr2 = ptr1;
       auto endptr = obj2orbit.upper_bound(ptr1->first);
       for (++ptr2; ptr2!=endptr; ++ptr2) {
+	// Any two overlaps raise each other's maxPopulousOverlap
+	ptr1->second->mostPopulousOverlap =
+	  std::max(ptr1->second->mostPopulousOverlap, ptr2->second->nUnique);
+	ptr2->second->mostPopulousOverlap =
+	  std::max(ptr2->second->mostPopulousOverlap, ptr1->second->nUnique);
+
+	// Now merge friends groups if different
 	auto srcGroup = ptr2->second->itsGroup;
 	if (!srcGroup) {
 	  // ptr2 is not yet a member of a group, just add it here
@@ -802,6 +830,7 @@ int main(int argc,
     vector<double> arccut;
     vector<double> fpr;
     vector<bool> overlap;
+    vector<int> maxOverlap;
     vector<bool> changed;
     vector<int> friendGroup;
     vector<vector<double>> outFrame; // Reference frame, stored as 7 numbers
@@ -851,6 +880,7 @@ int main(int argc,
 	arc.push_back(orb->arc);
 	arccut.push_back(orb->arccut);
 	overlap.push_back(group->size() > 1); // Does orbit overlap others?
+	maxOverlap.push_back(orb->mostPopulousOverlap);
 	changed.push_back(orb->changedDetectionList);
 	v.resize(7);
 	orb->frame.orient.getPole().getLonLat(v[0],v[1]);
@@ -958,8 +988,9 @@ int main(int argc,
 	delete orb;
       } // close orbit loop
     } // close friend-group loop
-    
+
     // Now write tables to output file
+    cerr << "# Write table of " << startFile.size() << " orbits " << endl;
     {
       // First the orbit table - make new file
       FITS::FitsTable ft(outPath, FITS::ReadWrite | FITS::Create | FITS::OverwriteFile, "ORBITS");
@@ -969,18 +1000,20 @@ int main(int argc,
       table.addColumn(nDetect,"NDETECT");
       table.addColumn(nUnique,"NUNIQUE");
       table.addColumn(chisq,"CHISQ");
-      table.addColumn(outFrame,"FRAME");
-      table.addColumn(abg,"ABG");
-      table.addColumn(abgInvCov,"ABGINVCOV");
-      table.addColumn(elements,"ELEMENTS");
-      table.addColumn(elementCov,"ELEMENTCOV");
+      table.addColumn(outFrame,"FRAME",7);
+      table.addColumn(abg,"ABG",6);
+      table.addColumn(abgInvCov,"ABGINVCOV",36);
+      table.addColumn(elements,"ELEMENTS",6);
+      table.addColumn(elementCov,"ELEMENTCOV",36);
       table.addColumn(arc,"ARC");
       table.addColumn(arccut,"ARCCUT");
       table.addColumn(fpr,"FPR");
       table.addColumn(changed,"CHANGED");
       table.addColumn(overlap,"OVERLAP");
+      table.addColumn(maxOverlap,"MAXOVERLAP");
       table.addColumn(friendGroup,"GROUP");
     }
+    cerr << "# Write table of " << orbitID.size() << " detections " << endl;
     {
       // Now add detection table to the same file
       FITS::FitsTable ft(outPath, FITS::ReadWrite | FITS::Create, "OBJECTS");
@@ -990,16 +1023,17 @@ int main(int argc,
       table.addColumn(tdb,"TDB");
       table.addColumn(expnum,"EXPNUM");
       table.addColumn(ccdnum,"CCDNUM");
-      table.addColumn(band,"BAND");
-      table.addColumn(prediction,"PREDICT");
-      table.addColumn(predCov,"PREDCOV");
-      table.addColumn(detection,"DETECT");
-      table.addColumn(detectCov,"DETCOV");
-      table.addColumn(residual,"RESIDUAL");
+      table.addColumn(band,"BAND",1,1);
+      table.addColumn(prediction,"PREDICT",2);
+      table.addColumn(predCov,"PREDCOV",3);
+      table.addColumn(detection,"DETECT",2);
+      table.addColumn(detectCov,"DETCOV",3);
+      table.addColumn(residual,"RESIDUAL",2);
       table.addColumn(detectChisq,"CHISQ");
       table.addColumn(mag,"MAG");
       table.addColumn(sn,"SN");
     }
+    cerr << "# Write FP image" <<  endl;
     {
       // And an image of the false positive rate
       img::FitsImage<float> fi(outPath,FITS::ReadWrite | FITS::Create, "FP");
