@@ -1044,8 +1044,8 @@ main(int argc, char **argv) {
 	table.addColumn(nDetect,"NDETECT");
 	table.addColumn(nIndependent,"NUNIQUE");
 	table.addColumn(chisq,"CHISQ");
-	table.addColumn(abg,"ABG");
-	table.addColumn(abgInvCov,"ABGINVCOV");
+	table.addColumn(abg,"ABG",6);
+	table.addColumn(abgInvCov,"ABGINVCOV",36);
 	table.addColumn(arc,"ARC");
 	table.addColumn(fpr,"FPR");
 	table.addColumn(skipped,"SKIPPED");
