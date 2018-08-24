@@ -148,6 +148,7 @@ const int MIN_DETECTIONS_TO_OUTPUT = 4;
 // starting orbit and pull the detections out of circulation.
 const double MAX_FPR_EXCLUSIVE = 0.001;
 const int MIN_DETECTIONS_EXCLUSIVE = 7; 
+// ??? Include check for arc without last point ??
 
 ////////////////////////////////////////////////////////////////////////////////////
 // Helper classes
