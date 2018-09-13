@@ -14,12 +14,14 @@
 using namespace std;
 using namespace orbits;
 
-const int DEBUGLEVEL=0;
+const int DEBUGLEVEL= 0;
 const int MIN_UNIQUE_FIT=4; // min number of independent detections to fit
 
 // Time that must pass between exposures to be considered independent detections
 // (e.g. when asteroids or defects would have moved out of linking range)
 const double INDEPENDENT_TIME_INTERVAL = 0.1*DAY;
+
+const double SEARCH_CHISQ=9.; // Maximum chisq to consider a match in 2d
 
 const string usage =
   "MergeOrbits: program to combine multiple orbit files (produced by\n"
@@ -96,7 +98,9 @@ const string usage =
   "               If <0, there is no detection, and this row is\n"
   "               indicating and exposure/ccd pair which is within\n"
   "               the search ellipse for the orbit on an exposure\n"
-  "               with no detection\n"
+  "               with no detection. Then OBJECTID is negative of\n"
+  "               closest detection to prediction, and CHISQ gives its\n"
+  "               distance in a chisq sense\n"
   "   EXPNUM:     (J) Exposure number of the (non-)detection\n"
   "   CCDNUM:     (I) Device (CCD) number of the (non-) detection\n"
   "   TDB:        (D) Time of midpoint of exposure (years past J2000)\n"
@@ -109,7 +113,7 @@ const string usage =
   "   DETECT:     (2D) RA,Dec of detected object (if any)\n"
   "   DETCOV:     (3D) Measurement covariance matrix for DETECT, same\n"
   "               format as PREDCOV.\n"
-  "   RESIDUAL:   (2D) (detected-predicted) position, in radianss,\n"
+  "   RESIDUAL:   (2D) (detected-predicted) position, in radians,\n"
   "               same x/y system.\n"
   "   CHISQ:      (D) The chisq signficance of residual compared to\n"
   "               DETCOV ellipse\n"
@@ -141,6 +145,8 @@ struct FitResult {
     Matrix22 orbitCov;   // Model covariance in frame
     vector<int> ccdnums;
     bool hasDetection;   // set if there is a detection on the exposure
+    double nearestChisq;      // Chisq to model of best detection on exposure.
+    int  nearestID;      // object number of nearest
   };
   vector<Opportunity, Eigen::aligned_allocator<Opportunity>> opportunities;
 
@@ -198,7 +204,6 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   // Then search all exposures for any additional transients.
   // Return true if any detections changed.
 
-  const double SEARCH_CHISQ=9.; // Maximum chisq to consider a match in 2d
   // Acquire Observation for each detected transient
   obsICRS.clear();
   if (DEBUGLEVEL>1)
@@ -362,7 +367,20 @@ FitResult::fitAndFind(const Ephemeris& ephem,
 	   << setprecision(3) << sqrt(t+e)/ARCSEC << "/" << sqrt(t-e)/ARCSEC
 	   << " finds: ";
     }
+    // We will record nature of the closest transient on the exposure
+    if (allChi.size()>0) {
+      opp.nearestID = opp.eptr->id[0];
+      opp.nearestChisq = allChi[0];
+    } else {
+      opp.nearestID = 0;
+      opp.nearestChisq = 0;
+    }
     for (int iTrans=0; iTrans<allChi.size(); iTrans++) {
+      if (allChi[iTrans] < opp.nearestChisq) {
+	opp.nearestID = opp.eptr->id[iTrans];
+	opp.nearestChisq = allChi[iTrans];
+      }
+      
       if (allChi[iTrans]<SEARCH_CHISQ && opp.eptr->valid[iTrans]) {
 	opp.hasDetection = true;
 	newDetectionIDs.push_back(opp.eptr->id[iTrans]);
@@ -381,7 +399,8 @@ FitResult::fitAndFind(const Ephemeris& ephem,
 	}
       }
     }
-    if (DEBUGLEVEL>2) cerr << endl;
+    if (DEBUGLEVEL>2)
+      cerr << " nearest " << opp.nearestID << "@" << opp.nearestChisq << endl;
 
   }
 
@@ -578,6 +597,12 @@ int main(int argc,
 
 	if (orb->fpr > maxFPR) {
 	  // Don't use this one.
+	  delete orb;
+	  continue;
+	}
+
+	// Also require a minimum number of detections to proceed
+	if (orb->detectionIDs.size() < 4) {
 	  delete orb;
 	  continue;
 	}
@@ -964,12 +989,18 @@ int main(int argc,
 	      v[0] = covICRS(0,0); v[1]=covICRS(1,1); v[2]=covICRS(0,1);
 	      predCov.push_back(v);
 	      orbitID.push_back(startID.size()-1);  // How big are orbit arrays so far?
-	      objectID.push_back(-1); // Negative object ID signals no detection
 	      ccdnum.push_back(ccd);
+	      // Make negative object number for nearest detection, give its chisq to orbit
+	      if (opp.nearestID>0) {
+		objectID.push_back(-opp.nearestID); // Negative object ID signals no detection
+	      } else {
+		// If the nearest was zero or there were none, put this in:
+		objectID.push_back(-1); // I know, this could mean nearest is ID=1...
+	      }
+	      detectChisq.push_back(opp.nearestChisq);
 	      detection.push_back(vector<double>(2,0.));
 	      detectCov.push_back(vector<double>(3,0.));
 	      residual.push_back(vector<double>(2,0.));
-	      detectChisq.push_back(0.);
 	      mag.push_back(0.);
 	      sn.push_back(0.);
 	    }

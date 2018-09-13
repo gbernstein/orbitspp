@@ -610,6 +610,7 @@ CornerTable::fillExposure(Exposure* eptr) const {
     }
     eptr->deviceBoundsLocalICRS.push_back(ConvexPolygon(vertices));
   }
+  return true;
 }
 
 ////////////////////////////////////////////////////////////////////////
