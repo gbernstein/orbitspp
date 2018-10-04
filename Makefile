@@ -167,19 +167,22 @@ depend: local-depend
 
 local-depend:
 	$(RM) .depend
-	for src in $(SUBS:%.cpp=%) $(EXECS:%.cpp=%); \
-	   do $(CXX) $(CXXFLAGS) $(INCLUDES) -MM $$src.cpp -MT obj/$$src.o >> .depend; \
+	for src in $(SUBS:$(SUBDIR)/%.cpp=%); \
+	 do $(CXX) $(CXXFLAGS) $(INCLUDES) -MM $(SUBDIR)/$$src.cpp -MT obj/$$src.o >> .depend; \
+	done
+	for src in $(EXECS:%.cpp=%); \
+	 do $(CXX) $(CXXFLAGS) $(INCLUDES) -MM $$src.cpp -MT obj/$$src.o >> .depend; \
         done
 
 clean: local-clean
 	for dir in $(EXTDIRS); do (cd $$dir && $(MAKE) clean); done
 
 local-clean:
-	rm -f $(OBJDIR)/*.o $(BINDIR)/* $(TESTBINDIR)/* *~ *.dvi *.aux core .depend
+	rm -rf $(OBJDIR)/*.o $(BINDIR)/* $(TESTBINDIR)/* *~ *.dvi *.aux core .depend
 
 ifeq (.depend, $(wildcard .depend))
 include .depend
 endif
 
-.PHONY: all install dist depend clean 
+.PHONY: all install dist depend clean local-clean local-depend exts tests cpp python
 

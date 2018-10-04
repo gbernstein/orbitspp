@@ -91,7 +91,7 @@ namespace orbits {
   };
 
   class Elements: public Vector6 {
-    // Keplerian elements for elliptical orbit
+    // Keplerian elements for elliptical orbit.  All angles in radians, TOP in yrs.
   public:
     static const int A=0;
     static const int E=1;
