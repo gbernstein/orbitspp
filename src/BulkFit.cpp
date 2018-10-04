@@ -50,7 +50,7 @@ using namespace std;
 using namespace orbits;
 
 // Some possible fitting failure modes
-const double MAX_LINEAR_CHISQ_PER_PT = 1e5; //**100.;
+const double MAX_LINEAR_CHISQ_PER_PT = 5e5; //**100.;
 const int LINEAR_CHISQ_TOO_HIGH = 1;
 const double MAX_LINEAR_ORBIT_KE = 10.;  // Max ratio of |KE/PE| before quitting
 const int LINEAR_KE_TOO_HIGH = 2;
