@@ -114,10 +114,10 @@ int main(int argc,
     {
       vector<vector<double>> vv;
       vv.push_back(vector<double>(6,0.));
-      orbitTable.addColumn(vv,"XV");
+      orbitTable.addColumn(vv,"XV", 6);
       vv.clear();
       vv.push_back(vector<double>(36,0.));
-      orbitTable.addColumn(vv,"XVCOV");
+      orbitTable.addColumn(vv,"XVCOV", 36);
     }
 
     // Begin reading input data.  One Fitter should do for everything.
