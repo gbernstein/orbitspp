@@ -61,7 +61,7 @@ endif
 
 ifdef CFITSIO_DIR
 INCLUDES += -I $(CFITSIO_DIR)/include
-LIBS += -L $(CFITSIO_DIR)/lib -lcfitsio
+LIBS += -L $(CFITSIO_DIR)/lib -lcfitsio -L/sw/lib -lcurl
 else
 $(error Require CFITSIO_DIR in environment)
 endif
