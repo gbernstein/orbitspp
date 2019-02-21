@@ -86,7 +86,7 @@ const string usage =
   "               are ICRS origin (in AU), and last is reference TDB\n"
   "               in years past J2000\n"
   "   ABG:        (6D) The best-fit orbit, in alpha/beta/gamma values\n"
-  "   ABGINVCOV:  (36D) Inverse covariance matrix of ABG after fit\n"
+  "   ABGCOV:  (36D) Inverse covariance matrix of ABG after fit\n"
   "   ELEMENTS:   (6D) Best-fit orbital elements (radians)\n"
   "               [A E I LAN LOP TOP]\n"
   "   ELEMENTCOV: (36D) Covariance matrix of orbital elements.\n"
@@ -153,7 +153,7 @@ struct FitResult {
   double chisq;     // Chisq of best fit
   Frame frame;       // Frame for its ABG
   ABG abg;          // orbit
-  ABGCovariance invcov; // and covariance
+  ABGCovariance abgcov; // and covariance
   Elements el;
   ElementCovariance elCov;
 
@@ -274,7 +274,7 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   // Save fit results
   chisq = fit.getChisq();
   abg = fit.getABG();
-  invcov = fit.getInvCovarABG();
+  abgcov = fit.getInvCovarABG().inverse();
   el = fit.getElements();
   elCov = fit.getElementCovariance();
 
@@ -848,7 +848,7 @@ int main(int argc,
     vector<int> nUnique; // Number of independent nights
     vector<double> chisq;
     vector<vector<double>> abg;
-    vector<vector<double>> abgInvCov;
+    vector<vector<double>> abgCov;
     vector<vector<double>> elements;  // Elements
     vector<vector<double>> elementCov;
     vector<double> arc;
@@ -897,8 +897,8 @@ int main(int argc,
 	elements.push_back(v);
 	v.resize(36);
 	for (int i=0; i<6; i++)
-	  for (int j=0; j<6; j++) v[i*6+j] = orb->invcov(i,j);
-	abgInvCov.push_back(v);
+	  for (int j=0; j<6; j++) v[i*6+j] = orb->abgcov(i,j);
+	abgCov.push_back(v);
 	for (int i=0; i<6; i++)
 	  for (int j=0; j<6; j++) v[i*6+j] = orb->elCov(i,j);
 	elementCov.push_back(v);
@@ -1033,7 +1033,7 @@ int main(int argc,
       table.addColumn(chisq,"CHISQ");
       table.addColumn(outFrame,"FRAME",7);
       table.addColumn(abg,"ABG",6);
-      table.addColumn(abgInvCov,"ABGINVCOV",36);
+      table.addColumn(abgCov,"ABGCOV",36);
       table.addColumn(elements,"ELEMENTS",6);
       table.addColumn(elementCov,"ELEMENTCOV",36);
       table.addColumn(arc,"ARC");

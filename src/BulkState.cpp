@@ -102,7 +102,7 @@ int main(int argc,
     bool useABG = false;
     if ( orbitTable.hasColumn("ABG") && orbitTable.hasColumn("ABGCOV"))
       useABG = true;
-    else if ( orbitTable.hasColumn("ELEMENTS") && orbitTable.hasColumn("ELCOV"))
+    else if ( orbitTable.hasColumn("ELEMENTS") && orbitTable.hasColumn("ELEMENTCOV"))
       useABG = false;  // Use elements
     else {
       cerr << "Can find neither columns for ABG nor for elements in table"
@@ -125,8 +125,11 @@ int main(int argc,
     fit.setFrame(frame);
 
     for (int row=0; row<orbitTable.nrows(); row++) {
-      int flag;
+      int flag = 0;
+      if (orbitTable.hasColumn("FLAGS")) {
+      // int flag;
       orbitTable.readCell(flag, "FLAGS", row);
+    }
       if (flag>0) {
 	orbitTable.writeCell(vector<double>(6,0.),"XV",row);
 	orbitTable.writeCell(vector<double>(36,0.),"XVCOV",row);
@@ -176,7 +179,7 @@ int main(int argc,
 	Elements e;
 	for (int i=0; i<6; i++) e[i] = v[i];
 	v.resize(36);
-	orbitTable.readCell(v,"ELCOV",row);
+	orbitTable.readCell(v,"ELEMENTCOV",row);
 	ElementCovariance eCov;
 	for (int i=0; i<6; i++)
 	  for (int j=0; j<6; j++)
