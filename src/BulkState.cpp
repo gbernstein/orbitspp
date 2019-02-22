@@ -20,7 +20,7 @@ const string usage =
   "  Program options are listed below.\n"
   "\n"
   "The input orbit table (in FITS file) will on exit have additional\n"
-  "columns for XV and XVCOV.  State vectors are barycentric ICRS\n"
+  "columns for XV and XVINVCOV.  State vectors are barycentric ICRS\n"
   "in units of AU and Julian years";
 using namespace std;
 using namespace orbits;
@@ -100,7 +100,7 @@ int main(int argc,
 
     // See what kind of input we're going to use
     bool useABG = false;
-    if ( orbitTable.hasColumn("ABG") && orbitTable.hasColumn("ABGCOV"))
+    if ( orbitTable.hasColumn("ABG") && orbitTable.hasColumn("ABGINVCOV"))
       useABG = true;
     else if ( orbitTable.hasColumn("ELEMENTS") && orbitTable.hasColumn("ELEMENTCOV"))
       useABG = false;  // Use elements
@@ -117,38 +117,33 @@ int main(int argc,
       orbitTable.addColumn(vv,"XV", 6);
       vv.clear();
       vv.push_back(vector<double>(36,0.));
-      orbitTable.addColumn(vv,"XVCOV", 36);
+      orbitTable.addColumn(vv,"XVINVCOV", 36);
     }
-
-    // Begin reading input data.  One Fitter should do for everything.
-    Fitter fit(eph, Gravity::GIANTS);
-    fit.setFrame(frame);
 
     for (int row=0; row<orbitTable.nrows(); row++) {
       int flag = 0;
       if (orbitTable.hasColumn("FLAGS")) {
-      // int flag;
-      orbitTable.readCell(flag, "FLAGS", row);
-    }
+	orbitTable.readCell(flag, "FLAGS", row);
+      }
       if (flag>0) {
 	orbitTable.writeCell(vector<double>(6,0.),"XV",row);
-	orbitTable.writeCell(vector<double>(36,0.),"XVCOV",row);
+	orbitTable.writeCell(vector<double>(36,0.),"XVINVCOV",row);
 	continue; // Do not calculate elements for bad orbit
       }
 
       State s;
-      Matrix66 sCov;
+      Matrix66 sInvCov;
 
       if (useABG) {
 	vector<double> v;
 	orbitTable.readCell(v,"ABG",row);
 	ABG abg;
 	for (int i=0; i<6; i++) abg[i] = v[i];
-	orbitTable.readCell(v,"ABGCOV",row);
-	ABGCovariance cov;
+	orbitTable.readCell(v,"ABGINVCOV",row);
+	Matrix66 aInvCov;
 	for (int i=0; i<6; i++)
 	  for (int j=0; j<6; j++)
-	    cov(i,j) = v[6*i+j];
+	    aInvCov(i,j) = v[6*i+j];
 
 	Vector3 xFrame;
 	Vector3 vFrame;
@@ -170,7 +165,10 @@ int main(int argc,
 	s.x = frame.toICRS(xFrame);
 	s.v = frame.toICRS(vFrame,true);
 	s.tdb = frame.tdb0;
-	sCov = dSdABG * cov * dSdABG.transpose();
+	// We need to invert the derivatives to transform
+	// the inverse covariance
+	Matrix66 dABGdS = dSdABG.inverse();
+	sInvCov = dABGdS.transpose() * aInvCov * dABGdS;
 	
       } else {
 	// Start with elements
@@ -180,19 +178,18 @@ int main(int argc,
 	for (int i=0; i<6; i++) e[i] = v[i];
 	v.resize(36);
 	orbitTable.readCell(v,"ELEMENTCOV",row);
-	ElementCovariance eCov;
+	Matrix66 eCov;
 	for (int i=0; i<6; i++)
 	  for (int j=0; j<6; j++)
 	    eCov(i,j) = v[6*i+j];
+	Matrix66 eInvCov = eCov.inverse();
+	// ?? Catch a degenerate matrix?
 
 	// Get state vector from elements
 	s = getState(e,frame.tdb0);
-	// And the derivatives - need to invert
+	// And the derivatives
 	auto dEdS = getElementDerivatives(s);
-	// Invert to get dSdE
-	// ?? Catch a degenerate matrix?
-	Matrix66 dSdE = dEdS.inverse();
-	sCov = dSdE * eCov * dSdE.transpose();
+	sInvCov = dEdS.transpose() * eInvCov * dEdS;
       }
 
       vector<double> v(6);
@@ -204,8 +201,8 @@ int main(int argc,
       v.resize(36);
       for (int i=0; i<6; i++)
 	for (int j=0; j<6; j++)
-	  v[6*i+j] = sCov(i,j);
-      orbitTable.writeCell(v,"XVCOV",row);
+	  v[6*i+j] = sInvCov(i,j);
+      orbitTable.writeCell(v,"XVINVCOV",row);
     }
   } catch (std::runtime_error& e) {
     quit(e);
