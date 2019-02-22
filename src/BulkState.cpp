@@ -21,7 +21,11 @@ const string usage =
   "\n"
   "The input orbit table (in FITS file) will on exit have additional\n"
   "columns for XV and XVINVCOV.  State vectors are barycentric ICRS\n"
-  "in units of AU and Julian years";
+  "in units of AU and Julian years.\n"
+  "\n"
+  "If the input ABG or ELEMENTS have degeneracies in the conversion to state vector,\n"
+  "or if ELEMENTCOV is singular, then the output XVINVCOV will be zeros.  If the\n"
+  "input orbit is unbound, then both XV and XVINVCOV will be zeros.";
 using namespace std;
 using namespace orbits;
 
@@ -112,6 +116,12 @@ int main(int argc,
 
     // Make new columns
     {
+      // Get rid of old columns if they are there
+      if (orbitTable.hasColumn("XV"))
+	orbitTable.eraseColumn("XV");
+      if (orbitTable.hasColumn("XVINVCOV"))
+	orbitTable.eraseColumn("XVINVCOV");
+      
       vector<vector<double>> vv;
       vv.push_back(vector<double>(6,0.));
       orbitTable.addColumn(vv,"XV", 6);
@@ -133,6 +143,7 @@ int main(int argc,
 
       State s;
       Matrix66 sInvCov;
+      bool singularCov = false;  // Set this for bad inversion
 
       if (useABG) {
 	vector<double> v;
@@ -149,7 +160,8 @@ int main(int argc,
 	Vector3 vFrame;
 	// Get state vector and covariance in Frame
 	// at reference epoch of frame
-	abg.getState(0., xFrame, vFrame); 
+	abg.getState(0., xFrame, vFrame);
+	  
 	// Derivative of state vector in reference frame wrt ABG:
 	Matrix66 dSdABG_frame = abg.getStateDerivatives();
 	 // Rotate x and v derivatives into ICRS
@@ -167,8 +179,13 @@ int main(int argc,
 	s.tdb = frame.tdb0;
 	// We need to invert the derivatives to transform
 	// the inverse covariance
-	Matrix66 dABGdS = dSdABG.inverse();
-	sInvCov = dABGdS.transpose() * aInvCov * dABGdS;
+	Eigen::FullPivLU<Eigen::Matrix<double,6,6>> lu(dSdABG);
+	if (lu.isInvertible()) {
+	  Matrix66 dABGdS = lu.inverse();
+	  sInvCov = dABGdS.transpose() * aInvCov * dABGdS;
+	} else {
+	  singularCov = true;
+	}
 	
       } else {
 	// Start with elements
@@ -176,21 +193,34 @@ int main(int argc,
 	orbitTable.readCell(v,"ELEMENTS",row);
 	Elements e;
 	for (int i=0; i<6; i++) e[i] = v[i];
-	v.resize(36);
-	orbitTable.readCell(v,"ELEMENTCOV",row);
-	Matrix66 eCov;
-	for (int i=0; i<6; i++)
-	  for (int j=0; j<6; j++)
-	    eCov(i,j) = v[6*i+j];
-	Matrix66 eInvCov = eCov.inverse();
-	// ?? Catch a degenerate matrix?
-
-	// Get state vector from elements
-	s = getState(e,frame.tdb0);
-	// And the derivatives
-	auto dEdS = getElementDerivatives(s);
-	sInvCov = dEdS.transpose() * eInvCov * dEdS;
-      }
+	try {
+	  // Get state vector from elements
+	  s = getState(e,frame.tdb0);
+	  // Get covariance
+	  v.resize(36);
+	  orbitTable.readCell(v,"ELEMENTCOV",row);
+	  Matrix66 eCov;
+	  for (int i=0; i<6; i++)
+	    for (int j=0; j<6; j++)
+	      eCov(i,j) = v[6*i+j];
+	  Eigen::LDLT<Eigen::Matrix<double,6,6>> chol(eCov);
+	  if (!singularCov && chol.info()==Eigen::Success && chol.isPositive()) {
+	    // Get state derivatives
+	    auto dEdS = getElementDerivatives(s);
+	    Matrix66 tmp = chol.solve(dEdS);
+	    sInvCov = dEdS.transpose() * tmp;
+	    // Above does this: sInvCov = dEdS.transpose() * eInvCov * dEdS;
+	  } else {
+	    // Bad cov matrix from elements
+	    singularCov = true;
+	  }
+	} catch (std::runtime_error& e) {
+	  // Catch non-elliptical orbits
+	  s.x = Vector3(0.);
+	  s.v = Vector3(0.);
+	  singularCov = true;
+	}
+      }  // End ABG/ELEMENT choice
 
       vector<double> v(6);
       for (int i=0; i<3; i++) {
@@ -201,9 +231,9 @@ int main(int argc,
       v.resize(36);
       for (int i=0; i<6; i++)
 	for (int j=0; j<6; j++)
-	  v[6*i+j] = sInvCov(i,j);
+	  v[6*i+j] = singularCov ? 0. : sInvCov(i,j);
       orbitTable.writeCell(v,"XVINVCOV",row);
-    }
+    } // end row loop
   } catch (std::runtime_error& e) {
     quit(e);
   }
