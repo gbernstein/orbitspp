@@ -28,7 +28,14 @@ namespace orbits {
     astrometry::CartesianICRS x;   // Position, AU, barycentric, nominally ICRS
     astrometry::CartesianICRS v;   // Velocity, AU per Julian year
     double tdb;                    // TDB for which it applies, Julian yrs since J2000
+
+    // Read and write
+    std::ostream& write(std::ostream& os, int precision=7) const;
+    std::istream& read(std::istream& is);
   };
+
+  extern std::ostream& operator<<(std::ostream& os, const State& s);
+  extern std::istream& operator>>(std::istream& is, State& s);
 
   class ABG: public Vector6 {
     /* Alpha-beta-gamma basis used for Bernstein-Khushalani */

@@ -54,6 +54,33 @@ const std::vector<string> abgNames={"alpha","beta","gamma","alphadot","betadot",
 // match the storage order.
 const std::vector<string> elementNames={"a","e","i","LAN","AoP","ToP"}; // Matches order of enum
 
+std::ostream& 
+State::write(std::ostream& os, int precision) const {
+  // Write State on one line.  Write as +-yy.xxxxxxxx 
+  stringstuff::StreamSaver ss(os);  // Cache stream state
+  os << std::fixed << std::showpos << std::setprecision(precision);
+  for (int i=0; i<3; i++)
+    os << std::setw(precision+4) << x[i] << " ";
+  for (int i=0; i<3; i++)
+    os << std::setw(precision+4) << v[i] << " ";
+  os << std::setw(precision+4) << tdb;
+  return os;  // Stream state restored on destruction of ss
+}
+
+std::istream& 
+State::read(std::istream& is) {
+  for (int i=0; i<3; i++)
+    is >> x[i];
+  for (int i=0; i<3; i++)
+    is >> v[i];
+  is >> tdb;
+  return is;  // Stream state restored on destruction of ss
+}
+
+std::ostream&
+orbits::operator<<(std::ostream& os, const State& s) {return s.write(os);}
+std::istream&
+orbits::operator>>(std::istream& is, State& s) {return s.read(is);}
 
 //********************************
 
