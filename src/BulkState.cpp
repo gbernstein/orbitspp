@@ -85,23 +85,6 @@ int main(int argc,
     FITS::FitsTable ft(orbitPath,FITS::ReadWrite,1);
     auto orbitTable = ft.use();
 
-    // Set reference frame from orbit table header info
-    Frame frame;
-    {
-      double ra0, dec0, pa0, tdb0, x0, y0, z0;
-      orbitTable.header()->getValue("RA0",ra0);
-      orbitTable.header()->getValue("DEC0",dec0);
-      orbitTable.header()->getValue("TDB0",tdb0);
-      orbitTable.header()->getValue("PA0",pa0);
-      orbitTable.header()->getValue("X0",x0);
-      orbitTable.header()->getValue("Y0",y0);
-      orbitTable.header()->getValue("Z0",z0);
-      astrometry::CartesianICRS origin(x0,y0,z0);
-      astrometry::SphericalICRS pole(ra0*DEGREE, dec0*DEGREE);
-      astrometry::Orientation orient(pole, pa0*DEGREE);
-      frame = Frame(origin, orient, tdb0);
-    }
-
     // See what kind of input we're going to use
     bool useABG = false;
     if ( orbitTable.hasColumn("ABG") && orbitTable.hasColumn("ABGINVCOV"))
@@ -113,6 +96,39 @@ int main(int argc,
 	   << endl;
       exit(1);
     }
+
+    // Set reference frame from orbit table header info
+    Frame frame;
+    // This variable will be true if we are to get the
+    // reference frame for each row from a column in the table,
+    // vs having one common one in the header of the ORBIT table
+    bool needIndividualFrames = false; 
+    {
+      // See if there is a reference frame in the header
+      double ra0, dec0, pa0, tdb0, x0, y0, z0;
+      if (orbitTable.header()->getValue("RA0",ra0) &&
+	  orbitTable.header()->getValue("DEC0",dec0) &&
+	  orbitTable.header()->getValue("TDB0",tdb0) &&
+	  orbitTable.header()->getValue("PA0",pa0) &&
+	  orbitTable.header()->getValue("X0",x0) && 
+	  orbitTable.header()->getValue("Y0",y0) &&
+	  orbitTable.header()->getValue("Z0",z0)) {
+	// The Frame is in the header
+	astrometry::CartesianICRS origin(x0,y0,z0);
+	astrometry::SphericalICRS pole(ra0*DEGREE, dec0*DEGREE);
+	astrometry::Orientation orient(pole, pa0*DEGREE);
+	frame = Frame(origin, orient, tdb0);
+      } else {
+	// Need to get Frame from a column in the table
+	needIndividualFrames = true;
+      }
+    }
+
+    if (needIndividualFrames && !orbitTable.hasColumn("FRAME")) {
+      cerr << "ERROR: Reference frame found neither in header nor in a column" << endl;
+      exit(1);
+    }
+
 
     // Make new columns
     {
@@ -141,6 +157,7 @@ int main(int argc,
 	continue; // Do not calculate elements for bad orbit
       }
 
+      
       State s;
       Matrix66 sInvCov;
       bool singularCov = false;  // Set this for bad inversion
@@ -166,6 +183,17 @@ int main(int argc,
 	Matrix66 dSdABG_frame = abg.getStateDerivatives();
 	 // Rotate x and v derivatives into ICRS
 	Matrix66 dSdABG;
+
+	if (needIndividualFrames) {
+	  // Get reference frame from a column in the table
+	  vector<double> v(7);
+	  orbitTable.readCell(v,"FRAME",row);
+	  astrometry::CartesianICRS origin(v[3],v[4],v[5]);
+	  astrometry::SphericalICRS pole(v[0],v[1]);
+	  astrometry::Orientation orient(pole, v[2]);
+	  frame = Frame(origin, orient, v[6]);
+	}
+
 	// Note that Frame is working with Nx3 arrays so we need
 	// to put xyz on the 2nd index.
 	DMatrix tmp = dSdABG_frame.subMatrix(0,3,0,6).transpose();
@@ -191,11 +219,22 @@ int main(int argc,
 	// Start with elements
 	vector<double> v(6);
 	orbitTable.readCell(v,"ELEMENTS",row);
+	if (row==778) {
+	  v[0]=27.01677; v[1]=0.6156626; v[2]=23.6118693*DEGREE;
+	  v[3]=DEGREE*185.5396011; v[4]=DEGREE*58.8027897; v[5]=-16.13602170;
+	}
 	Elements e;
 	for (int i=0; i<6; i++) e[i] = v[i];
 	try {
 	  // Get state vector from elements
-	  s = getState(e,frame.tdb0);
+	  if (needIndividualFrames) {
+	    // Get reference frame from a column in the table
+	    vector<double> v(7);
+	    orbitTable.readCell(v,"FRAME",row);
+	    s = getState(e,v[6]);  // Last element is TDB0
+	  } else {
+	    s = getState(e,frame.tdb0);
+	  }
 	  // Get covariance
 	  v.resize(36);
 	  orbitTable.readCell(v,"ELEMENTCOV",row);
