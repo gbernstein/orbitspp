@@ -86,7 +86,7 @@ const string usage =
   "               are ICRS origin (in AU), and last is reference TDB\n"
   "               in years past J2000\n"
   "   ABG:        (6D) The best-fit orbit, in alpha/beta/gamma values\n"
-  "   ABGCOV:  (36D) Inverse covariance matrix of ABG after fit\n"
+  "   ABGINVCOV:  (36D) Inverse covariance matrix of ABG after fit\n"
   "   ELEMENTS:   (6D) Best-fit orbital elements (radians)\n"
   "               [A E I LAN LOP TOP]\n"
   "   ELEMENTCOV: (36D) Covariance matrix of orbital elements.\n"
@@ -153,7 +153,7 @@ struct FitResult {
   double chisq;     // Chisq of best fit
   Frame frame;       // Frame for its ABG
   ABG abg;          // orbit
-  ABGCovariance abgcov; // and covariance
+  ABGCovariance abgcov; // and (inverse) covariance
   Elements el;
   ElementCovariance elCov;
 
@@ -274,7 +274,7 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   // Save fit results
   chisq = fit.getChisq();
   abg = fit.getABG();
-  abgcov = fit.getInvCovarABG().inverse();
+  abgcov = fit.getInvCovarABG();
   el = fit.getElements();
   elCov = fit.getElementCovariance();
 
@@ -909,11 +909,11 @@ int main(int argc,
 	changed.push_back(orb->changedDetectionList);
 	v.resize(7);
 	orb->frame.orient.getPole().getLonLat(v[0],v[1]);
-	v[2] = frame.orient.getPA();
-	v[3] = frame.origin.getVector()[0];
-	v[4] = frame.origin.getVector()[1];
-	v[5] = frame.origin.getVector()[2];
-	v[6] = frame.tdb0;
+	v[2] = orb->frame.orient.getPA();
+	v[3] = orb->frame.origin.getVector()[0];
+	v[4] = orb->frame.origin.getVector()[1];
+	v[5] = orb->frame.origin.getVector()[2];
+	v[6] = orb->frame.tdb0;
 	outFrame.push_back(v);
 	
 	// save detections and non-detections, transforming into ICRS
@@ -1033,7 +1033,7 @@ int main(int argc,
       table.addColumn(chisq,"CHISQ");
       table.addColumn(outFrame,"FRAME",7);
       table.addColumn(abg,"ABG",6);
-      table.addColumn(abgCov,"ABGCOV",36);
+      table.addColumn(abgCov,"ABGINVCOV",36);
       table.addColumn(elements,"ELEMENTS",6);
       table.addColumn(elementCov,"ELEMENTCOV",36);
       table.addColumn(arc,"ARC");

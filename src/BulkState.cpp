@@ -35,6 +35,7 @@ int main(int argc,
   try {
     string ephemerisPath;
     string orbitPath;
+    bool fixOrient;
     Pset parameters;
    
     {
@@ -47,7 +48,9 @@ int main(int argc,
       parameters.addMember("orbitFile",&orbitPath, def,
 			   "FITS file for input/output orbital info", "");
       parameters.addMember("ephemerisFile",&ephemerisPath, def,
-			   "SPICE file (null=>environment", "");
+			   "SPICE file (null=>environment)", "");
+      parameters.addMember("fixOrient",&fixOrient, def,
+			   "Apply fix for MergeOrbits FRAME bug", false);
     }
     parameters.setDefault();
 
@@ -191,6 +194,8 @@ int main(int argc,
 	  astrometry::CartesianICRS origin(v[3],v[4],v[5]);
 	  astrometry::SphericalICRS pole(v[0],v[1]);
 	  astrometry::Orientation orient(pole, v[2]);
+	  /* Do the following if input file has messed-up frames*/
+	  if (fixOrient) orient.alignToEcliptic();
 	  frame = Frame(origin, orient, v[6]);
 	}
 
@@ -205,6 +210,22 @@ int main(int argc,
 	s.x = frame.toICRS(xFrame);
 	s.v = frame.toICRS(vFrame,true);
 	s.tdb = frame.tdb0;
+
+	/**/ if (false) { //** row==778) {
+	  auto el = getElements(s);
+	  cerr << "State from ABG:      " << s << endl;
+	  cerr << "Elements from ABG: " << el << endl;
+	  vector<double> ee(6);
+	  orbitTable.readCell(ee,"ELEMENTS",row);
+	  for (int i=0; i<6; i++) el[i] = ee[i];
+	  cerr << "Elements from Table: " <<  el << endl;
+	  cerr << "State from ELEMENTS: " << getState(el,frame.tdb0) << endl;
+	  Fitter fit(eph);
+	  fit.setFrame(frame);
+	  fit.setABG(abg, aInvCov.inverse());
+	  el = fit.getElements();
+	  cerr << "Elements from Fitter: " <<  el << endl;
+	}
 	// We need to invert the derivatives to transform
 	// the inverse covariance
 	Eigen::FullPivLU<Eigen::Matrix<double,6,6>> lu(dSdABG);
@@ -219,10 +240,6 @@ int main(int argc,
 	// Start with elements
 	vector<double> v(6);
 	orbitTable.readCell(v,"ELEMENTS",row);
-	if (row==778) {
-	  v[0]=27.01677; v[1]=0.6156626; v[2]=23.6118693*DEGREE;
-	  v[3]=DEGREE*185.5396011; v[4]=DEGREE*58.8027897; v[5]=-16.13602170;
-	}
 	Elements e;
 	for (int i=0; i<6; i++) e[i] = v[i];
 	try {
