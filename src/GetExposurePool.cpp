@@ -104,7 +104,7 @@ int main(int argc,
 
     ExposureTable et(exposurePath);
 
-    // Find exposures that potentially contain Eris
+    // Find exposures that potentially contain the object
     auto possibleExposures = et.getPool(frame, ephem,
 					gamma0, dGamma, searchRadius*DEGREE,
 					false); // Get non-astrometric exposures too
