@@ -137,6 +137,21 @@ Ephemeris::jd2tdb(double jd) const {
 }
 
 double
+Ephemeris::tdb2jd(double tdb) const {
+  // Return a JD (in UTC) from tdb (in Julian years past J2000)
+  double et = tdb / SECOND;  // "ephemeris time" in seconds
+  double delta;
+  deltet_c(et, "ET", &delta);
+  checkSpice();
+  return (et - delta) / spd_c() + j2000_c();
+}
+    
+double
+Ephemeris::tdb2mjd(double tdb) const {
+  return tdb2jd(tdb) - MJD0;
+}
+
+double
 Ephemeris::mjd2tdb(double mjd) const {
   return jd2tdb(mjd + MJD0);
 }

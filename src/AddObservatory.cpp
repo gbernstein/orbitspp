@@ -51,7 +51,9 @@ main(int argc, char *argv[]) {
     //make sure it has the needed columns
     if (!(table.hasColumn("ra") &&
 	  table.hasColumn("dec") &&
-	  table.hasColumn("mjd_mid"))) {
+	  (table.hasColumn("mjd_mid") ||
+	   table.hasColumn("mjd-mid") ||
+	   table.hasColumn("mjd")))) {
       cerr << "Input table is missing require column ra, dec, or mjd_mid" << endl;
       exit(1);
     }
@@ -93,7 +95,13 @@ main(int argc, char *argv[]) {
     const std::vector<double> covDefault(3,0.);
     for (int row=0; row<table.nrows(); row++) {
       double mjd, ra, dec;
-      table.readCell(mjd,"mjd_mid",row);
+      if (table.hasColumn("mjd_mid")) {
+	table.readCell(mjd,"mjd_mid",row);
+      } else if (table.hasColumn("mjd-mid")) {
+	table.readCell(mjd,"mjd-mid",row);
+      } else if (table.hasColumn("mjd")) {
+	table.readCell(mjd,"mjd",row);
+      }
       table.readCell(ra,"ra",row);
       table.readCell(dec,"dec",row);
 
