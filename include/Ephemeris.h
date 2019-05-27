@@ -57,6 +57,8 @@ namespace orbits {
     // Convert UTC-based JD or MJD to TDB.
     double jd2tdb(double jd) const;
     double mjd2tdb(double mjd) const;
+    double tdb2jd(double jd) const;
+    double tdb2mjd(double mjd) const;
     
     
   private:
