@@ -49,14 +49,16 @@ int main(int argc,
       exit(1);
     }
     
+    parameters.setFromArguments(argc, argv);
+    
     string inFileName = argv[1];
     string outFileName = argv[2];
     
-    // Put output epoch into years since J2000
-    double outTDB = outEpoch > 0. ? outEpoch = 2000. : 0.;
-    
     // And read arguments from the remaining command line entries
     parameters.setFromArguments(argc, argv);
+
+    // Put output epoch into years since J2000
+    double outTDB = outEpoch > 0. ? outEpoch - 2000. : 0.;
 
     // Read the ephemeris
     Ephemeris eph(ephemerisPath);
@@ -102,7 +104,7 @@ int main(int argc,
       // If we want the output epoch to differ, we must integrate the
       // orbit to a new state.
       if (outEpoch > 0.) {
-	Trajectory t(eph, s);
+	Trajectory t(eph, s, orbits::GIANTS, 0.3*DAY);
 	astrometry::CartesianICRS v;
 	astrometry::CartesianICRS x = t.position(outTDB, &v);
 	s.x = x;
