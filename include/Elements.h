@@ -33,7 +33,8 @@ namespace orbits {
   // Get derivative matrix of State->Elements - only available as barycentric
   extern
   Matrix66
-  getElementDerivatives(const orbits::State& xv);
+  getElementDerivatives(const orbits::State& xv,
+			bool heliocentric=false, const Ephemeris* ephem=nullptr);
   
   extern
   Elements

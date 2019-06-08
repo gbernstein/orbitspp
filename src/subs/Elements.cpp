@@ -358,28 +358,51 @@ namespace orbits {
   }
   
   Matrix66
-  getElementDerivatives(const State& s) {
+  getElementDerivatives(const State& s,
+			bool heliocentric=false, const Ephemeris* ephem=nullptr) {
 
-    double mass = SolarSystemGM;
+    double mass = heliocentric ? GM : SolarSystemGM;
     double tdb = s.tdb;
+
+    // Convert state to ecliptic
+    Vector3 R, V;
+    VectorDerivative x;
+    VectorDerivative v;
+    CartesianEcliptic ecliptic;
+    Matrix33 icrs2ecliptic;
+
+    if (heliocentric) {
+      // Remove solar motion from state
+      if (!ephem)
+	throw runtime_error("Need an Ephemeris for heliocentric getElements");
+      auto sun = ephem->state(orbits::SUN, tdb);
+      auto net = s;
+      net.x -= sun.x;
+      net.v -= sun.v;
+
+      // Rotate into ecliptic system
+      ecliptic.convertFrom(net.x, icrs2ecliptic);
+      x.v = ecliptic.getVector();
+      x.dv.subMatrix(0,3,0,3) = icrs2ecliptic;
+
+      ecliptic.convertFrom(net.v, icrs2ecliptic);
+      v.v = ecliptic.getVector();
+      v.dv.subMatrix(0,3,3,6) = icrs2ecliptic;
+    } else {
+      // Rotate into ecliptic system
+      ecliptic.convertFrom(s.x, icrs2ecliptic);
+      x.v = ecliptic.getVector();
+      x.dv.subMatrix(0,3,0,3) = icrs2ecliptic;
+
+      ecliptic.convertFrom(s.v, icrs2ecliptic);
+      v.v = ecliptic.getVector();
+      v.dv.subMatrix(0,3,3,6) = icrs2ecliptic;
+    }
 
     Matrix66 out;
 #ifdef CHECK
     Elements elements;
 #endif
-    
-    // Rotate into ecliptic system
-    CartesianEcliptic ecliptic;
-    Matrix33 icrs2ecliptic;
-    ecliptic.convertFrom(s.x, icrs2ecliptic);
-    VectorDerivative x;
-    x.v = ecliptic.getVector();
-    x.dv.subMatrix(0,3,0,3) = icrs2ecliptic;
-
-    ecliptic.convertFrom(s.v, icrs2ecliptic);
-    VectorDerivative v;
-    v.v = ecliptic.getVector();
-    v.dv.subMatrix(0,3,3,6) = icrs2ecliptic;
 
     // The z unit vector:
     VectorDerivative z;
