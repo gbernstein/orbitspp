@@ -559,7 +559,7 @@ Fitter::printResiduals(std::ostream& os) {
 }
 
 Elements
-Fitter::getElements() const {
+Fitter::getElements(bool heliocentric) const {
   Vector3 x0;
   Vector3 v0;
   // Get state in our Frame:
@@ -569,11 +569,11 @@ Fitter::getElements() const {
   s.x = astrometry::CartesianICRS(f.toICRS(x0));
   s.v = astrometry::CartesianICRS(f.toICRS(v0,true));
   s.tdb = f.tdb0;
-  return orbits::getElements(s);
+  return heliocentric ? orbits::getElements(s) : orbits::getElements(s, true, &eph);
 }
 
 ElementCovariance
-Fitter::getElementCovariance() const {
+Fitter::getElementCovariance(bool heliocentric) const {
   // Derivative of state vector in reference frame:
   Matrix66 dSdABG_frame = abg.getStateDerivatives();
   //**/cerr << "dSdABG_frame: " << endl << dSdABG_frame << endl;
@@ -599,7 +599,7 @@ Fitter::getElementCovariance() const {
   s.v = astrometry::CartesianICRS(f.toICRS(v0,true));
   s.tdb = f.tdb0;
   // Get element derivatives
-  Matrix66 dEdABG = getElementDerivatives(s) * dSdABG;
+  Matrix66 dEdABG = getElementDerivatives(s, heliocentric, &eph) * dSdABG;
   //**/cerr << "dEdABG: " << endl << dEdABG << endl;
   return Matrix66(dEdABG * A.inverse() * dEdABG.transpose());
 }

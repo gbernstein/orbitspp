@@ -87,8 +87,9 @@ namespace orbits {
       // Inverse covariance of ABG from last fit
       if (!abgIsFit) throw std::runtime_error("ERROR: Fitter::getInvCovarABG is not getting converged result");
       return A;}  
-    Elements getElements() const;
-    ElementCovariance getElementCovariance() const;
+    // Get elements - barycentric by default, heliocentric if helio=true
+    Elements getElements(bool helio=false) const;
+    ElementCovariance getElementCovariance(bool helio=false) const;
 
     const Trajectory& getTrajectory() const {return *fullTrajectory;}
 
