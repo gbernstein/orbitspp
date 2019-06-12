@@ -138,7 +138,7 @@ namespace orbits {
     /* Use bisection to find solution (adapt Numerical Recipes)*/  
     {
       const int JMAX=40;
-      const double TOLERANCE = 0.1*SECOND;
+      const double TOLERANCE = 0.01*TIMESEC;
       double f, fmid, x1, x2, dx, xmid, rtb;
       int j;
       x1 = meanAnomaly - e;

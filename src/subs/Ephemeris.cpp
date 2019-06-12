@@ -94,7 +94,7 @@ Ephemeris::state(int body,
 		 double tdb) const {
   double s[6];
   double lighttime;
-  spkgeo_c(body, tdb/SECOND, "J2000", SSB, s, &lighttime);
+  spkgeo_c(body, tdb/TIMESEC, "J2000", SSB, s, &lighttime);
   checkSpice();
   State out;
   out.tdb = tdb;
@@ -102,9 +102,9 @@ Ephemeris::state(int body,
   out.x[0] = s[0] * (1000. / AU);
   out.x[1] = s[1] * (1000. / AU);
   out.x[2] = s[2] * (1000. / AU);
-  out.v[0] = s[3] * (1000. / AU / SECOND);
-  out.v[1] = s[4] * (1000. / AU / SECOND);
-  out.v[2] = s[5] * (1000. / AU / SECOND);
+  out.v[0] = s[3] * (1000. / AU / TIMESEC);
+  out.v[1] = s[4] * (1000. / AU / TIMESEC);
+  out.v[2] = s[5] * (1000. / AU / TIMESEC);
   return out;
 }
   
@@ -120,7 +120,7 @@ Ephemeris::utc2tdb(string utc) const {
   double tdb;
   str2et_c(utc.c_str(), &tdb);
   checkSpice();
-  return tdb*SECOND;
+  return tdb*TIMESEC;
 }
 
 double
@@ -133,13 +133,13 @@ Ephemeris::jd2tdb(double jd) const {
   deltet_c(utc, "UTC", &delta);
   checkSpice();
   // Convert to years
-  return (utc + delta) * SECOND;
+  return (utc + delta) * TIMESEC;
 }
 
 double
 Ephemeris::tdb2jd(double tdb) const {
   // Return a JD (in UTC) from tdb (in Julian years past J2000)
-  double et = tdb / SECOND;  // "ephemeris time" in seconds
+  double et = tdb / TIMESEC;  // "ephemeris time" in seconds
   double delta;
   deltet_c(et, "ET", &delta);
   checkSpice();
@@ -173,12 +173,12 @@ Ephemeris::observatory(double lon,
   // Convert geodetic coordinates to Earth-fixed cartesian:
   georec_c( lon, lat, elev, earthRadius, earthFlatten, geo);
   // Get rotation matrix for Earth into J2000 
-  pxform_c( "ITRF93", "J2000",  tdb/SECOND, rotate);
+  pxform_c( "ITRF93", "J2000",  tdb/TIMESEC, rotate);
   // Apply rotate to get geo->obs vector in ICRS
   mxv_c(rotate, geo, abc);
   // Get geocenter position
   double s[6];
-  spkgeo_c(EARTH, tdb/SECOND, "J2000", SSB, s, &lighttime);
+  spkgeo_c(EARTH, tdb/TIMESEC, "J2000", SSB, s, &lighttime);
   checkSpice();
   astrometry::CartesianICRS out;
   for (int i=0; i<3; i++)
