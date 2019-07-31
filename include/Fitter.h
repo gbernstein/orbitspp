@@ -90,6 +90,9 @@ namespace orbits {
     // Get elements - barycentric by default, heliocentric if helio=true
     Elements getElements(bool helio=false) const;
     ElementCovariance getElementCovariance(bool helio=false) const;
+    // Get elements at a specified tdb, given relative to J2000.
+    Elements getElements(double tdb, bool helio=false) const;
+    ElementCovariance getElementCovariance(double tdb, bool helio=false) const;
 
     const Trajectory& getTrajectory() const {return *fullTrajectory;}
 
@@ -102,6 +105,10 @@ namespace orbits {
 		 DVector* covYY = nullptr,   // (not computed if nullptrs)
 		 DVector* covXY = nullptr) const;
 		 
+    // Forecast ICRS state vector at arbitrary time, optionally fill covariance too.
+    State predictState(const double tdb,    // Dynamical time, relative to tdb0
+		       Matrix66* stateCov=nullptr) const;
+    
     // Return a new Fitter that has orbit updated using an additional observation
     // The additional data is assumed already in desired Frame.
     // Use updated orbit to recalculate non-inertial motion if newGravity=true,

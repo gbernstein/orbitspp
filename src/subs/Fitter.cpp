@@ -564,11 +564,12 @@ Fitter::getElements(bool heliocentric) const {
   Vector3 v0;
   // Get state in our Frame:
   abg.getState(0.,x0,v0);
+  State sRef;
+  sRef.x = x0;
+  sRef.v = v0;
+  sRef.tdb = f.tdb0;
   // Convert to ICRS
-  State s;
-  s.x = astrometry::CartesianICRS(f.toICRS(x0));
-  s.v = astrometry::CartesianICRS(f.toICRS(v0,true));
-  s.tdb = f.tdb0;
+  State s = f.toICRS(sRef);
   return heliocentric ? orbits::getElements(s) : orbits::getElements(s, true, &eph);
 }
 
@@ -576,7 +577,6 @@ ElementCovariance
 Fitter::getElementCovariance(bool heliocentric) const {
   // Derivative of state vector in reference frame:
   Matrix66 dSdABG_frame = abg.getStateDerivatives();
-  //**/cerr << "dSdABG_frame: " << endl << dSdABG_frame << endl;
 
   // Rotate x and v derivatives into ICRS
   Matrix66 dSdABG;
@@ -587,8 +587,6 @@ Fitter::getElementCovariance(bool heliocentric) const {
   tmp = dSdABG_frame.subMatrix(3,6,0,6).transpose();
   dSdABG.subMatrix(3,6,0,6) = f.toICRS(tmp, true).transpose();
 
-  //**/cerr << "dSdABG: " << endl << dSdABG << endl;
-  
   // Get state in our Frame:
   Vector3 x0;
   Vector3 v0;
@@ -603,7 +601,23 @@ Fitter::getElementCovariance(bool heliocentric) const {
   //**/cerr << "dEdABG: " << endl << dEdABG << endl;
   return Matrix66(dEdABG * A.inverse() * dEdABG.transpose());
 }
-  
+
+Elements
+Fitter::getElements(double tdb, bool heliocentric) const {
+  State s = predictState(tdb - f.tdb0);
+  return heliocentric ? orbits::getElements(s, heliocentric, &eph) : orbits::getElements(s) ;
+}
+
+ElementCovariance
+Fitter::getElementCovariance(double tdb, bool heliocentric) const {
+  // Derivative of state vector in reference frame:
+  Matrix66 covS;
+  State s = predictState(tdb-f.tdb0, &covS);
+  // Get element derivatives
+  Matrix66 dEdS = getElementDerivatives(s, heliocentric, &eph);
+  return Matrix66(dEdS * covS * dEdS.transpose());
+}
+
 // Forecast position using current fit.  Cov matrix elements given if filled:
 void
 Fitter::predict(const DVector& t_obs,    // Time of observations, relative to tdb0
@@ -709,6 +723,49 @@ Fitter::predict(const DVector& t_obs,    // Time of observations, relative to td
     covYY->array() *= denom.array();
   }  
   return;
+}
+
+// Forecast position using current fit.  Cov matrix elements given if filled.
+// Position uses full orbit but the covariance will be propagated with inertial approx
+State
+Fitter::predictState(const double tdb,    // Dynamical time, relative to tdb0
+		     Matrix66* stateCov) const {
+
+  State out;
+
+  // Final calculation of 3d positions.
+  if (fullTrajectory) {
+    out.x = fullTrajectory->position(tdb + f.tdb0, &out.v);
+  } else {
+    Vector3 x,v;
+    abg.getState(tdb, x, v);
+    // Convert to ICRS
+    out.x = f.toICRS(x);
+    out.v = f.toICRS(v,true);
+  }
+  out.tdb = tdb + f.tdb0;
+
+  if (stateCov) {
+    // Calculate covariance matrix of state.  Propagate from frame time assuming inertial motion.
+
+    // Get ABG covariance at reference time
+    Matrix66 abgCov = A.inverse();
+
+    // Get derivatives d(ICRS state)/d(ABG) at reference time
+    // by combining d(ICRS state vector) / d(Ref state vector)  * d(ref state)/d(ABG)
+    Matrix66 dICRSdABG = f.dICRSdRef() * abg.getStateDerivatives();
+    // Propagate uncertainty to emission time.
+    Matrix66 dNowdThen(0.);
+    for (int i=0; i<6; i++)
+      dNowdThen(i,i) = 1.;
+    for (int i=0; i<3; i++)
+      dNowdThen(i,i+3) = tdb;
+
+    Matrix66 dNowdABG = dNowdThen * dICRSdABG;
+
+    *stateCov = dNowdABG * abgCov * dNowdABG.transpose();
+  }  
+  return out ;
 }
 
 Fitter*

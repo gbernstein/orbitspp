@@ -66,6 +66,10 @@ else
 $(error Require CFITSIO_DIR in environment)
 endif
 
+ifneq ($(origin CFITSIO_NEEDS_CURL),undefined)
+LIBS += -lcurl
+endif
+
 ifdef GBFITS_DIR
 INCLUDES += -I $(GBFITS_DIR)
 EXTDIRS += $(GBFITS_DIR)
