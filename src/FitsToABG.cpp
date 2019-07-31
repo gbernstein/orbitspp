@@ -13,10 +13,12 @@
 const string usage =
   "FitsToABG: Read state vectors and uncertainties in ABG basis from a FITS\n"
   "           file and output for each object a file in the old .abg ASCII\n"
-  "           format plus some heliocentric orbital elements in the old aei format\n"
+  "           format plus some heliocentric orbital elements in the old aei format.\n"
   "Usage:\n"
   "  FitsToABG <input FITS file> [-param value ...]\n"
   "  Program options are listed below.\n"
+  "  The input epoch will be defaulted to reference time.  Values can either be a year\n"
+  "  or an MJD, or a JD.\n"
   " ";
 
 using namespace std;
@@ -39,6 +41,8 @@ int main(int argc,
       const int lowopen = low | PsetMember::openLowerBound;
       const int upopen = up | PsetMember::openUpperBound;
 
+      parameters.addMember("outEpoch",&outEpoch, def,
+			   "epoch for output elements", 0.);
       parameters.addMember("ephemerisFile",&ephemerisPath, def,
 			   "SPICE file (null=>environment", "");
     }
@@ -60,12 +64,26 @@ int main(int argc,
     // Read the ephemeris
     Ephemeris eph(ephemerisPath);
 
+    // If the 
+    bool useReferenceEpoch = false;
+    if (outEpoch <= 0.) {
+      useReferenceEpoch = true;
+    } else if (outEpoch < 3000.) {
+      // This is an epoch; subtract 2000 to give our tdb
+      outEpoch -= 2000.;
+    } else if (outEpoch<2400000.) {
+      // This looks like MJD, convert to tdb
+      outEpoch = eph.mjd2tdb(outEpoch);
+    } else {
+      // Looks like a JD
+      outEpoch = eph.jd2tdb(outEpoch);
+    }
+   
     // Acquire input data
     FITS::FitsTable ft(inFileName,FITS::ReadOnly,1);
     auto inputTable = ft.use();
 
     for (int row=0; row < inputTable.nrows(); row++) {
-      /**/cerr << "Reading row " << row << endl;
       vector<double> vframe;
       inputTable.readCell(vframe, "frame", row);
       vector<double> vabg;
@@ -84,6 +102,8 @@ int main(int argc,
       double originZ = vframe[5];
       double tdb0 = vframe[6];
 
+      if (useReferenceEpoch)
+	outEpoch = tdb0;
       Orientation orient(SphericalICRS(ra,dec), pa);
       CartesianICRS origin(originX,originY,originZ);
       Frame frame(origin, orient, tdb0);
@@ -115,11 +135,18 @@ int main(int argc,
       fit.setABG(abg,abgcov);
 
       // Get Heliocentric elements and uncertainty
-      auto el = fit.getElements(true);
-      auto elCov = fit.getElementCovariance(true);
-      
-      /* Print out the results, with comments */
-      writeOldAEI(aeiName, el, elCov, tdb0, eph);
+      if (useReferenceEpoch) {
+	// Do not need to give a tdb, using reference epoch
+	auto el = fit.getElements(true);
+	auto elCov = fit.getElementCovariance(true);
+	/* Print out the results, with comments */
+	writeOldAEI(aeiName, el, elCov, outEpoch, eph);
+      } else {
+	auto el = fit.getElements(outEpoch,true);
+	auto elCov = fit.getElementCovariance(outEpoch,true);
+	/* Print out the results, with comments */
+	writeOldAEI(aeiName, el, elCov, outEpoch, eph);
+      }
     }
 
   } catch (std::runtime_error& e) {

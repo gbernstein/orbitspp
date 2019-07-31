@@ -244,6 +244,33 @@ Frame::fromICRS(const DMatrix& x,
   }
 }
 
+State
+Frame::toICRS(const State& xvRef) const {
+  State out;
+  out.x = toICRS(xvRef.x.getVector());
+  out.v = toICRS(xvRef.v.getVector(), true);
+  out.tdb = xvRef.tdb;
+  return out;
+}
+
+State
+Frame::fromICRS(const State& xvICRS) const {
+  State out;
+  out.x = fromICRS(xvICRS.x.getVector());
+  out.v = fromICRS(xvICRS.v.getVector(), true);
+  out.tdb = xvICRS.tdb;
+  return out;
+}
+
+Matrix66
+Frame::dICRSdRef() const {
+  Matrix66 out(0.);
+  out.subMatrix(0,3,0,3) = orient.m().transpose();
+  out.subMatrix(3,6,3,6) = orient.m().transpose();
+  return out;
+}
+
+
 Matrix22
 Frame::toICRS(const Matrix22& cov) const {
   // Get rotation of current Frame wrt ICRS:

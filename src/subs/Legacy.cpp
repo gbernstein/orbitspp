@@ -80,11 +80,15 @@ orbits::writeOldABG(string filename, const ABG& abg,
   double lat0, lon0, xBary, yBary, zBary, tdb0;
   // Old code used reference frames in ecliptic coords
   SphericalEcliptic pole(frame.orient.getPole());
-  pole.getLonLat(lat0, lon0);
+  pole.getLonLat(lon0, lat0);
   double pa = frame.orient.getPA(); // Not written, assumed ecliptic orient!
-  xBary = frame.origin.getVector()[0];
-  yBary = frame.origin.getVector()[1];
-  zBary = frame.origin.getVector()[2];
+  /* Old orbfit actually wants coords of the barycenter in the custom orientation
+   * system.
+   */
+  Vector3 xyz = frame.orient.fromICRS(-frame.origin.getVector());
+  xBary = xyz[0];
+  yBary = xyz[1];
+  zBary = xyz[2];
 
   fprintf(fptr,"%12.7f %12.7f %10.7f %10.7f %10.7f  %.6f\n",
 	  lat0/DEGREE,lon0/DEGREE,xBary,yBary,zBary,eph.tdb2jd(frame.tdb0));
