@@ -88,7 +88,7 @@ const string usage =
   "   ABG:        (6D) The best-fit orbit, in alpha/beta/gamma values\n"
   "   ABGINVCOV:  (36D) Inverse covariance matrix of ABG after fit\n"
   "   ELEMENTS:   (6D) Best-fit orbital elements (radians)\n"
-  "               [A E I LAN LOP TOP]\n"
+  "               [A E I LAN AOP TOP]\n"
   "   ELEMENTCOV: (36D) Covariance matrix of orbital elements.\n"
   "\n"
   "The columns in the OBJECTS table are:\n"
