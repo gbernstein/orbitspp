@@ -19,7 +19,7 @@ http://eigen.tuxfamily.org/index.php?title=Main_Page or mirrored on github
 * Three other repos, `astrometry`, `gbutil` and
   `gbfits`. https://github.com/gbernstein/astrometry,
   https://github.com/gbernstein/gbfits,
-  https://github.com/gbutil/
+  https://github.com/gbernstein/gbutil/
 
 ## Installation
 
