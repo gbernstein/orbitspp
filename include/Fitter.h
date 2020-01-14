@@ -12,6 +12,7 @@
 #ifdef USE_EIGEN
 #include <Eigen/StdVector>
 #endif
+
 namespace orbits {
 
   class Fitter {

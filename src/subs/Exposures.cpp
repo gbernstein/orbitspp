@@ -6,7 +6,7 @@
 
 using namespace orbits;
 
-// Name of environment variable giving path to observatories file
+// Name of environment variables giving paths to important tables
 const string EXPOSURE_ENVIRON = "DES_EXPOSURE_TABLE";
 const string TRANSIENT_ENVIRON = "DES_TRANSIENT_TABLE";
 const string CORNERS_ENVIRON = "DES_CORNER_TABLE";

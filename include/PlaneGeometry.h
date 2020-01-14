@@ -29,6 +29,7 @@ namespace orbits {
   class Segment {
     // Class describing a directed line segment that goes from p1 to p2
   public:
+  EIGEN_NEW
   Segment(const Point& p1_, const Point& p2_): p1(p1_), p2(p2_) {
       Vector2 slope = p2-p1;
       slope /= slope.norm();
@@ -56,7 +57,6 @@ namespace orbits {
     Point p2;
   private:
     Vector2 perpUnit; // Unit vector perpendicular to ray (to right)
-    EIGEN_NEW
   };
 
   class ConvexPolygon {
@@ -125,9 +125,10 @@ namespace orbits {
     // Return area of intersection with polygon.
     double intersectionArea(const ConvexPolygon& rhs) const;
 
+    EIGEN_NEW
+
   private:
     double rsq;
-    EIGEN_NEW
   };
 
   class Ellipse;  // forward declaration
@@ -149,10 +150,10 @@ namespace orbits {
     ConvexPolygon operator()(const ConvexPolygon& p) const;
     Ellipse operator()(const Circle& c) const;
     Ellipse operator()(const Ellipse& e) const;
+    EIGEN_NEW
   private:
     Point xy0;
     Matrix22 m;
-    EIGEN_NEW
   };
   
   class Ellipse {
@@ -201,13 +202,13 @@ namespace orbits {
     // True if finite area in common.
     double intersectionArea(const ConvexPolygon& rhs) const;
     // Return area of intersection with polygon. ?? not implemented yet.
+    EIGEN_NEW
 
   private:
     Matrix22 invCov;
     double a,b; // Major, minor axes.
     Matrix22 circularizer;
     void setup();
-    EIGEN_NEW
   };
 
 } // end namespace

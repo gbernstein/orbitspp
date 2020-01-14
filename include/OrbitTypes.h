@@ -25,6 +25,7 @@ namespace orbits {
   class State {
     /* State vector for solar system body */
   public:
+    EIGEN_NEW
     astrometry::CartesianICRS x;   // Position, AU, barycentric, nominally ICRS
     astrometry::CartesianICRS v;   // Velocity, AU per Julian year
     double tdb;                    // TDB for which it applies, Julian yrs since J2000
@@ -48,6 +49,7 @@ namespace orbits {
     static const int BDOT=4;
     static const int GDOT=5;
     typedef Vector6 Base;
+    // Construct from state vector:
     ABG(const State& s) {
       (*this)[A] = s.x[0]/s.x[2];
       (*this)[B] = s.x[1]/s.x[2];
@@ -56,6 +58,7 @@ namespace orbits {
       (*this)[BDOT] = s.v[1]/s.x[2];
       (*this)[GDOT] = s.v[2]/s.x[2];
     }
+    // Default constructor: give finite gamma
     ABG(): Base(0.) { (*this)[G]=0.03;}
 
     void getState(double t,
@@ -137,6 +140,7 @@ namespace orbits {
   class MPCObservation {
     // Information that comes from a standard MPC line
   public:
+    EIGEN_NEW
     MPCObservation() {}
     MPCObservation(const string& line); // Parse MPC style input string
     astrometry::SphericalICRS radec;
@@ -152,6 +156,7 @@ namespace orbits {
     // and TDB of temporal origin.
     // This inherited class adds bulk coordinate transforms via Eigen.
   public:
+    EIGEN_NEW
     Frame(const astrometry::CartesianCoords& origin,
 	  const astrometry::Orientation& orient,
 	  const double tdb): ReferenceFrame(origin,orient),
