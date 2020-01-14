@@ -19,13 +19,13 @@ http://eigen.tuxfamily.org/index.php?title=Main_Page or mirrored on github
 * Three other repos, `astrometry`, `gbutil` and
   `gbfits`. https://github.com/gbernstein/astrometry,
   https://github.com/gbernstein/gbfits,
-  https://github.com/gbutil/
+  https://github.com/gbernstein/gbutil/
 
 ## Installation
 
 * First, install the three external prereqs as per their instructions,
   being sure to use the compiler you will use for this code.  I found
-  the installation for CSPICE to be nonstandard and klunky.
+  the installation for CSPICE to be nonstandard and clunky.
   Before running the build script I had to set up the CXX and CC
   environment variables and `setenv TKCOMPILER gcc-6` to use my gcc-6
   compiler too.  For the Mac, I had to alter several scripts replace ar, ranlib calls with
