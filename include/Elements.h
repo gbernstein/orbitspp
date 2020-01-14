@@ -36,6 +36,7 @@ namespace orbits {
   getElementDerivatives(const orbits::State& xv,
 			bool heliocentric=false, const Ephemeris* ephem=nullptr);
   
+  // Convert between bary and helio elements for the given tdb.
   extern
   Elements
   heliocentric2barycentric(const Elements& el, double tdb, const Ephemeris& ephem);

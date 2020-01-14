@@ -105,6 +105,11 @@ int main(int argc,
       /* Print out the results, with comments */
       writeOldAEI(aeiName, el, elCov, epoch, eph);      
     }
+    Matrix66 sCov;
+    State s = fit.predictState(epoch - fit.getFrame().tdb0, &sCov);
+    cout << s << endl;
+    cout << sCov << endl;
+    
   } catch (std::runtime_error& e) {
     quit(e);
   }

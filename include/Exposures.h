@@ -184,8 +184,8 @@ namespace orbits {
 			   const Frame& frame);
     // Builds the whole tree out of time-ordered data.
     // Be sure to set speed and radius first.  Returns root node pointer.
-    // Needs 
-    EIGEN_NEW
+
+    // Don't need EIGEN_NEW since no static-sized Eigen members.
     
   private:
     dataIter begin;  // Range of data associated with this node
