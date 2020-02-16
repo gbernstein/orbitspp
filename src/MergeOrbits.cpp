@@ -147,6 +147,7 @@ struct FitResult {
     bool hasDetection;   // set if there is a detection on the exposure
     double nearestChisq;      // Chisq to model of best detection on exposure.
     int  nearestID;      // object number of nearest
+    EIGEN_NEW
   };
   vector<Opportunity, Eigen::aligned_allocator<Opportunity>> opportunities;
 
