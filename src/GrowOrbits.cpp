@@ -105,8 +105,10 @@ const string usage =
   " -searchRadius  is the max number of degrees from RA0,DEC0 at which candidate TNOs are\n"
   "                located at TDB0.  It is used to find the pool of relevant DES exposures.\n"
   " -maxFPR        is the FPR value that a completed orbit growth must be under in order\n"
-  "                to be passed to the output file.  Orbits must also have NUNIQUE>=4\n"
-  "                to be considered worth outputting.\n"
+  "                to be passed to the output file.\n"
+  " -minUnique     is number of unique nights needed to retain an orbit for output.)\n"
+  " -secureUnique  is number of unique nights needed to define an orbit as \"secure\".\n"
+  " -secureFPR     is maximum FPR needed to define an orbit as \"secure\".\n"
   " -bindingFactor is passed to the orbit fitter as the strength of the chisq penalty assigned\n"
   "                to marginally unbound orbits.\n"
   " -cull          is set to true (the default) if the program should keep track of all\n"
@@ -115,9 +117,9 @@ const string usage =
   "                so it is possible one might need to set this to false, at the expense\n"
   "                of significantly longer run times.\n"
   "\n"
-  " An orbit that grows to NUNIQUE>=7 with FPR<0.001 is considered 'secure', and any transient\n"
-  " linked in this orbit is removed from the available linking pool.  Other orbits that have linked\n"
-  " to these transients are discarded (unless they are also secure).\n"
+  " Any orbit considered 'secure', and any transientlinked in this orbit is removed from the\n"
+  " available linking pool.  Other orbits that have linked to these transients are discarded\n"
+  " (unless they are also secure).\n"
   "\nParameters and defaults:\n";
 
 const bool DEBUG=false;
@@ -143,12 +145,7 @@ const double INDEPENDENT_TIME_INTERVAL = 0.1*DAY;
 // What minimum independent detection count to output?
 const int MIN_DETECTIONS_TO_OUTPUT = 4;
 
-// What combination of FPR and number of independent exposures are sufficient
-// to consider this a completed search and flush all other FitSteps from the same
-// starting orbit and pull the detections out of circulation.
-const double MAX_FPR_EXCLUSIVE = 0.001;
-const int MIN_DETECTIONS_EXCLUSIVE = 7; 
-// ??? Include check for arc without last point ??
+// ??? Include check for arccut ??
 
 ////////////////////////////////////////////////////////////////////////////////////
 // Helper classes
@@ -569,8 +566,11 @@ main(int argc, char **argv) {
   string exposurePath;
   double bindingFactor;
   double searchRadius;
-  double maxFPR;  
-  bool cullDuplicates;
+  double maxFPR;
+  int    minUnique;
+  int    secureUnique;
+  double secureFPR;
+  bool   cullDuplicates;
 
   try {
     Pset parameters;
@@ -598,6 +598,12 @@ main(int argc, char **argv) {
 			   "Radius enclosing TNO positions at reference time (degrees)", 4., 0.);
       parameters.addMember("maxFPR",&maxFPR, def | lowopen,
 			   "maximum false positive rate to keep", 0.03, 0.);
+      parameters.addMember("minUnique",&minUnique, def,
+			   "minimum unique nights' detections for orbit", 4);
+      parameters.addMember("secureUnique",&secureUnique, def,
+			   "minimum unique nights for secure detection", 7);
+      parameters.addMember("secureFPR",&secureFPR, def,
+			   "maximum FPR for secure detection", 0.001);
       parameters.addMember("cull",&cullDuplicates, def,
 			   "Use memory to prune duplicate searches?", true);
     }
@@ -746,7 +752,7 @@ main(int argc, char **argv) {
     int orbitID = -1;  // Starting point for an orbitID counter, if using stdin
 
     // These are orbitID's that have already been "cleaned out" from an
-    // excellent orbit and should be henceforth ignored.
+    // secure orbit and should be henceforth ignored.
     set<int> settledOrbitIDs;
     
     // Now enter a loop of growing fits.
@@ -909,10 +915,10 @@ main(int argc, char **argv) {
 	// No new points can be added to this fit.  So it's a completed search.
 
 	// Is this a secure orbit, likely to have all relevant detections?
-	bool isSecure = thisFit->nIndependent >= MIN_DETECTIONS_EXCLUSIVE
-	  && thisFit->fpr <= MAX_FPR_EXCLUSIVE;
+	bool isSecure = thisFit->nIndependent >= secureUnique
+	  && thisFit->fpr <= secureFPR;
 	// Is it worthy of output?
-	if (thisFit->nIndependent >= MIN_DETECTIONS_TO_OUTPUT
+	if (thisFit->nIndependent >= minUnique
 	    && thisFit->fpr <= maxFPR) {
 	  savedResults.push_back(FitResult(*thisFit));
 	  if (isSecure) savedResults.back().isSecure = true;
@@ -941,7 +947,7 @@ main(int argc, char **argv) {
     // We don't need the big reservoir of culled lists, release its memory
     alreadySearched.clear();
 
-    cerr << "# Starting the purge" << endl;
+    cerr << "# Starting the purge, " << savedResults.size() << " n-lets" << endl;
     for (auto ptr1 = savedResults.begin();
 	 ptr1 != savedResults.end(); ) {
       bool dup = false; // Set if this is contained in another
@@ -984,6 +990,7 @@ main(int argc, char **argv) {
       }
       if (!dup) ++ptr1;
     }
+    cerr << "# Done purge, " << savedResults.size() << " n-lets" << endl;
     
     // Output all results
     if (orbitPath.empty()) {
