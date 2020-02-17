@@ -38,13 +38,13 @@ main(int argc,
 
     {
       // Check against horizons
-      const double tolerance = 0.1 * SECOND;
-      const double tdbMinusUT = 69.185262*SECOND; // From Horizons for this date
+      const double tolerance = 0.1 * TIMESEC;
+      const double tdbMinusUT = 69.185262*TIMESEC; // From Horizons for this date
       const double answer = 2458170.75;  // Correct UTC JD for this date
       double error = tdb - tdbMinusUT - (answer - JD2000)*DAY;
       if (abs(error) > tolerance) {
 	fail = true;
-	cout << "***FAILURE: us - Horizons = " << error/SECOND << " seconds" << endl;
+	cout << "***FAILURE: us - Horizons = " << error/TIMESEC << " seconds" << endl;
       }
     } 
 
@@ -56,8 +56,8 @@ main(int argc,
 
     {
       // Check against horizons
-      const double tolerance = 0.1 * SECOND;
-      const double tdbMinusUT = 69.185262*SECOND; // From Horizons for this date
+      const double tolerance = 0.1 * TIMESEC;
+      const double tdbMinusUT = 69.185262*TIMESEC; // From Horizons for this date
       const double answer = 2458170.75;  // Correct UTC JD for this date
       bool thisFail = false;
       double error = tdb - tdbMinusUT - (answer - JD2000)*DAY;
@@ -66,7 +66,7 @@ main(int argc,
 	fail = true;
 	cout << "***FAILURE: ";
       }
-      cout << "us - Horizons = " << error/SECOND << " seconds" << endl;
+      cout << "us - Horizons = " << error/TIMESEC << " seconds" << endl;
 
       // Since Horizons won't do vectors with UTC, we'll be setting TDB equal to utc string.
       tdb -= tdbMinusUT;
@@ -103,7 +103,7 @@ main(int argc,
 
     {
       // Check against horizons
-      const double tolerance = 1 * METER / SECOND;
+      const double tolerance = 1 * METER / TIMESEC;
       astrometry::Vector3 answer;
       answer[0] = 5.269512929058580E-03/DAY;
       answer[1] = 2.298986960400073E-04/DAY;
@@ -117,7 +117,7 @@ main(int argc,
 	fail = true;
 	cout << "***FAILURE: ";
       }
-      error /= (METER/SECOND);
+      error /= (METER/TIMESEC);
       cout << "us-Horizons = " << std::fixed << std::setprecision(8)
 	   << error[0] << " " << error[1] << " " << error[2] << " m/s" << endl;
     }

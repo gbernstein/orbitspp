@@ -264,7 +264,7 @@ main(int argc,
       cout << " DT (yrs)     x         y       z " << endl;
       cout << future[i] << std::setprecision(4);
       for (int j=0; j<3; j++) {
-	double diff = (velocity(i,j) - vv[j])*SECOND/METER;
+	double diff = (velocity(i,j) - vv[j])*TIMESEC/METER;
 	cout << "  " << diff;
 	if (abs(diff) > velocity_tolerance) vfail = true;
       }
@@ -291,7 +291,7 @@ main(int argc,
 
       x_us -= x_horizons;
       v_us -= v_horizons;
-      v_us *= SECOND/METER;  // Convert to m/s
+      v_us *= TIMESEC/METER;  // Convert to m/s
       {
 	bool vfail = false;
 	// Check last velocity of those extracted in bulk:

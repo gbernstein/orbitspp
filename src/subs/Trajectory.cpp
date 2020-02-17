@@ -64,6 +64,9 @@ Trajectory::Trajectory (const Ephemeris& ephem_,
     afwd.push_back(dv*0.5*dt);
     abwd.push_back(dv*0.5*dt);
   }
+#ifdef _OPENMP
+  omp_init_lock(&lock);
+#endif
 }
 
 void
@@ -71,8 +74,12 @@ Trajectory::span(double tdb) const {
   // How many time steps fwd / back must we go?
   double tstep = (tdb - tdb0)/dt;
 
+  // Lock the LUT while changing it
   if (tstep >= xfwd.size()) {
     // Extend cache forward
+#ifdef _OPENMP
+    omp_set_lock(&lock);
+#endif
     int nfwd = static_cast<int> (ceil(tstep));
     double tdb = tdb0 + dt * xfwd.size();
     for (int i=xfwd.size(); i<=nfwd; i++, tdb+=dt) {
@@ -83,10 +90,16 @@ Trajectory::span(double tdb) const {
       vfwd.push_back( dt*(vnext_fwd + 0.5*dv));
       vnext_fwd += dv;
     }
+#ifdef _OPENMP
+    omp_unset_lock(&lock);
+#endif
   }
 
   if (tstep < -xbwd.size()) {
     // Extend cache backward
+#ifdef _OPENMP
+    omp_set_lock(&lock);
+#endif
     int nbwd = static_cast<int> (ceil(-tstep));
     double tdb = tdb0 - dt * xbwd.size();
     for (int i=xbwd.size(); i<=nbwd; i++, tdb-=dt) {
@@ -98,6 +111,9 @@ Trajectory::span(double tdb) const {
       vbwd.push_back( (-dt)*(vnext_bwd - 0.5*dv));
       vnext_bwd -= dv;
     }
+#ifdef _OPENMP
+    omp_unset_lock(&lock);
+#endif
   }
 }
 		      
@@ -138,25 +154,31 @@ Trajectory::position(const DVector& tdb,
     DVector istep = tabs.array().floor(); // Integer and fraction parts of |tstep|
     DVector f = tabs - istep;  
     int i;
+
+    // Lock the LUT while using it
+#ifdef _OPENMP
+    omp_set_lock(&lock);
+#endif
     for (i=0 ; i<tstep.size(); i++) {
       int i0 = static_cast<int> (istep[i]); // Index of time step nearer 0
       if (tstep[i]<0.) {
 	// Use backward integration
 	out.row(i) = (xbwd[i0] + f[i]*(vbwd[i0] + f[i]*abwd[i0])).transpose();
-	//**/cerr << "tstep " << i << " bwd " << i0 << " f " << f[i] << " vbwd " << vbwd[i0] << endl;
 	if (velocity)
 	  // Negate the velocity because LUT is function of (-t)
 	  velocity->row(i) = -(vbwd[i0] + (2.*f[i])*abwd[i0]).transpose();
       } else {
 	// Use forward integration
 	out.row(i) = (xfwd[i0] + f[i]*(vfwd[i0] + f[i]*afwd[i0])).transpose();
-	//**/cerr << "tstep " << i << " fwd " << i0 << " f " << f[i] << " vfwd " << vfwd[i0] << endl;
 	if (velocity)
 	  velocity->row(i) = (vfwd[i0] + (2.*f[i])*afwd[i0]).transpose();
       } 
     }
     if (velocity) (*velocity)/=dt;
   }
+#ifdef _OPENMP
+    omp_unset_lock(&lock);
+#endif
   return out;
 }
 
