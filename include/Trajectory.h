@@ -15,6 +15,11 @@
 #include <Eigen/StdVector>
 #endif
 
+// If we are multithreaded, we will need to guard our LUTs.
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 namespace orbits {
 
   enum Gravity {INERTIAL, BARY, GIANTS, WRONG};
@@ -38,6 +43,13 @@ namespace orbits {
     // ICRS barycentric coordinates, all times are TDB, units are AU and
     // years.
 
+  // Need a destructor if we have a lock
+#ifdef _OPENMP
+    ~Trajectory() {
+      omp_destroy_lock(&lock);
+    }
+#endif
+    
     DMatrix position(const DVector& tdb,
 		     DMatrix* velocity=nullptr) const;
     // Return Nx3 matrix of object positions at TDB's given in input array.
@@ -87,7 +99,13 @@ namespace orbits {
     Vector3 deltaV(const astrometry::Vector3& x, double tdb) const;
     // Extend integration to include this time
     void span(double tdb) const;
+
+    // Define a lock for this trajectory if multithreaded
+#ifdef _OPENMP
+    mutable omp_lock_t lock;
+#endif 
   };
+
 
 } // end namespace orbits
 #endif // TRAJECTORY_H

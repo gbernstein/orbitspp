@@ -101,7 +101,7 @@ main(int argc,
 	 abs(e[Elements::I] -EclipticInclination ) > tolerance ||
 	 abs(e[Elements::LAN]-PI) > tolerance ||
 	 abs(e[Elements::AOP] - 1.5*PI) > tolerance ||
-	 abs(e[Elements::TOP] - tdb) > 0.1*SECOND) {
+	 abs(e[Elements::TOP] - tdb) > 0.1*TIMESEC) {
       cout << "***FAILURE: orbit not as expected" << endl;
       fail = true;
     }
@@ -136,7 +136,7 @@ main(int argc,
     s.v[0] = -1.607010770801691E-04/DAY;
     s.v[1] =  2.504643884337053E-03/DAY;
     s.v[2] =  1.201121986118657E-03/DAY;
-    s.tdb = eph.utc2tdb("1995-Apr-18 00:00:00") - 61.185610*SECOND;
+    s.tdb = eph.utc2tdb("1995-Apr-18 00:00:00") - 61.185610*TIMESEC;
 
     // Horizons gave heliocentric state vector, our Elements always want
     // barycentric state vectors:

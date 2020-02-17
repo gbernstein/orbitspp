@@ -1,14 +1,18 @@
 To do on the orbit-fitting software:
 
+* Multithread Grow
+* Multithread Merge
+* faster compare() orbit pairs in Grow.
 * Change all FITS array writes to fixed length
 * Inertial Trajectory crashing
-* start putting in OpenMP guards for multithreading: Ephemeris and Trajectory have internal states.
-Fitter should be single-threaded too, make new Fitters for different threads if re-fitting.
+* Fitter should be single-threaded, make new Fitters for different threads if re-fitting.
 * Makefile should work without FITSIO info.
+* Can Trajectory LUT locking be avoided on read-only operations somehow?  Danger is that
+  the LUT will be resized so vector references will change.
 
 ---old todo's:
 hard-wired things that should be configurable:
 *weighting factors on energy constraints
 *integrator time step
-
+* OpenMP guards in Ephemeris, Trajectory
 Outlier rejection in fits
