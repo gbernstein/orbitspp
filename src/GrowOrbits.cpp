@@ -12,6 +12,10 @@
 #include "Pset.h"
 #include "FitsImage.h"
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 using namespace std;
 using namespace orbits;
 
@@ -106,6 +110,8 @@ const string usage =
   "                located at TDB0.  It is used to find the pool of relevant DES exposures.\n"
   " -maxFPR        is the FPR value that a completed orbit growth must be under in order\n"
   "                to be passed to the output file.\n"
+  " -minArc        minimum arc length for orbit to be sent to output\n"
+  " -minArccut     minimum arc length (excluding any single night) for orbit output\n"
   " -minUnique     is number of unique nights needed to retain an orbit for output.)\n"
   " -secureUnique  is number of unique nights needed to define an orbit as \"secure\".\n"
   " -secureFPR     is maximum FPR needed to define an orbit as \"secure\".\n"
@@ -140,19 +146,13 @@ const int START_IGNORING_HIGH_FPR=4;
 
 // Time that must pass between exposures to be considered independent detections
 // (e.g. when asteroids or defects would have moved out of linking range)
-const double INDEPENDENT_TIME_INTERVAL = 0.1*DAY;
-
-// What minimum independent detection count to output?
-const int MIN_DETECTIONS_TO_OUTPUT = 4;
-
-// ??? Include check for arccut ??
+const double INDEPENDENT_TIME_INTERVAL = 0.4*DAY;
 
 ////////////////////////////////////////////////////////////////////////////////////
 // Helper classes
 ////////////////////////////////////////////////////////////////////////////////////
 
 struct GlobalResources {
-  vector<Exposure*> allExposures;
   vector<double> chisqPerDetectionToKeep; // Definition of valid orbit, indexed by # detections
   bool goodFit(Fitter* fitptr) {
     // Criterion we'll use for whether an orbit fit is good enough to pursue:
@@ -162,6 +162,7 @@ struct GlobalResources {
       chisqPerDetectionToKeep.back();
     return chisqPerDetection <= threshold;
   }
+  Frame frame;
 } globals;
 
 struct Detection {
@@ -180,11 +181,11 @@ public:
   FitStep(Fitter* fitptr_,
 	  list<Exposure*> possibleExposures_,
 	  vector<Detection> members_,
-	  int nIndependent_,
+	  int nUnique_,
 	  int orbitID_,
 	  double fpr_):
     fitptr(fitptr_), possibleExposures(possibleExposures_),
-    members(members_), nIndependent(nIndependent_),
+    members(members_), nUnique(nUnique_),
     orbitID(orbitID_), fpr(fpr_),
     skippedExposures(false)  {}
   ~FitStep() {delete fitptr;}
@@ -204,7 +205,7 @@ public:
   
   // Number of detections (so far) with independent asteroids
   // (i.e. don't count consecutive exposures as >1)
-  int nIndependent;  
+  int nUnique;  
 
   // A unique ID for each starting orbit
   int orbitID;
@@ -224,7 +225,7 @@ public:
   }
   
   // Return time span of detections
-  double arc() const {
+  double arc(double* arccut=nullptr) const {
     double t0 = members.front().eptr->tdb;
     double t1 = t0;
     for (auto& m : members) {
@@ -234,46 +235,117 @@ public:
     }
     return t1-t0;
   }
+  // Calculate arccut: shortest arc from excluding one night
+  double arccut() const {
+    double t0 = members.front().eptr->tdb;
+    double t1 = t0;
+    for (auto& m : members) {
+      double t = m.eptr->tdb;
+      if (t<t0) t0=t;
+      if (t>t1) t1=t;
+    }
 
+    double t0a = t1;
+    double t1a = t0;
+    for (auto& m : members) {
+      // Find second-to-extreme detection times, ignoring same-night
+      // detections.
+      double t = m.eptr->tdb;
+      if (t-t0 > INDEPENDENT_TIME_INTERVAL &&  t < t0a) t0a = t;
+      if (t1-t > INDEPENDENT_TIME_INTERVAL &&  t > t1a) t1a = t;
+    }
+    return MIN(t1-t0a, t1a-t0);
+  }
+
+  
   // return all possible N+1 -object FitSteps.
   // They are sorted in order of increasing false positive rate,
   // so the most secure one is first.
   // The total expected number of false positives is returned.
-  list<FitStep*> search(double& totalFPR); 
+  list<FitStep*> search(double& totalFPR);
+
+  bool goodToOutput() const {
+    // Does it meet the criteria for saving to output?
+    // Note need to set the class variables that define this test.
+    return nUnique >= minUnique &&
+      fpr <= maxFPR &&
+      arc() >= minArc &&
+      arccut() >= minArccut;
+  }
+  bool isSecure() const {
+    // Does this meet the criteria for a "secure" orbit?
+    // Note need to set the class variables that define this test
+    if (!goodToOutput()) return false;
+    return nUnique >= secureUnique && fpr <= secureFPR;
+  }
+    
+  static void setUnique(int secureUnique_, double secureFPR_) {
+    secureUnique = secureUnique_;
+    secureFPR = secureFPR_;
+  }
+  static void setOutput(int minUnique_, double maxFPR_,
+			double minArc_, double minArccut_) {
+    minUnique = minUnique_;
+    maxFPR = maxFPR_;
+    minArc = minArc_;
+    minArccut = minArccut_;
+  }
+			
+private:
+  // Criteria for output-able or secure orbits:
+  static int minUnique;
+  static int secureUnique;
+  static double secureFPR;
+  static double maxFPR;
+  static double minArc;
+  static double minArccut;
 };
+
+// Allocate and initialize the static members:
+int FitStep::minUnique=4;
+int FitStep::secureUnique=8;
+double FitStep::secureFPR=0.001;
+double FitStep::maxFPR=0.03;
+double FitStep::minArc=0.7;
+double FitStep::minArccut=0.;  // Not active by default?
+
 
 struct FitResult {
   // What we'll save for a potentially real orbit
   int orbitID;      // Starting orbit
-  int nIndependent; // Different nights in fit
+  int nUnique; // Different nights in fit
   double fpr;       // False positive rate
   vector<int> detectionIDs;  // IDs of fitted transients, *ascending*
   double chisq;     // Chisq of best fit
   ABG abg;          // orbit
   ABGCovariance invcov; // and covariance
-  double arc;       // Time span from first to last detection
+  double arc;        // Time span from first to last detection
+  double arccut;     // Time span from first to last detection, excluding any night
   bool skippedExposures; // True if some exposures were skipped for large errors
   bool hasOverlap;  // True if this shares detections with another FitResult
   bool isSecure;    // No doubt that this is real, monopolize detections.
   EIGEN_NEW
   
   FitResult(const FitStep& fs): orbitID(fs.orbitID),
-				nIndependent(fs.nIndependent),
+				nUnique(fs.nUnique),
 				fpr(fs.fpr),
 				detectionIDs(fs.sortedIDs()),
 				chisq(fs.fitptr->getChisq()),
 				abg(fs.fitptr->getABG()),
 				invcov(fs.fitptr->getInvCovarABG()),
 				arc(fs.arc()),
+				arccut(fs.arccut()),
 				skippedExposures(fs.skippedExposures),
 				hasOverlap(false),
-				isSecure(false)  {}
+				isSecure(fs.isSecure())  {}
     
   // Comparison operators are looking at which detections were used to make orbits.
   bool operator==(const FitResult& rhs) const {return detectionIDs==rhs.detectionIDs;}
   bool operator<(const FitResult& rhs) const {return detectionIDs<rhs.detectionIDs;}
-  bool includes(const FitResult& rhs) const {return std::includes(detectionIDs.begin(), detectionIDs.end(),
-						       rhs.detectionIDs.begin(), rhs.detectionIDs.end());}
+  bool includes(const FitResult& rhs) const {return std::includes(detectionIDs.begin(),
+								  detectionIDs.end(),
+								  rhs.detectionIDs.begin(),
+								  rhs.detectionIDs.end());}
   // Do detection lists intersect?
   bool intersects(const FitResult& rhs) const {
     if (detectionIDs.empty() || rhs.detectionIDs.empty()) return false;
@@ -296,8 +368,9 @@ struct FitResult {
        << (hasOverlap ? "*" : "-")
        << (skippedExposures ? "?" : "-")
        << " " << setw(5) << orbitID
-       << " detections " << setw(2) << detectionIDs.size() << " / " << setw(2) << nIndependent
+       << " detections " << setw(2) << detectionIDs.size() << " / " << setw(2) << nUnique
        << " arc " << fixed << setprecision(3) << setw(5) << arc
+       << " arccut " << fixed << setprecision(3) << setw(5) << arccut
        << " chisq/DOF " << fixed << setprecision(2) << setw(5) << chisq
        << " / " << setw(2) << 2*detectionIDs.size() - 6
        << " FPR " << defaultfloat << setprecision(3) << fpr
@@ -337,9 +410,9 @@ public:
   const double maxLogFPR; // upper limit on FPR in first column
   const double dLogFPR; // increment to bound per column
   static const int nLogFPR=7; // Number of FPR threshold columns
-  void addOrbit(int nIndependent, double fpr) {
+  void addOrbit(int nUnique, double fpr) {
     double logFPR = log10(fpr);
-    int i = nIndependent-nMin;
+    int i = nUnique-nMin;
     if (i<0) return;
     if (i>=rows()) i=rows()-1; // Last n bin includes all higher n's too
     int jmax = static_cast<int> (floor((log10(fpr)-maxLogFPR)/dLogFPR));
@@ -446,7 +519,7 @@ FitStep::search(double& totalFPR) {
   } // Done making exposure list.
   
   if (DEBUG) cerr << "Search from nobs " << fitptr->nObservations()
-		  << " independent " << nIndependent
+		  << " independent " << nUnique
 		  << " from " << possibleExposures.size() << " exposures"
 		  << " last " << members.back().id()
 		  << endl;
@@ -473,7 +546,7 @@ FitStep::search(double& totalFPR) {
 
     double thisFPR = (chisq.array() <= chisqForFalsePositive).count()
       * searchArea / FALSE_POSITIVE_COUNTING_AREA;
-    if ((nIndependent>=START_IGNORING_HIGH_FPR)
+    if ((nUnique>=START_IGNORING_HIGH_FPR)
 	&& (thisFPR > MAXIMUM_FPR_PER_EXPOSURE)) {
       // This exposure is too busy for this stage of linking, do not link to it.
       skippedExposures = true;
@@ -527,7 +600,7 @@ FitStep::search(double& totalFPR) {
       // Make a new FitStep that has this detection.
       // Temporarily install the FPR just for this exposure.
       out.push_back(new FitStep(nextFit, possibleExposures, members,
-			       (closeInTime ? nIndependent : nIndependent+1),
+			       (closeInTime ? nUnique : nUnique+1),
 			       orbitID, thisFPR));
       // Add this detection to the new FitStep
       out.back()->members.push_back(Detection(info.eptr, i));
@@ -545,13 +618,237 @@ FitStep::search(double& totalFPR) {
   // But if this was not a new independent detection, then
   // we should have it keep the previous FPR.
   for (auto& fsptr : out) {
-    if (fsptr->nIndependent > nIndependent)
+    if (fsptr->nUnique > nUnique)
       fsptr->fpr = totalFPR;
     else
       fsptr->fpr = fpr;
   }
   return out;
 }
+
+////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////
+
+class OrbitReader {
+  // Class to construct initial FitStep from input triplets.
+public:
+  OrbitReader(string tripletPath,
+	      string exposurePath,
+	      string transientPath,
+	      Ephemeris& eph_,
+	      double bindingFactor_,
+	      double searchRadius,
+	      GlobalResources& globals_): eph(eph_),
+					  bindingFactor(bindingFactor),
+					  globals(globals_),
+					  orbitID(-1),
+					  nextInputRow(0)
+  {
+    // Choose source of input. Then read frame and set up inputs.
+    useStdin = tripletPath.empty();
+    double ra0, dec0, tdb0;
+    if (useStdin) {
+      // Read configuration info from stdin
+      string buffer;
+      getlineNoComment(cin, buffer);
+      {
+	std::istringstream iss(buffer);
+	iss >> ra0 >> dec0 >> tdb0;
+      }
+      // Next line should be gamma0, dgamma
+      getlineNoComment(cin, buffer);
+      {
+	std::istringstream iss(buffer);
+	iss >> gamma0 >> dGamma >> tdb0;
+      }
+    } else {
+      FITS::FitsTable ft(tripletPath);
+      auto tab = ft.use();
+      tab.readCells(orbitIn, "ORBITID");
+      tab.readCells(objectIn, "TRANSIENTID");
+
+      // Reference frame defined in header: we will need
+      // a central RA, Dec, and reference epoch.
+      tab.header()->getValue("RA0",ra0);
+      tab.header()->getValue("DEC0",dec0);
+      tab.header()->getValue("TDB0",tdb0);
+
+      // Read the central gamma and half-width from header too
+      tab.header()->getValue("GAMMA0",gamma0);
+      tab.header()->getValue("DGAMMA",dGamma);
+    }
+
+    // Build the reference frame
+    {
+      astrometry::Orientation orient(astrometry::SphericalICRS(ra0*DEGREE, dec0*DEGREE));
+      orient.alignToEcliptic();
+      globals.frame = Frame(eph.observatory(807,tdb0), orient, tdb0);
+    }      
+    if (gamma0<=0. || dGamma<=0. || dGamma > gamma0) {
+      cerr << "Invalid gamma0, dGamma" << gamma0 << ", " << dGamma << endl;
+      exit(1);
+    }
+
+    // Pluck out all relevant exposure data.  Then close
+    // exposure catalog.
+    vector<Exposure*> exposurePool;
+    {
+      ExposureTable et(exposurePath);
+      exposurePool = et.getPool(globals.frame,
+				eph,
+				gamma0,
+				dGamma,
+				searchRadius,
+				true); // astrometric exposures only
+    }
+    // Get transient catalogs for all these exposures, deleting pool members with none
+    // And build a map from object ID back to the exposure it
+    // was taken in. 
+    {
+      TransientTable tt(transientPath);
+      for (auto iter = exposurePool.begin();
+	   iter != exposurePool.end();
+	   ++iter) {
+	if (tt.fillExposure(globals.frame, *iter)) {
+	  // Add all these transients to the index
+	  for (int i=0; i<(*iter)->id.size(); i++)
+	    detectionIndex[(*iter)->id[i]] = Detection(*iter,i);
+	  // and add exposure to list of useful ones
+	  allExposureList.push_back(*iter);
+	} else {
+	  delete *iter;
+	  *iter = nullptr;
+	}
+      }
+    }
+  }
+    
+private:
+  Ephemeris& eph;
+  GlobalResources& globals;
+  bool useStdin;
+  vector<LONGLONG> orbitIn;
+  vector<LONGLONG> objectIn;
+  std::map<int, Detection> detectionIndex;
+  double bindingFactor;
+  double gamma0;
+  double dGamma;
+  list<Exposure*> allExposureList;
+  int orbitID;       // Running ID number if from stdin
+  int nextInputRow;  // Row number if reading from FITS tables
+
+public:
+  FitStep* nextFit() {
+    // Return pointer to next valid input orbit fit.  Nullptr returned if
+    // no more orbits to investigate.
+
+    // Continue until a valid FitStep is creating or there is no more input
+    while (true) {
+      vector<int> memberIDs;
+      if (useStdin) {
+	string buffer;
+	/* Loop over all initial detection sets: ?? simple stdin format to start */
+	if (!getlineNoComment(cin, buffer)) {
+	  return nullptr;  // No more input.
+	}
+	istringstream iss(buffer);
+	// Read object id's on a line
+	int objectID;
+	while (iss >> objectID) {
+	  memberIDs.push_back(objectID);
+	}
+	orbitID++;
+      } else {
+	// Read members from table
+	if (nextInputRow >= orbitIn.size())
+	  return nullptr;  // No more input available.
+	orbitID = orbitIn[nextInputRow];
+	for ( ;nextInputRow < orbitIn.size() && orbitIn[nextInputRow]==orbitID ; nextInputRow++)
+	  memberIDs.push_back(objectIn[nextInputRow]);
+      }
+	  
+      // Test object ID's for validity
+      vector<Detection> members;
+      for (auto id : memberIDs) {
+	if (!detectionIndex.count(id)) {
+	  // No detection with this ID - probably something
+	  // we're rejecting from large errors.  Just skip
+	  continue;
+	}
+	members.push_back(detectionIndex[id]);
+      }
+
+      // Test the initial detections for sane orbit
+      if (members.size() < 3)
+	continue; // don't try these... move on to next input.
+
+      if (DEBUG) cerr << "Making initial with " << members.size() << " detections" << endl;
+      // Make an orbit fit
+      auto fitptr = new Fitter(eph, Gravity::BARY);  // ?? Need giants' gravity??
+      fitptr->setFrame(globals.frame);
+      if (bindingFactor > 0.)
+	fitptr->setBindingConstraint(bindingFactor);
+      fitptr->setGammaConstraint(gamma0, dGamma/2.); // Give gamma prior so search bound is 2 sigma
+      // Pass in the detections' data
+      {
+	int nobs = members.size();
+	DVector tobs(nobs);
+	DVector thetaX(nobs);
+	DVector thetaY(nobs);
+	DVector covxx(nobs);
+	DVector covyy(nobs);
+	DVector covxy(nobs);
+	DMatrix xE(nobs,3);
+	for (int i=0; i<members.size(); i++) {
+	  Detection& det = members[i];
+	  int j = det.objectRow;
+	  tobs[i] = det.eptr->tobs;
+	  thetaX[i] = det.eptr->xy(j,0);
+	  thetaY[i] = det.eptr->xy(j,1);
+	  covxx[i] = det.eptr->covXX[j];
+	  covyy[i] = det.eptr->covYY[j];
+	  covxy[i] = det.eptr->covXY[j];
+	  xE.row(i) = det.eptr->earth.transpose();
+	}
+	fitptr->setObservationsInFrame(tobs, thetaX, thetaY, covxx, covyy, covxy, xE);
+      }
+      bool goodFit = true;
+      try {
+	fitptr->setLinearOrbit();
+	fitptr->setLinearOrbit();
+	if (DEBUG) cerr << "Initial linear fit chisq " << fitptr->getChisq()
+			<< " " << fitptr->getABG(true)[ABG::G] << endl;
+	fitptr->newtonFit();  // ?? any more elaborate fitting needed ??
+	if (DEBUG) cerr << "Newton fit chisq " << fitptr->getChisq()
+			<< " " << fitptr->getABG()[ABG::G] << endl;
+      } catch (std::runtime_error& e) {
+	goodFit = false;
+      }
+
+      // Skip the orbit if fit failed or is poor
+      if (!goodFit || !globals.goodFit(fitptr)) {
+	if (DEBUG) cerr << "Not a good fit " << goodFit << endl;
+	if (DEBUG) fitptr->printResiduals(cerr);
+	delete fitptr;
+	continue;  // Move on to next input orbit
+      }
+
+      // Fit is good - queue up a FitStep
+      // First make a list of possible exposures that excludes the
+      // ones that the original detections come from.
+      list<Exposure*> possibleExposures(allExposureList);
+      for (auto& m : members) {
+	possibleExposures.remove(m.eptr);
+      }
+
+      // Got a good one, return it
+      return new FitStep(fitptr, possibleExposures, members,
+			 members.size(), orbitID,
+			 1000.); // Set a high FPR so we don't trigger output on this
+    }
+  }
+
+};
 
 ////////////////////////////////////////////////////////////////////////////////////
 // Main begins here
@@ -568,6 +865,8 @@ main(int argc, char **argv) {
   double searchRadius;
   double maxFPR;
   int    minUnique;
+  double minArc;
+  double minArccut;
   int    secureUnique;
   double secureFPR;
   bool   cullDuplicates;
@@ -598,6 +897,10 @@ main(int argc, char **argv) {
 			   "Radius enclosing TNO positions at reference time (degrees)", 4., 0.);
       parameters.addMember("maxFPR",&maxFPR, def | lowopen,
 			   "maximum false positive rate to keep", 0.03, 0.);
+      parameters.addMember("minArc",&minArc, def | low,
+			   "minimum arc length to keep (yrs)", 0.7, 0.);
+      parameters.addMember("minArccut",&minArccut, def | low,
+			   "minimum cut-arc length to keep", 0.0, 0.);
       parameters.addMember("minUnique",&minUnique, def,
 			   "minimum unique nights' detections for orbit", 4);
       parameters.addMember("secureUnique",&secureUnique, def,
@@ -637,62 +940,18 @@ main(int argc, char **argv) {
       parameters.setFromArguments(argc, argv);
     }
 
+    // Set criteria for output and secure orbits from parameters
+    FitStep::setUnique(secureUnique, secureFPR);
+    FitStep::setOutput(minUnique, maxFPR,
+		       minArc, minArccut);
+    
+
     cerr << "# Loading data" << endl;
     // Read the ephemeris
     Ephemeris eph(ephemerisPath);
 
-    // Grab input info
-    vector<LONGLONG> orbitIn;
-    vector<LONGLONG> objectIn;
-    Frame frame;
-    double gamma0;
-    double dGamma;
-    
-    bool useStdin = tripletPath.empty();
     {
-      double ra0, dec0, tdb0;
-      if (useStdin) {
-	// Read configuration info from stdin
-	string buffer;
-	getlineNoComment(cin, buffer);
-	{
-	  std::istringstream iss(buffer);
-	  iss >> ra0 >> dec0 >> tdb0;
-	}
-	// Next line should be gamma0, dgamma
-	getlineNoComment(cin, buffer);
-	{
-	  std::istringstream iss(buffer);
-	  iss >> gamma0 >> dGamma >> tdb0;
-	}
-      } else {
-	FITS::FitsTable ft(tripletPath);
-	auto tab = ft.use();
-	tab.readCells(orbitIn, "ORBITID");
-	tab.readCells(objectIn, "TRANSIENTID");
-
-	// Reference frame defined in header: we will need
-	// a central RA, Dec, and reference epoch.
-	tab.header()->getValue("RA0",ra0);
-	tab.header()->getValue("DEC0",dec0);
-	tab.header()->getValue("TDB0",tdb0);
-
-	// Read the central gamma and half-width from header too
-	tab.header()->getValue("GAMMA0",gamma0);
-	tab.header()->getValue("DGAMMA",dGamma);
-      }
-      astrometry::Orientation orient(astrometry::SphericalICRS(ra0*DEGREE, dec0*DEGREE));
-      orient.alignToEcliptic();
-      frame = Frame(eph.observatory(807,tdb0), orient, tdb0);
-    }      
-    if (gamma0<=0. || dGamma<=0. || dGamma > gamma0) {
-      cerr << "Invalid gamma0, dGamma" << gamma0 << ", " << dGamma << endl;
-      exit(1);
-    }
-    //??transientPath = "/Users/garyb/DES/TNO/zone029.transients.fits";
-    
-    {
-      // Choose chisq cutoffs for numbers of detections
+      // Choose chisq cutoffs vs numbers of detections
       DVector pctile(8,0.);
       // Start with the values for 99th pctile of
       // chisq distribution for 2*n-5 DOF,
@@ -714,50 +973,14 @@ main(int argc, char **argv) {
     // as a function of the number of independent epochs.
     FPAccumulator accumulator;
     
-    // Pluck out all relevant exposure data.  Then close
-    // transient catalog and exposure catalog.
-    vector<Exposure*> exposurePool;
-    {
-      ExposureTable et(exposurePath);
-      exposurePool = et.getPool(frame,
-				eph,
-				gamma0,
-				dGamma,
-				searchRadius,
-				true); // astrometric exposures only
-    }
-    // Get transient catalogs for all these exposures, deleting pool members with none
-    // And build a map from object ID back to the exposure it
-    // was taken in. 
-    std::map<int, Detection> detectionIndex;
-    list<Exposure*> allExposureList;  // List of valid exposures
-    {
-      TransientTable tt(transientPath);
-      for (auto iter = exposurePool.begin();
-	   iter != exposurePool.end();
-	   ++iter) {
-	if (tt.fillExposure(frame, *iter)) {
-	  // Add all these transients to the index
-	  for (int i=0; i<(*iter)->id.size(); i++)
-	    detectionIndex[(*iter)->id[i]] = Detection(*iter,i);
-	  // and add exposure to list of useful ones
-	  allExposureList.push_back(*iter);
-	} else {
-	  delete *iter;
-	  *iter = nullptr;
-	}
-      }
-    }
-	  
-    int orbitID = -1;  // Starting point for an orbitID counter, if using stdin
-
+    // Create the orbit reader which will feed us new orbits from input
+    OrbitReader reader(tripletPath, exposurePath, transientPath,
+		       eph,bindingFactor, searchRadius, globals);
+    
     // These are orbitID's that have already been "cleaned out" from an
     // secure orbit and should be henceforth ignored.
     set<int> settledOrbitIDs;
     
-    // Now enter a loop of growing fits.
-    list<FitStep*> fitQueue;
-
     // And build a list of successful linkages
     list<FitResult, Eigen::aligned_allocator<FitResult>> savedResults;
     
@@ -766,185 +989,123 @@ main(int argc, char **argv) {
     // Set cull=false at command line to *not* do this.
     set<vector<int>> alreadySearched;
       
-    int nextInputRow = 0;  // Counter used if we are getting input from FITS file
-
     cerr << "# Starting linking" << endl;
+
+    // We'll break the input into blocks that we'll distribute to threads.
+#ifdef _OPENMP
+    int blocksize = omp_get_max_threads() * 10;
+#else
+    int blocksize = 10;
+#endif
+
     while (true) {
-      if (fitQueue.empty()) {
-	// Stock the queue with fresh orbit from input
-	// Continue reading new orbits and trying them out
-	// until we are out of input or find one with decent initial fit
-	while (true) {
-	  // Gather object ID's for next orbit trial
-	  vector<int> memberIDs;
-	  if (useStdin) {
-	    string buffer;
-	    /* Loop over all initial detection sets: ?? simple stdin format to start */
-	    if (!getlineNoComment(cin, buffer)) {
-	      break;  // No more input.
-	    }
-	    istringstream iss(buffer);
-	    // Read object id's on a line
-	    int objectID;
-	    while (iss >> objectID) {
-	      memberIDs.push_back(objectID);
-	    }
-	    orbitID++;
-	  } else {
-	    // Read members from table
-	    if (nextInputRow >= orbitIn.size())
-	      break;  // No more input available.
-	    orbitID = orbitIn[nextInputRow];
-	    for ( ;nextInputRow < orbitIn.size() && orbitIn[nextInputRow]==orbitID ; nextInputRow++)
-	      memberIDs.push_back(objectIn[nextInputRow]);
-	  }
-	  
-	  // Test object ID's for validity
-	  vector<Detection> members;
-	  for (auto id : memberIDs) {
-	    if (!detectionIndex.count(id)) {
-	      // No detection with this ID - probably something
-	      // we're rejecting from large errors.  Just skip
-	      continue;
-	    }
-	    members.push_back(detectionIndex[id]);
-	  }
-
-	  // Test the initial detections for sane orbit
-	  if (members.size() < 3)
-	    continue; // don't try these...
-
-	  if (DEBUG) cerr << "Making initial with " << members.size() << " detections" << endl;
-	  // Make an orbit fit
-	  auto fitptr = new Fitter(eph, Gravity::BARY);  // ?? Need giants' gravity??
-	  fitptr->setFrame(frame);
-	  if (bindingFactor > 0.)
-	    fitptr->setBindingConstraint(bindingFactor);
-	  fitptr->setGammaConstraint(gamma0, dGamma/2.); // Give gamma prior so search bound is 2 sigma
-	  // Pass in the detections' data
-	  {
-	    int nobs = members.size();
-	    DVector tobs(nobs);
-	    DVector thetaX(nobs);
-	    DVector thetaY(nobs);
-	    DVector covxx(nobs);
-	    DVector covyy(nobs);
-	    DVector covxy(nobs);
-	    DMatrix xE(nobs,3);
-	    for (int i=0; i<members.size(); i++) {
-	      Detection& det = members[i];
-	      int j = det.objectRow;
-	      tobs[i] = det.eptr->tobs;
-	      thetaX[i] = det.eptr->xy(j,0);
-	      thetaY[i] = det.eptr->xy(j,1);
-	      covxx[i] = det.eptr->covXX[j];
-	      covyy[i] = det.eptr->covYY[j];
-	      covxy[i] = det.eptr->covXY[j];
-	      xE.row(i) = det.eptr->earth.transpose();
-	    }
-	    fitptr->setObservationsInFrame(tobs, thetaX, thetaY, covxx, covyy, covxy, xE);
-	  }
-	  bool goodFit = true;
-	  try {
-	    fitptr->setLinearOrbit();
-	    fitptr->setLinearOrbit();
-	    if (DEBUG) cerr << "Initial linear fit chisq " << fitptr->getChisq()
-		     << " " << fitptr->getABG(true)[ABG::G] << endl;
-	    fitptr->newtonFit();  // ?? any more elaborate fitting needed ??
-	    if (DEBUG) cerr << "Newton fit chisq " << fitptr->getChisq()
-		     << " " << fitptr->getABG()[ABG::G] << endl;
-	  } catch (std::runtime_error& e) {
-	    goodFit = false;
-	  }
-
-	  // Skip the orbit if fit failed or is poor
-	  if (!goodFit || !globals.goodFit(fitptr)) {
-	    if (DEBUG) cerr << "Not a good fit " << goodFit << endl;
-	    if (DEBUG) fitptr->printResiduals(cerr);
-	    delete fitptr;
-	    continue;
-	  }
-
-	  // Fit is good - queue up a FitStep
-	  // First make a list of possible exposures that excludes the
-	  // ones that the original detections come from.
-	  list<Exposure*> possibleExposures(allExposureList);
-	  for (auto& m : members) {
-	    possibleExposures.remove(m.eptr);
-	  }
-	  // Now queue up
-	  if (DEBUG) cerr << "Queuing using " << possibleExposures.size() << " exposures" << endl;
-	  fitQueue.push_back(new FitStep(fitptr, possibleExposures, members,
-					 members.size(), orbitID,
-					 1000.)); // Set a high FPR so we don't trigger output on this
-	} // End of input-reading loop.
-
-      } // End of searching for new inputs for queue.
-
-      if (fitQueue.empty())
-	break; 	  // Nothing left to fit!
-
-      // Search the next item on the queue:
-      if (DEBUG) cerr << "-->New search, queue size " << fitQueue.size() << endl;
-      auto thisFit = fitQueue.front();
-      fitQueue.pop_front();
-      if (settledOrbitIDs.count(thisFit->orbitID)) {
-	// We do not need to pursue this fit, it's finished elsewhere
-	delete thisFit;
-	continue;
-      }
-      if (cullDuplicates) {
-	vector<int> ids = thisFit->sortedIDs();
-	if (alreadySearched.count(ids)) {
-	  // Duplicate.  Skip.
-	  delete thisFit;
+      vector<FitStep*> blockOfOrbits;
+      do {
+	auto fs = reader.nextFit();
+	if (fs==nullptr) {
+	  break;
+	} else if (alreadySearched.count(fs->sortedIDs())) {
+	  // We do not need to pursue this fit, it's finished elsewhere
+	  delete fs;
 	  continue;
 	} else {
-	  alreadySearched.insert(ids);
+	  blockOfOrbits.push_back(fs);
 	}
-      }
-      double totalFPR;
-      auto newFits = thisFit->search(totalFPR);
+      } while (blockOfOrbits.size() < blocksize);
 
-      // Add the FPR of this search into the total for
-      // searches with the same number of independent detections
-      accumulator.addOrbit(thisFit->nIndependent, totalFPR);
+      int imax = blockOfOrbits.size();
+      /**/cerr << "Acquired block of " << imax << " input orbits" << endl;
+      if (imax==0)
+	break;  // Done with all input!
 
-      if (DEBUG) cerr << "search returns " << newFits.size() << endl;
-      if (newFits.empty()) {
-	// No new points can be added to this fit.  So it's a completed search.
+#pragma omp parallel for schedule(dynamic,1)
+      for (int i=0; i<imax; i++) 
+      {
+        // Create a queue for this iteration - one thread
+	// will chase down all descendants of an input orbit.
+	// Initialize queue with input orbit.
+	deque<FitStep*> fitQueue;
+	fitQueue.push_back(blockOfOrbits[i]);
+	
+	while (!fitQueue.empty()) {
+	  auto thisFit = fitQueue.front();
+	  fitQueue.pop_front();
 
-	// Is this a secure orbit, likely to have all relevant detections?
-	bool isSecure = thisFit->nIndependent >= secureUnique
-	  && thisFit->fpr <= secureFPR;
-	// Is it worthy of output?
-	if (thisFit->nIndependent >= minUnique
-	    && thisFit->fpr <= maxFPR) {
-	  savedResults.push_back(FitResult(*thisFit));
-	  if (isSecure) savedResults.back().isSecure = true;
-	  if (DEBUG) savedResults.back().write(cout);
-	}
-	// If this is a secure fit, shut down further use of its detections
-	if (isSecure) {
-	  for (auto& m : thisFit->members) {
-	    m.eptr->valid[m.objectRow] = false;
+#pragma omp critical(settledOrbit)
+	  if (settledOrbitIDs.count(thisFit->orbitID)) {
+	    // We do not need to pursue this fit, it's finished elsewhere
+	    delete thisFit;
+	    thisFit = nullptr;
 	  }
-	  settledOrbitIDs.insert(thisFit->orbitID);
-	}
-      } else {
-	// Not a terminal fit - add new searches to queue.
-	// Put them at the front so we are searching depth-first
-	fitQueue.insert(fitQueue.begin(), newFits.begin(), newFits.end());
-      }
-      // Done with this fit
-      delete thisFit;
-    } // End of the queue loop.
+	  if (thisFit==nullptr) continue;
+	  
+#pragma omp critical(alreadySearched)
+	  if (cullDuplicates) {
+	    vector<int> ids = thisFit->sortedIDs();
+	    if (alreadySearched.count(ids)) {
+	      // Duplicate.  Skip.
+	      delete thisFit;
+	      thisFit = nullptr;
+	    } else {
+	      alreadySearched.insert(ids);
+	    }
+	  }
+	  if (thisFit==nullptr) continue;
+
+	  double totalFPR;
+	  // Here's where the search happens:
+	  auto newFits = thisFit->search(totalFPR);
+
+	  // Add the FPR of this search into the total for
+	  // searches with the same number of independent detections
+#pragma omp critical(accumulator)
+	  accumulator.addOrbit(thisFit->nUnique, totalFPR);
+
+	  if (DEBUG) cerr << "search returns " << newFits.size() << endl;
+	  if (newFits.empty()) {
+	    // No new points can be added to this fit.  So it's a completed search,
+	    // i.e. "terminal orbit"
+
+	    // Is this a secure orbit, likely to have all relevant detections?
+	    bool isSecure = thisFit->isSecure();
+	    // Is it worthy of output?
+	    if (thisFit->goodToOutput()) {
+#pragma omp critical(savedResults)
+	      {
+		savedResults.push_back(FitResult(*thisFit));
+		if (isSecure) savedResults.back().isSecure = true;
+		if (DEBUG) savedResults.back().write(cout);
+	      }
+	    }
+	    // If this is a secure fit, shut down further use of its detections
+	    if (isSecure) {
+#pragma omp critical(settledOrbit)
+	      {
+		for (auto& m : thisFit->members) {
+		  m.eptr->valid[m.objectRow] = false;
+		}
+		settledOrbitIDs.insert(thisFit->orbitID);
+	      }
+	    }
+	  } else {
+	    // Not a terminal fit - add new searches to queue.
+	    // Put them at the front so we are searching depth-first
+	    fitQueue.insert(fitQueue.begin(), newFits.begin(), newFits.end());
+	  }
+
+	  // Done with this fit
+	  delete thisFit;
+	} // End of the queue loop.
+
+      } // End of the for loop within a block (also ends parallel region)
+
+    } // End of the while() loop for input blocks
 
     // Done searching!  Clean up the results by
     // deleting anything whose detections are a subset of another,
     // and mark those that share detections with another.
 
-    // We don't need the big reservoir of culled lists, release its memory
+    // We don't need the big reservoir of completed searches, release its memory
     alreadySearched.clear();
 
     cerr << "# Starting the purge, " << savedResults.size() << " n-lets" << endl;
@@ -1003,11 +1164,12 @@ main(int argc, char **argv) {
       // Make FITS tables for everything.  First collect into arrays.
       vector<LONGLONG> startID; // The ID of the starting triplet.
       vector<int> nDetect; // Number of detections
-      vector<int> nIndependent; // Number of independent nights
+      vector<int> nUnique; // Number of independent nights
       vector<double> chisq;
       vector<vector<double>> abg;
       vector<vector<double>> abgInvCov;
       vector<double> arc;
+      vector<double> arccut;
       vector<double> fpr;
       vector<bool> skipped;
       vector<bool> overlap;
@@ -1022,7 +1184,7 @@ main(int argc, char **argv) {
       for (auto& r : savedResults) {
 	startID.push_back(r.orbitID);
 	nDetect.push_back(r.detectionIDs.size());
-	nIndependent.push_back(r.nIndependent);
+	nUnique.push_back(r.nUnique);
 	chisq.push_back(r.chisq);
 	fpr.push_back(r.fpr);
 	vector<double> v(6,0.);
@@ -1034,6 +1196,7 @@ main(int argc, char **argv) {
 	    v[i*6+j] = r.invcov(i,j);
 	abgInvCov.push_back(v);
 	arc.push_back(r.arc);
+	arccut.push_back(r.arccut);
 	skipped.push_back(r.skippedExposures);
 	overlap.push_back(r.hasOverlap);
 	LONGLONG newID = startID.size()-1; // New ID from row
@@ -1049,11 +1212,12 @@ main(int argc, char **argv) {
 	img::FTable table = ft.use();
 	table.addColumn(startID,"OLDID");
 	table.addColumn(nDetect,"NDETECT");
-	table.addColumn(nIndependent,"NUNIQUE");
+	table.addColumn(nUnique,"NUNIQUE");
 	table.addColumn(chisq,"CHISQ");
 	table.addColumn(abg,"ABG",6);
 	table.addColumn(abgInvCov,"ABGINVCOV",36);
 	table.addColumn(arc,"ARC");
+	table.addColumn(arccut,"ARCCUT");
 	table.addColumn(fpr,"FPR");
 	table.addColumn(skipped,"SKIPPED");
 	table.addColumn(overlap,"OVERLAP");
