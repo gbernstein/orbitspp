@@ -51,6 +51,7 @@ endif
 
 ifdef MKL_DIR
 INCLUDES += -I $(MKL_DIR)/include -D USE_MKL
+LIBS +=  -L${MKL_DIR}/lib/intel64 -Wl,--no-as-needed -lmkl_intel_lp64 -lmkl_gnu_thread -lmkl_core -lgomp -lpthread -lm -ldl
 endif
 
 # Not really using this but Astrometry might, so
