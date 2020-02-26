@@ -580,15 +580,24 @@ FitStep::search(double& totalFPR) {
     // Now refit orbit to all potential candidates
     // Refit for all good points
     for (int i=0; i<chisq.size(); i++) {
+      Fitter* nextFit=nullptr;
       // Exclude points that are tagged as invalid or bad matches to orbit.
       if (chisq[i] > SINGLE_CHISQ_THRESHOLD || !info.eptr->valid[i])
 	continue;
       if (DEBUG) cerr << "....match exposure " << info.eptr->expnum << " id " << i << " chisq " << chisq[i] << endl;
-      auto nextFit = fitptr->augmentObservation(info.eptr->tobs,
-						info.eptr->xy(i,0), info.eptr->xy(i,1),
-						info.eptr->covXX[i], info.eptr->covYY[i], info.eptr->covXY[i],
-						info.eptr->earth,
-						true);  // recalculate gravity ???
+      try {
+	nextFit = fitptr->augmentObservation(info.eptr->tobs,
+					     info.eptr->xy(i,0), info.eptr->xy(i,1),
+					     info.eptr->covXX[i], info.eptr->covYY[i], info.eptr->covXY[i],
+					     info.eptr->earth,
+					     true);  // recalculate gravity ???
+      } catch (Fitter::NonConvergent& e) {
+	// Fitting failure.  Skip this one.
+	/**/cerr << e.what() << " at " << orbitID << endl;
+	if (nextFit != nullptr)
+	  delete nextFit;
+	continue;
+      }
 
       // Check chisq to see if we keep it
       if (!globals.goodFit(nextFit)) {
