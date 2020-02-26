@@ -993,9 +993,9 @@ main(int argc, char **argv) {
 
     // We'll break the input into blocks that we'll distribute to threads.
 #ifdef _OPENMP
-    int blocksize = omp_get_max_threads() * 10;
+    int blocksize = omp_get_max_threads() * 32;
 #else
-    int blocksize = 10;
+    int blocksize = 32;
 #endif
 
     while (true) {
