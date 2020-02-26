@@ -262,7 +262,7 @@ Fitter::iterateTimeDelay() {
   // Get sqrt(xyz.xyz):
   DVector dist = xyz.cwiseProduct(xyz).rowwise().sum().cwiseSqrt();
   if ( (dist.array()>1e4).any())
-    throw std::runtime_error("ERROR: distance >10,000 AU in Fitter::iterateTimeDelay()");
+    throw NonConvergent("distance >10,000 AU in Fitter::iterateTimeDelay()");
   tEmit = tObs - dist/SpeedOfLightAU;
   tdbEmit.array() = tEmit.array() + f.tdb0;
 
@@ -440,15 +440,15 @@ Fitter::abgSanityCheck() const {
   const double MAX_KE = 10.; // Failure when crude |KE/PE| exceeds this
 
   if (abs(abg[ABG::G]) > MAX_GAMMA) {
-    FormatAndThrow<std::runtime_error>()
-      << "ERROR: Fitter gamma grows too large: " << abg[ABG::G];
+    FormatAndThrow<NonConvergent>()
+      << "gamma grows too large: " << abg[ABG::G];
   }
   double ke = (abg[ABG::ADOT] * abg[ABG::ADOT]
 	       + abg[ABG::BDOT] * abg[ABG::BDOT]
 	       + abg[ABG::GDOT] * abg[ABG::GDOT]) / (2. * GM * pow(abs(abg[ABG::G]),3.));
   if (ke > MAX_KE) {
-    FormatAndThrow<std::runtime_error>()
-      << "ERROR: Fitter |KE/PE| grows too large: " << ke;
+    FormatAndThrow<NonConvergent>()
+      << "|KE/PE| grows too large: " << ke;
   }
 }
 
@@ -490,7 +490,7 @@ Fitter::newtonFit(double chisqTolerance, bool dump) {
     iterations++;
   } while (iterations < MAX_ITERATIONS && abs(chisq-oldChisq) > chisqTolerance);
   if (iterations >= MAX_ITERATIONS)
-    throw std::runtime_error("Fitter::newtonFit exceeded max iterations");
+    throw NonConvergent("newtonFit exceeded max iterations");
    
   // Then converge with time delay and gravity recalculated
   iterateTimeDelay();
@@ -523,7 +523,7 @@ Fitter::newtonFit(double chisqTolerance, bool dump) {
     iterations++;
   } while (iterations < MAX_ITERATIONS && abs(chisq-oldChisq) > chisqTolerance);
   if (iterations >= MAX_ITERATIONS)
-    throw std::runtime_error("Fitter::newtonFit exceeded max fine iterations");
+    throw NonConvergent("newtonFit exceeded max fine iterations");
   abgIsFit = true;
   return;
 }
