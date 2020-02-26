@@ -24,6 +24,12 @@ namespace orbits {
       if (fullTrajectory) delete fullTrajectory;
     }
     
+    // Define an exception class for non-convergence of fits
+    class NonConvergent: public std::runtime_error {
+    public:
+      NonConvergent(string msg=""): std::runtime_error("Fit Non-Convergence: " + msg) {}
+    };
+    
     // Give Fitter a previous result (can be used for prediction without Observations)
     void setABG(const ABG& abg_, const ABGCovariance& cov_);
     
