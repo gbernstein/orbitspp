@@ -9,20 +9,15 @@ using namespace orbits;
 using namespace astrometry;
 
 /**
-In this class the xfwd/xbwd arrays have at element i
-the position at time t=tdb0 +- i*dt, respectively.
+In this class the xvaFwd/Bwd arrays have at element i
+the (x,vv,aa) at time t=tdb0 +- i*dt, respectively.
 
-Likewise the [va][fwd|bwd] arrays hold v*dt and 0.5*a*dt*dt
-at time tdb0 +- i*dt.  Note that the v's are actually calculated
-at the midpoints of timestep during leapfrog integration (these
-are vnext_[fwd|bwd].  But we save an (approximate) value at the
-start of timestep by adding half the acceleration.
-
-With this convention, a quadratic interpolation of the position
-at a fraction f of the way from step i*dt to (i+1)*dt is
-x + f*v + f^2 * a.
-
-A velocity estimate would be v + 2*f*a.
+The x holds the coordinate; vv holds v*dt; and aa holds 0.5*a*dt*dt,
+so that the interpolation across the time step is
+x(tdb0 + (i+f)*dt) = x_i + f*vv_i + f*f*aa_i
+v(tdb0 + (i+f)*dt)  * dt = v_i + 2*f*aa_i
+where f is the fractional part of the time step.  (backward formula
+needs to flip the sign on vv).
 
 This interpolation scheme yields continuous x agrees with
 leapfrog at the nodes.  The velocity also agrees with leapfrog
@@ -32,8 +27,22 @@ step(v) = 0.5*dt* (a(i*dt)-a((i+1)*dt)) = 0.5 * dt^2 * da/dt
 and the calculated acceleration will be a step function that
 is off by 1/2 time step.  Could take the time to make a 
 higher-order interpolator...
-**/
 
+The leapfrog wants to work with the velocity at the midpoint of
+the interval, not at the interval (in fact the formula above produces
+a slight discontinuity in v at the nodes).  Let's call the velocity at
+the midpoint of the interval i->i+1 as vmid_i.  The leapfrog is
+x -> x + vmid_i*dt
+vmid*dt -> vmid_i*dt + a_i*dt*dt = vmid_i*dt + dv_i
+where dv = a_i*dt, a_i is the gravity evaluated at time i, position x_i
+
+and this is the way we will do the integration.  But the tabulated
+values differ slightly from vmid.  Equating the leapfrog step to the 
+interpolation formula for f=1 gives
+vmid_i = vv_i + aa_i, or
+vv_i = vmid_i - aa_i
+
+**/
 
 Trajectory::Trajectory (const Ephemeris& ephem_,
 			const State& s0,
@@ -47,73 +56,76 @@ Trajectory::Trajectory (const Ephemeris& ephem_,
 {
   if (grav == INERTIAL) {
     return;
-  } else if (grav==WRONG) {
-    // In this wrong model, we want the heliocentric
-    // elements at initial state vector
-    el = getElements(s0, true, &ephem);
   } else {
-    // Put initial positions in caches
-    xfwd.push_back(x0);
-    xbwd.push_back(x0);
-    // Put in the initial half time step for the leap frog
+    // Put in initial values for fwd and bwd leapfrog tables
     auto dv = deltaV(x0, tdb0);
-    vnext_fwd = v0 + 0.5*dv;
-    vnext_bwd = v0 - 0.5*dv;
-    vfwd.push_back(v0*dt);
-    vbwd.push_back(-v0*dt);
-    afwd.push_back(dv*0.5*dt);
-    abwd.push_back(dv*0.5*dt);
+    Matrix33 xva;
+    xva.col(0) = x0;
+    xva.col(1) = v0*dt;
+    xva.col(2) = dv*0.5*dt;
+    /**/cerr << "Initial:" << xva << endl;
+    xvaFwd.append(0,xva);
+    // Flip velocity sign for backwards
+    xva.col(1) = -v0*dt;
+    xvaBwd.append(0,xva);
   }
-#ifdef _OPENMP
-  omp_init_lock(&lock);
-#endif
 }
 
 void
 Trajectory::span(double tdb) const {
   // How many time steps fwd / back must we go?
   double tstep = (tdb - tdb0)/dt;
-
-  // Lock the LUT while changing it
-  if (tstep >= xfwd.size()) {
+  size_t s = xvaFwd.size();  // Size might increase before we append
+  if (tstep >= s) {
     // Extend cache forward
-#ifdef _OPENMP
-    omp_set_lock(&lock);
-#endif
+    vector<Matrix33, Eigen::aligned_allocator<Matrix33>> addFwd;
     int nfwd = static_cast<int> (ceil(tstep));
-    double tdb = tdb0 + dt * xfwd.size();
-    for (int i=xfwd.size(); i<=nfwd; i++, tdb+=dt) {
-      // Leap frog forward
-      xfwd.push_back( xfwd.back() + dt * vnext_fwd);
-      auto dv = deltaV(xfwd.back(), tdb);
-      afwd.push_back(0.5*dt*dv);
-      vfwd.push_back( dt*(vnext_fwd + 0.5*dv));
-      vnext_fwd += dv;
+    double tdb = tdb0 + dt * s;
+    auto xva = xvaFwd[s-1];
+    // half-step v to the midpoint, which
+    // is what we'll use for leapfrogging
+    Vector3 vmid = xva.col(1) + xva.col(2);  
+    
+    for (int i=s; i<=nfwd; i++, tdb+=dt) {
+      // Leap frog forward to x_{i+1}
+      xva.col(0) += vmid;
+      // Calculate and save acceleration
+      auto dv = deltaV(xva.col(0),tdb)*dt;
+      xva.col(2) = 0.5*dv;
+      // Leapfrog the velocity, leaving half of it at the time step.
+      xva.col(1) = vmid  + 0.5*dv;
+      vmid += dv;
+      // But run it back from midpoint to node for the interpolation table
+      addFwd.push_back(xva);
     }
-#ifdef _OPENMP
-    omp_unset_lock(&lock);
-#endif
+    // Extend the cache (this will block other writes)
+    xvaFwd.append(s,addFwd.begin(),addFwd.end());
   }
 
-  if (tstep < -xbwd.size()) {
+  // Now check for backward interpolations
+  s = xvaBwd.size();
+  if (tstep < -s) {
     // Extend cache backward
-#ifdef _OPENMP
-    omp_set_lock(&lock);
-#endif
+    vector<Matrix33, Eigen::aligned_allocator<Matrix33>> addBwd;
+    auto xva = xvaBwd[s-1];
     int nbwd = static_cast<int> (ceil(-tstep));
-    double tdb = tdb0 - dt * xbwd.size();
-    for (int i=xbwd.size(); i<=nbwd; i++, tdb-=dt) {
+    double tdb = tdb0 - dt * s;
+    // half-step v to the midpoint, which
+    // is what we'll use for leapfrogging
+    Vector3 vmid = xva.col(1) + xva.col(2);  
+    for (int i=s; i<=nbwd; i++, tdb-=dt) {
       // Leap frog backward
-      xbwd.push_back( xbwd.back() - dt * vnext_bwd);
-      auto dv = deltaV(xbwd.back(), tdb);
-      abwd.push_back(0.5*dt*dv);
-      // Save negated velocity since LUT is using (-t)
-      vbwd.push_back( (-dt)*(vnext_bwd - 0.5*dv));
-      vnext_bwd -= dv;
+      xva.col(0) += vmid;
+      auto dv = deltaV(xva.col(0), tdb)*dt;
+      xva.col(2) = 0.5*dv;
+      // Leapfrog velocity
+      xva.col(1) = vmid + 0.5*dv;
+      vmid += dv;
+      // Run velocity back to node for interp table
+      addBwd.push_back(xva);
     }
-#ifdef _OPENMP
-    omp_unset_lock(&lock);
-#endif
+    // Extend the cache (this will block other writes)
+    xvaBwd.append(s,addBwd.begin(),addBwd.end());
   }
 }
 		      
@@ -131,54 +143,44 @@ Trajectory::position(const DVector& tdb,
       out.row(i) = (x0 + (tdb[i]-tdb0)*v0).transpose();
     if (velocity)
       velocity->rowwise() = v0.transpose();
-  } else if (grav==WRONG) {
-    // In this model we incorrectly use elliptical orbit
-    // centered on the Sun, so we need to get state from
-    // the heliocentric ellipse, and add solar coordinates
-    // back because ellipse moves with the Sun.
-    for (int i=0; i<tdb.size(); i++) {
-      State s = getState(el, tdb[i], true, &ephem);
-      State sSun = ephem.state(orbits::SUN, tdb[i]);
-      if (velocity)
-	velocity->row(i) = (s.v.getVector() + sSun.v.getVector()).transpose();
-      out.row(i) = (s.x.getVector() + sSun.x.getVector()).transpose();
-    }
   } else {
     // Grow the integration of the orbit
     span(tdb.minCoeff());
     span(tdb.maxCoeff());
 
-    // Interpolate all positions, backward ones first
+    // Interpolate all positions
     DVector tstep = (tdb.array()-tdb0)/dt;
     auto tabs = tstep.cwiseAbs();
     DVector istep = tabs.array().floor(); // Integer and fraction parts of |tstep|
     DVector f = tabs - istep;  
     int i;
 
-    // Lock the LUT while using it
-#ifdef _OPENMP
-    omp_set_lock(&lock);
-#endif
+    // Note that the SharedLUT takes care of parallel reads,
+    // no need to worry about it here.
+    // Create vectors used for interpolation
+    Vector3 xf, vf;
+    Matrix33 xva;
+    xf[0] = 1.;
+    vf[0] = 0.;
+    vf[1] = 1.;
     for (i=0 ; i<tstep.size(); i++) {
       int i0 = static_cast<int> (istep[i]); // Index of time step nearer 0
-      if (tstep[i]<0.) {
-	// Use backward integration
-	out.row(i) = (xbwd[i0] + f[i]*(vbwd[i0] + f[i]*abwd[i0])).transpose();
-	if (velocity)
+      xva = tstep[i]<0. ? xvaBwd[i0] : xvaFwd[i0];
+      xf[1] = f[i];
+      xf[2] = f[i]*f[i];
+      out.row(i) = (xva * xf).transpose();
+      if (velocity) {
+	vf[2] = 2.*f[i];
+	if (tstep[i]<0.) {
 	  // Negate the velocity because LUT is function of (-t)
-	  velocity->row(i) = -(vbwd[i0] + (2.*f[i])*abwd[i0]).transpose();
-      } else {
-	// Use forward integration
-	out.row(i) = (xfwd[i0] + f[i]*(vfwd[i0] + f[i]*afwd[i0])).transpose();
-	if (velocity)
-	  velocity->row(i) = (vfwd[i0] + (2.*f[i])*afwd[i0]).transpose();
-      } 
+	  velocity->row(i) = -(xva*vf).transpose();
+	} else {
+	  velocity->row(i) = -(xva*vf).transpose();
+	}
+      }
     }
-    if (velocity) (*velocity)/=dt;
+    if (velocity) (*velocity)/=dt;  // we store v*dt, return just v
   }
-#ifdef _OPENMP
-    omp_unset_lock(&lock);
-#endif
   return out;
 }
 
