@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <mutex>
 
+#ifndef SHARED_LUT_H
+#define SHARED_LUT_H
+
 template <class T, class Allocator=std::allocator<T>>
 class SharedLUT {
   /* A lookup-table indexed by integers iBegin,...,iEnd which is thread-safe
@@ -181,3 +184,5 @@ private:
   // The write lock for this realization
   std::mutex writeLock;
 };
+
+#endif
