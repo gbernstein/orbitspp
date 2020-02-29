@@ -5,6 +5,7 @@
 #include "Astrometry.h"
 #include "OrbitTypes.h"
 #include <map>
+#include <vector>
 
 namespace orbits {
   // Here are standard spice object ID's we will use:
@@ -29,6 +30,12 @@ namespace orbits {
     Ephemeris(const Ephemeris& rhs) =delete;
     void operator=(const Ephemeris& rhs) =delete;
 
+    ~Ephemeris() { 
+      // Delete the caches 
+      for (auto& pr : caches)
+    	delete pr.second;
+    }
+    
     // Get barycentric body geometric position
     astrometry::CartesianICRS position(int body,
 				       double tdb) const;
@@ -60,6 +67,9 @@ namespace orbits {
     double tdb2jd(double tdb) const;
     double tdb2mjd(double tdb) const;
     
+    // Cache the positions of chosen body at chosen interval/resolution,
+    // so it will be obtained without having to single-thread through SPICE.
+    void cachePositions(int body, double tdbStart, double tdbEnd, double dt=10.*DAY);
     
   private:
     static bool init;  // We will only allow one Ephemeris to exist
@@ -74,7 +84,23 @@ namespace orbits {
       double elev; // geodetic elevation, meters
     };
     mutable std::map<int, ObsInfo> obsTable;
+
+    struct Cache {
+      double tdb0;
+      double tdb1;
+      double dt;
+      std::vector<Vector3, Eigen::aligned_allocator<Vector3>> posns;
+      bool has(double tdb) const {
+	return tdb<=tdb1 && tdb>=tdb0;
+      }
+      int lookup(double tdb) const;
+      EIGEN_NEW
+    };
+      
+    mutable std::map<int, Cache*> caches;
   };
+
+  
 
   // Function to return a standard observation given MPC info
   extern

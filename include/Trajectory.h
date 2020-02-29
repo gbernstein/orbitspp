@@ -39,7 +39,7 @@ namespace orbits {
     // dt will be time step for integrators.  All positions are in
     // ICRS barycentric coordinates, all times are TDB, units are AU and
     // years.
-    
+
     DMatrix position(const DVector& tdb,
 		     DMatrix* velocity=nullptr) const;
     // Return Nx3 matrix of object positions at TDB's given in input array.
@@ -71,8 +71,7 @@ namespace orbits {
     // Store each direction as a "SharedLUT" which will manage the object
     // to permit multiple-thread reading and limit appending to a single
     // thread at a time.
-    mutable SharedLUT<Matrix33,Eigen::aligned_allocator<Matrix33>> xvaFwd;
-    mutable SharedLUT<Matrix33,Eigen::aligned_allocator<Matrix33>> xvaBwd;
+    mutable SharedLUT<Matrix33,Eigen::aligned_allocator<Matrix33>> xvaLUT;
     
     // Acceleration calculator - return a*dt
     Vector3 deltaV(const astrometry::Vector3& x, double tdb) const;

@@ -9,15 +9,14 @@ using namespace orbits;
 using namespace astrometry;
 
 /**
-In this class the xvaFwd/Bwd arrays have at element i
+In this class the xvaLUT array has at element i
 the (x,vv,aa) at time t=tdb0 +- i*dt, respectively.
 
 The x holds the coordinate; vv holds v*dt; and aa holds 0.5*a*dt*dt,
 so that the interpolation across the time step is
 x(tdb0 + (i+f)*dt) = x_i + f*vv_i + f*f*aa_i
 v(tdb0 + (i+f)*dt)  * dt = v_i + 2*f*aa_i
-where f is the fractional part of the time step.  (backward formula
-needs to flip the sign on vv).
+where f is the fractional part of the time step.
 
 This interpolation scheme yields continuous x agrees with
 leapfrog at the nodes.  The velocity also agrees with leapfrog
@@ -63,11 +62,7 @@ Trajectory::Trajectory (const Ephemeris& ephem_,
     xva.col(0) = x0;
     xva.col(1) = v0*dt;
     xva.col(2) = dv*0.5*dt;
-    /**/cerr << "Initial:" << xva << endl;
-    xvaFwd.append(0,xva);
-    // Flip velocity sign for backwards
-    xva.col(1) = -v0*dt;
-    xvaBwd.append(0,xva);
+    xvaLUT.extend(0,xva);
   }
 }
 
@@ -75,13 +70,13 @@ void
 Trajectory::span(double tdb) const {
   // How many time steps fwd / back must we go?
   double tstep = (tdb - tdb0)/dt;
-  size_t s = xvaFwd.size();  // Size might increase before we append
+  int s = xvaLUT.iEnd();  // Size might increase before we append
   if (tstep >= s) {
     // Extend cache forward
     vector<Matrix33, Eigen::aligned_allocator<Matrix33>> addFwd;
     int nfwd = static_cast<int> (ceil(tstep));
     double tdb = tdb0 + dt * s;
-    auto xva = xvaFwd[s-1];
+    auto xva = xvaLUT[s-1];
     // half-step v to the midpoint, which
     // is what we'll use for leapfrogging
     Vector3 vmid = xva.col(1) + xva.col(2);  
@@ -99,33 +94,35 @@ Trajectory::span(double tdb) const {
       addFwd.push_back(xva);
     }
     // Extend the cache (this will block other writes)
-    xvaFwd.append(s,addFwd.begin(),addFwd.end());
+    xvaLUT.extend(s,addFwd.begin(),addFwd.end());
   }
 
   // Now check for backward interpolations
-  s = xvaBwd.size();
-  if (tstep < -s) {
+  s = xvaLUT.iStart();
+  if (tstep < s) {
     // Extend cache backward
     vector<Matrix33, Eigen::aligned_allocator<Matrix33>> addBwd;
-    auto xva = xvaBwd[s-1];
-    int nbwd = static_cast<int> (ceil(-tstep));
-    double tdb = tdb0 - dt * s;
+    auto xva = xvaLUT[s];
+    int nbwd = static_cast<int> (floor(tstep));
+    double tdb = tdb0 + dt * (s-1);
     // half-step v to the midpoint, which
     // is what we'll use for leapfrogging
-    Vector3 vmid = xva.col(1) + xva.col(2);  
-    for (int i=s; i<=nbwd; i++, tdb-=dt) {
+    Vector3 vmid = xva.col(1) - xva.col(2);  
+    for (int i=s-1; i>=nbwd; i--, tdb-=dt) {
       // Leap frog backward
-      xva.col(0) += vmid;
+      xva.col(0) -= vmid;
       auto dv = deltaV(xva.col(0), tdb)*dt;
       xva.col(2) = 0.5*dv;
       // Leapfrog velocity
-      xva.col(1) = vmid + 0.5*dv;
-      vmid += dv;
+      xva.col(1) = vmid - 0.5*dv;
+      vmid -= dv;
       // Run velocity back to node for interp table
       addBwd.push_back(xva);
     }
     // Extend the cache (this will block other writes)
-    xvaBwd.append(s,addBwd.begin(),addBwd.end());
+    // Note we need to reverse the order since we integrated backwards.
+    std::reverse(addBwd.begin(), addBwd.end());
+    xvaLUT.extend(nbwd,addBwd.begin(),addBwd.end());
   }
 }
 		      
@@ -150,10 +147,8 @@ Trajectory::position(const DVector& tdb,
 
     // Interpolate all positions
     DVector tstep = (tdb.array()-tdb0)/dt;
-    auto tabs = tstep.cwiseAbs();
-    DVector istep = tabs.array().floor(); // Integer and fraction parts of |tstep|
-    DVector f = tabs - istep;  
-    int i;
+    DVector istep = tstep.array().floor(); // Integer and fraction parts of |tstep|
+    DVector f = tstep - istep;  
 
     // Note that the SharedLUT takes care of parallel reads,
     // no need to worry about it here.
@@ -163,20 +158,15 @@ Trajectory::position(const DVector& tdb,
     xf[0] = 1.;
     vf[0] = 0.;
     vf[1] = 1.;
-    for (i=0 ; i<tstep.size(); i++) {
-      int i0 = static_cast<int> (istep[i]); // Index of time step nearer 0
-      xva = tstep[i]<0. ? xvaBwd[i0] : xvaFwd[i0];
+    for (int i=0 ; i<tstep.size(); i++) {
+      int i0 = static_cast<int> (istep[i]); 
+      xva = xvaLUT[i0];
       xf[1] = f[i];
       xf[2] = f[i]*f[i];
       out.row(i) = (xva * xf).transpose();
       if (velocity) {
 	vf[2] = 2.*f[i];
-	if (tstep[i]<0.) {
-	  // Negate the velocity because LUT is function of (-t)
-	  velocity->row(i) = -(xva*vf).transpose();
-	} else {
-	  velocity->row(i) = -(xva*vf).transpose();
-	}
+	velocity->row(i) = (xva*vf).transpose();
       }
     }
     if (velocity) (*velocity)/=dt;  // we store v*dt, return just v
