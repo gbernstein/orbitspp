@@ -72,9 +72,17 @@ namespace orbits {
     
     // Cache the positions of chosen body at chosen interval/resolution,
     // so it will be obtained without having to single-thread through SPICE.
-    void cachePositions(int body, double dt=10.*DAY) {
+    void cachePositions(int body, double dt=10.*DAY) const {
       caches[body] = new Cache();
       caches[body]->dt = dt;
+    }
+
+    void cacheGiants() const {
+      cachePositions(SUN);
+      cachePositions(JUPITER);
+      cachePositions(SATURN);
+      cachePositions(URANUS);
+      cachePositions(NEPTUNE);
     }
     
   private:

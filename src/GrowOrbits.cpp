@@ -225,7 +225,7 @@ public:
   }
   
   // Return time span of detections
-  double arc(double* arccut=nullptr) const {
+  double arc() const {
     double t0 = members.front().eptr->tdb;
     double t1 = t0;
     for (auto& m : members) {
@@ -279,7 +279,7 @@ public:
     return nUnique >= secureUnique && fpr <= secureFPR;
   }
     
-  static void setUnique(int secureUnique_, double secureFPR_) {
+  static void setSecure(int secureUnique_, double secureFPR_) {
     secureUnique = secureUnique_;
     secureFPR = secureFPR_;
   }
@@ -950,7 +950,7 @@ main(int argc, char **argv) {
     }
 
     // Set criteria for output and secure orbits from parameters
-    FitStep::setUnique(secureUnique, secureFPR);
+    FitStep::setSecure(secureUnique, secureFPR);
     FitStep::setOutput(minUnique, maxFPR,
 		       minArc, minArccut);
     
