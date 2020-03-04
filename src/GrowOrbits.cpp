@@ -593,7 +593,9 @@ FitStep::search(double& totalFPR) {
 					     true);  // recalculate gravity ???
       } catch (Fitter::NonConvergent& e) {
 	// Fitting failure.  Skip this one.
-	/**/cerr << e.what() << " at " << orbitID << endl;
+	//**/cerr << e.what() << " at " << orbitID
+	//**/	 << " i " << i << endl;
+	
 	if (nextFit != nullptr)
 	  delete nextFit;
 	continue;
