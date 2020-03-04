@@ -17,6 +17,18 @@ class SharedLUT {
  public:
   SharedLUT() {}
 
+  SharedLUT(const SharedLUT& rhs) {
+    // temporarily share rhs LUT to copy it
+    LUTptr tmp_ptr(rhs.lutptr);
+    lutptr.reset(new LUT(*tmp_ptr));
+  }
+
+  SharedLUT& operator=(const SharedLUT& rhs) {
+    // temporarily share rhs LUT to copy it
+    LUTptr tmp_ptr(rhs.lutptr);
+    lutptr.reset(new LUT(*tmp_ptr));
+  }
+    
   template <typename Iter>
   SharedLUT(int iStart, Iter it, Iter end) {
     extend(iStart,it,end);
