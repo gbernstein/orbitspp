@@ -79,7 +79,7 @@ main(int argc,
     cout << "Saturn position: " << s.x << endl;
     {
       // Check against horizons
-      const double tolerance = 1 * METER;
+      double tolerance = 1 * METER;
       astrometry::Vector3 answer;
       answer[0] = 3.180486880720022E-01;
       answer[1] =-9.287696036768155E+00;
@@ -96,6 +96,60 @@ main(int argc,
       error /= METER;
       cout << "us-Horizons = " << std::fixed << std::setprecision(3)
 	   << error[0] << " " << error[1] << " " << error[2] << " meters" << endl;
+
+      // Build cache for Saturn
+      eph.cachePositions(orbits::SATURN);
+
+      astrometry::Vector3 posn = eph.position(orbits::SATURN, tdb).getVector();
+      cout << endl;
+      cout << "...and using cache: " << endl;
+      error = posn - answer;
+      tolerance = 1e4 * METER;
+      for (int i=0; i<3; i++) 
+	if (abs(error[i]) > tolerance) 
+	  thisFail = true;
+      if (thisFail) {
+	fail = true;
+	cout << "***FAILURE: ";
+      }
+      error /= METER;
+      cout << "us-Horizons = " << std::fixed << std::setprecision(3)
+	   << error[0] << " " << error[1] << " " << error[2] << " meters" << endl;
+
+      double tdb2 = 16.838;
+      astrometry::Vector3 cached = eph.position(orbits::SATURN,tdb2).getVector();
+      astrometry::Vector3 spice = eph.position(orbits::SATURN,tdb2,false).getVector();
+      cout << endl;
+      cout << "...and using cache at " << tdb2 << ": " << endl;
+      error = cached-spice;
+      for (int i=0; i<3; i++) 
+	if (abs(error[i]) > tolerance) 
+	  thisFail = true;
+      if (thisFail) {
+	fail = true;
+	cout << "***FAILURE: ";
+      }
+      error /= METER;
+      cout << "cache-spice = " << std::fixed << std::setprecision(3)
+	   << error[0] << " " << error[1] << " " << error[2] << " meters" << endl;
+
+      tdb2 = 17.555;
+      cached = eph.position(orbits::SATURN,tdb2).getVector();
+      spice = eph.position(orbits::SATURN,tdb2,false).getVector();
+      cout << endl;
+      cout << "...and using cache at " << tdb2 << ": " << endl;
+      error = cached-spice;
+      for (int i=0; i<3; i++) 
+	if (abs(error[i]) > tolerance) 
+	  thisFail = true;
+      if (thisFail) {
+	fail = true;
+	cout << "***FAILURE: ";
+      }
+      error /= METER;
+      cout << "cache-spice = " << std::fixed << std::setprecision(3)
+	   << error[0] << " " << error[1] << " " << error[2] << " meters" << endl;
+      
     }
 
     cout << "-------------" << endl;
