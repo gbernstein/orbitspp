@@ -5,6 +5,8 @@
 #include "Astrometry.h"
 #include "OrbitTypes.h"
 #include <map>
+#include <vector>
+#include "SharedLUT.h"
 
 namespace orbits {
   // Here are standard spice object ID's we will use:
@@ -29,9 +31,17 @@ namespace orbits {
     Ephemeris(const Ephemeris& rhs) =delete;
     void operator=(const Ephemeris& rhs) =delete;
 
+    ~Ephemeris() { 
+      // Delete the caches 
+      for (auto& pr : caches)
+    	delete pr.second;
+    }
+    
     // Get barycentric body geometric position
+    // Last option false to force call to SPICE.
     astrometry::CartesianICRS position(int body,
-				       double tdb) const;
+				       double tdb,
+				       bool useCache=true) const;
     // Get barycentric body position and velocity
     State state(int body,
 		double tdb) const;
@@ -60,6 +70,20 @@ namespace orbits {
     double tdb2jd(double tdb) const;
     double tdb2mjd(double tdb) const;
     
+    // Cache the positions of chosen body at chosen interval/resolution,
+    // so it will be obtained without having to single-thread through SPICE.
+    void cachePositions(int body, double dt=10.*DAY) const {
+      caches[body] = new Cache();
+      caches[body]->dt = dt;
+    }
+
+    void cacheGiants() const {
+      cachePositions(SUN);
+      cachePositions(JUPITER);
+      cachePositions(SATURN);
+      cachePositions(URANUS);
+      cachePositions(NEPTUNE);
+    }
     
   private:
     static bool init;  // We will only allow one Ephemeris to exist
@@ -74,7 +98,17 @@ namespace orbits {
       double elev; // geodetic elevation, meters
     };
     mutable std::map<int, ObsInfo> obsTable;
+
+    struct Cache {
+      double dt;
+      mutable SharedLUT<Vector3, Eigen::aligned_allocator<Vector3>> lut;
+      Vector3 operator[](int i) const {return lut[i];}
+    };
+      
+    mutable std::map<int, Cache*> caches;
   };
+
+  
 
   // Function to return a standard observation given MPC info
   extern

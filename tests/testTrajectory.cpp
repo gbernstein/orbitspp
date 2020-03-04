@@ -320,7 +320,6 @@ main(int argc,
     
     }
       
-
   } catch (std::runtime_error& e) {
     cerr << e.what() << endl;
     exit(1);

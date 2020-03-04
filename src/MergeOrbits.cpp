@@ -16,6 +16,7 @@ using namespace orbits;
 
 const int DEBUGLEVEL= 0;
 const int MIN_UNIQUE_FIT=4; // min number of independent detections to fit
+const double FIELD_RADIUS = 1.15*DEGREE; // A bit larger to be complete
 
 // Time that must pass between exposures to be considered independent detections
 // (e.g. when asteroids or defects would have moved out of linking range)
@@ -120,7 +121,12 @@ const string usage =
   "   MAG:        (D) Magnitude of detection\n"
   "   SN:         (D) S/N ratio of detection (flux / fluxerr)\n"
   "\n"
-  "The contents of the FP image are documented elsewhere";
+  "The contents of the FP image are documented elsewhere.  Parameters for this program:\n"
+  " -secureUnique  is number of unique nights needed to define an orbit as \"secure\".\n"
+  " -secureFPR     is maximum FPR needed to define an orbit as \"secure\".\n"
+  " -secureArccut  is minimum arccut needed to define an orbit as \"secure\".\n";
+// ?? more parameter descriptions needed...
+  
 
 struct FitResult {
   // Everything we need to know about an orbit
@@ -193,7 +199,31 @@ struct FitResult {
 		  ExposureTable& exposures,
 		  vector<Exposure*>& pool);
 
+  bool testSecure() {
+    // Does this meet the criteria for a "secure" orbit?
+    // Appropriately sets the boolean flag and returns its value
+    // Note need to set the class variables that define this test
+    secure = nUnique >= secureUnique
+             && fpr <= secureFPR
+             && arccut >= secureArccut;
+    return secure;
+  }
+
+  static void setSecure(int secureUnique_, double secureFPR_, double secureArccut_) {
+    // Set the class-wide criteria for secure detection
+    secureUnique = secureUnique_;
+    secureFPR = secureFPR_;
+    secureArccut = secureArccut_;
+  }
+private:
+  static int secureUnique;
+  static double secureFPR;
+  static double secureArccut;
 };
+
+int FitResult::secureUnique = 7;
+double FitResult::secureFPR = 0.001;
+double FitResult::secureArccut = 0.7;
 
 bool
 FitResult::fitAndFind(const Ephemeris& ephem,
@@ -230,8 +260,8 @@ FitResult::fitAndFind(const Ephemeris& ephem,
     double t1a = t2;
     double t2a = t1;
     for (auto& obs : obsICRS) {
-      if (obs.tdb-t1 > 0.7*DAY &&  obs.tdb < t1a) t1a = obs.tdb;
-      if (t2-obs.tdb > 0.7*DAY &&  obs.tdb > t2a) t2a = obs.tdb;
+      if (obs.tdb-t1 > 0.5*DAY &&  obs.tdb < t1a) t1a = obs.tdb;
+      if (t2-obs.tdb > 0.5*DAY &&  obs.tdb > t2a) t2a = obs.tdb;
     }
     arccut = MIN(t2-t1a, t2a-t1);
   }
@@ -296,8 +326,7 @@ FitResult::fitAndFind(const Ephemeris& ephem,
 
   // convert field radius to a maximum chord length between
   // unit vectors
-  const double fieldRadius = 1.15*DEGREE; // A bit larger to be complete
-  const double maxChordSq = pow(2. * sin(fieldRadius/2.),2.);
+  const double maxChordSq = pow(2. * sin(FIELD_RADIUS/2.),2.);
 
   DMatrix target = fit.getTrajectory().observe(tdbAll, earthAll);
   // Find those within radius
@@ -437,6 +466,86 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   detectionIDs = newDetectionIDs;
   return changed;
 }
+
+class OrbitFactory {
+public:
+  OrbitFactory(const vector<string>& orbitFiles_): fileNumber(-1),
+						   orbitFiles(orbitFiles_) {}
+  FitResult* next() {
+    // Return pointer to next orbit to analyze, nullptr if we
+    // are done.
+
+    // Open a new file if needed
+    while (fileNumber<0 || orbitTableRow >= inputOrbitTable.nrows()) {
+      fileNumber++;
+      if (fileNumber >= orbitFiles.size()) {
+	// No more input files, done.
+	return nullptr;
+      }
+      orbitPath = orbitFiles[fileNumber];
+      cerr << "# Reading orbits from " << orbitPath << endl;
+      // Open the tables/files
+      {
+        FITS::FitsTable ft(orbitPath, FITS::ReadOnly,"ORBITS");
+	inputOrbitTable = ft.extract();
+      }
+      {
+        FITS::FitsTable ft(orbitPath, FITS::ReadOnly, "OBJECTS");
+	inputObjectTable = ft.extract();
+      }
+      // Reset the row counters
+      objectTableRow = 0;
+      orbitTableRow = 0;
+      {
+	// Sum the false-positive estimates
+	img::FitsImage<float> fi(orbitPath, FITS::ReadOnly, "FP");
+	if (!fpImage.getBounds()) {
+	  // first image
+	  fpImage = fi.extract();
+	} else {
+	  fpImage += fi.extract();
+	}
+      }
+    }
+
+    // Now acquire the next row from the table
+    auto orb = new FitResult;
+    orb->inputFile = orbitPath;
+    orb->inputID = orbitTableRow;
+    inputOrbitTable.readCell(orb->inputUnique, "NUNIQUE", orbitTableRow);
+    orb->nUnique = orb->inputUnique;
+    inputOrbitTable.readCell(orb->fpr, "FPR", orbitTableRow);
+	
+    // Collect known transients for this orbit.
+    while (objectTableRow < inputObjectTable.nrows()) {
+      LONGLONG id;
+      inputObjectTable.readCell(id, "ORBITID", objectTableRow);
+      if (id!=orb->inputID)
+	break;  // This row belongs to another orbit
+      int objectID;
+      inputObjectTable.readCell(objectID, "OBJECTID", objectTableRow);
+      if (objectID>=0) {
+	// negative ID is non-detection
+	orb->detectionIDs.push_back(objectID);
+      }
+      ++objectTableRow;
+    }
+    return orb;
+  }
+
+  img::Image<float> getFPR() const {return fpImage;}
+						 
+private:
+  int fileNumber;
+  const vector<string>& orbitFiles;
+  img::FTable inputOrbitTable;
+  img::FTable inputObjectTable;
+  string orbitPath;
+  int objectTableRow;
+  int orbitTableRow;
+  img::Image<float> fpImage; // Summed false-positive image
+};
+
 ////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////
 
@@ -457,6 +566,10 @@ int main(int argc,
 
   int minUnique;  // Min number unique nights to retain orbit for output and FoF
   double maxFPR;  // Max (initial) FPR value to retain
+  // Parameters defining a secure orbit:
+  int secureUnique;
+  double secureFPR;
+  double secureArccut;
   // ??? make unique/FPR pairs
 
   Pset parameters;
@@ -483,12 +596,19 @@ int main(int argc,
 			   "RA of field center (deg)", 10.);
       parameters.addMember("dec0",&dec0, def,
 			   "Dec of field center (deg)", -20.);
-      parameters.addMember("radius",&radius, def || lowopen || up,
+      parameters.addMember("radius",&radius, def | lowopen | up,
 			   "Radius of search area (deg)", 85.,0.,85.);
-      parameters.addMember("minUnique",&minUnique, def || low,
+      parameters.addMember("minUnique",&minUnique, def | low,
 			   "Minimum unique nights in output orbit", 5,MIN_UNIQUE_FIT);
-      parameters.addMember("maxFPR",&maxFPR, def || lowopen,
+      parameters.addMember("maxFPR",&maxFPR, def | lowopen,
 			   "Maximum FPR input orbit to use", 0.03,0.);
+      parameters.addMember("secureUnique",&secureUnique, def | low,
+			   "minimum unique nights for secure detection", 7, 5);
+      parameters.addMember("secureFPR",&secureFPR, def,
+			   "maximum FPR for secure detection", 0.001);
+      parameters.addMember("secureArccut",&secureArccut, def | low,
+			   "minimum Arccut for secure detection", 0.7);
+      
       parameters.addMember("TDB0",&tdb0, def,
 			   "TDB of reference time (=orbit epoch), yrs since J2000", 16.);
     }
@@ -510,7 +630,8 @@ int main(int argc,
 
     // Read the ephemeris
     Ephemeris ephem(ephemerisPath);
-
+    ephem.cacheGiants();
+    
     // Establish a reference frame
     Frame frame;
     {
@@ -520,6 +641,9 @@ int main(int argc,
       frame.tdb0 = tdb0;
       frame.origin = ephem.observatory(807, tdb0);
     }
+
+    // Set up the definition of secure orbit
+    FitResult::setSecure(secureUnique, secureFPR, secureArccut);
 
     // Read the exposure table
     ExposureTable et(exposurePath);
@@ -542,60 +666,32 @@ int main(int argc,
     // Open the transients table
     TransientTable transients(transientPath);
     
+    // Create the orbit factory
+    OrbitFactory factory(orbitFiles);
+
     // Start reading input orbits, giving each one its own
     // reference frame
     list<FitResult*> orbits;
 
-    img::Image<float> fpImage; // Summed false-positive image
-    
-    for (auto orbitPath : orbitFiles) {
-      cerr << "# Reading orbits from " << orbitPath << endl;
-      // Open the tables/files
-      img::FTable inputOrbitTable;
-      img::FTable inputObjectTable;
-      {
-        FITS::FitsTable ft(orbitPath, FITS::ReadOnly,"ORBITS");
-	inputOrbitTable = ft.extract();
-      }
-      {
-        FITS::FitsTable ft(orbitPath, FITS::ReadOnly, "OBJECTS");
-	inputObjectTable = ft.extract();
-      }
-      {
-	// Sum the false-positive estimates
-	img::FitsImage<float> fi(orbitPath, FITS::ReadOnly, "FP");
-	if (!fpImage.getBounds()) {
-	  // first image
-	  fpImage = fi.extract();
-	} else {
-	  fpImage += fi.extract();
-	}
-      }
-	
-      int objectTableRow = 0; // Current location in object table
+    cerr << "# Starting linking" << endl;
 
-      // Step through orbits
-      for (int row=0; row<inputOrbitTable.nrows(); row++) {
-	auto orb = new FitResult;
-	orb->inputFile = orbitPath;
-	orb->inputID = row;
-	inputOrbitTable.readCell(orb->inputUnique, "NUNIQUE", row);
-	orb->nUnique = orb->inputUnique;
-	inputOrbitTable.readCell(orb->fpr, "FPR", row);
-	
-	// Collect known transients for this orbit.
-	while (objectTableRow < inputObjectTable.nrows()) {
-	  LONGLONG id;
-	  inputObjectTable.readCell(id, "ORBITID", objectTableRow);
-	  if (id!=orb->inputID) break;
-	  int objectID;
-	  inputObjectTable.readCell(objectID, "OBJECTID", objectTableRow);
-	  if (objectID>=0)
-	    // negative ID is non-detection
-	    orb->detectionIDs.push_back(objectID);
-	  ++objectTableRow;
-	}
+    // Start an outer loop in which we'll queue up a pile of
+    // orbits to distribute.
+#ifdef _OPENMP
+    int blocksize = omp_get_max_threads() * 32;
+#else
+    int blocksize = 32;
+#endif
 
+    while (true) {
+      vector<FitResult*> blockOfOrbits;
+      do {
+	auto orb = factory.next();
+	if (orb==nullptr) 
+	  break;  // No more orbits to acquire
+
+	// Some initial quality checks; first FPR
+	
 	if (orb->fpr > maxFPR) {
 	  // Don't use this one.
 	  delete orb;
@@ -607,7 +703,20 @@ int main(int argc,
 	  delete orb;
 	  continue;
 	}
-	
+
+	blockOfOrbits.push_back(orb);
+      } while (blockOfOrbits.size() < blocksize);
+
+      int imax = blockOfOrbits.size();
+      /**/cerr << "Acquired block of " << imax << " input orbits" << endl;
+      if (imax==0)
+	break;  // Done with all input!
+
+      // Now distribute the orbits among processors
+#pragma omp parallel for schedule(dynamic,1)
+      for (int i=0; i<imax; i++) 
+      {
+	auto orb = blockOfOrbits[i];
 	// Set some initial flags
 	orb->friendGroup = -1;
 	orb->changedDetectionList = false;
@@ -626,32 +735,29 @@ int main(int argc,
 	      break;
 	    if (iter==MAX_FIT_ITERATIONS-1) cerr << "# WARNING: Not converging at " << orb->inputID << endl;
 	  }
-	} catch (std::runtime_error& e) {
-	  cerr << "# Fitting failure " << orb->inputFile << "/" << orb->inputID
-	       << " nUnique " << orb->nUnique << " arc " << orb->arc << endl;
-	  cerr << e.what() << endl;
+	} catch (Fitter::NonConvergent& e) {
+#pragma omp critical(io)
+	  {
+	    cerr << "# Fitting failure " << orb->inputFile << "/" << orb->inputID
+		 << " nUnique " << orb->nUnique << " arc " << orb->arc << endl;
+	    cerr << e.what() << endl;
+	  }
 	}
-
 	if (success)
+#pragma omp critical(orbitpush)
 	  orbits.push_back(orb);
 	else
 	  delete orb;
-      }
-    }
+      } // End orbit loop (and parallel section)
+    } // End block loop
 
     cerr << "# Processed " << orbits.size() << " orbits" << endl;
-    cerr << "# Finding secure orbits" << endl;
 
+    // Count secure orbits
     set<int> secureDetections;
     // "secure" detections meet these criteria:
-    const int MIN_SECURE_UNIQUE=7;
-    const double MIN_ARCCUT = 0.7;
-    const double MAX_FPR = 0.001;
     int nSecure = 0;
     for (auto ptr : orbits) {
-      ptr->secure = ( ptr->nUnique >= MIN_SECURE_UNIQUE
-		      && ptr->fpr <= MAX_FPR
-		      && ptr->arccut >= MIN_ARCCUT);
       if (ptr->secure) {
 	secureDetections.insert(ptr->detectionIDs.begin(),
 				ptr->detectionIDs.end());
@@ -673,7 +779,6 @@ int main(int argc,
     // to make the subset and friend identifications.
     // Once this map is constructed, it becomes
     // the repository of all valid FitResult pointers.
-
 
     class Obj2Orbit: public multimap<int, FitResult*> {
     public:
@@ -1069,7 +1174,7 @@ int main(int argc,
     {
       // And an image of the false positive rate
       img::FitsImage<float> fi(outPath,FITS::ReadWrite | FITS::Create, "FP");
-      fi.copy(fpImage);
+      fi.copy(factory.getFPR());
     }
 
     // Clean up.

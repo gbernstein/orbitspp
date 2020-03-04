@@ -132,8 +132,59 @@ Ephemeris::state(int body,
   
 astrometry::CartesianICRS
 Ephemeris::position(int body,
-		    double tdb) const {
-  return state(body,tdb).x;
+		    double tdb,
+		    bool useCache) const {
+  if (useCache & caches.count(body)) {
+    // Build / lookup cache here
+    const Cache* c = caches[body];
+
+    double tstep = tdb/c->dt;
+    int t0 = static_cast<int> (floor(tstep));
+
+    // Extend cache to tstep+2, tstep-1 if needed
+    int tm1 = t0-1;
+    int tp2 = t0+2;
+    if (c->lut.empty()) {
+      // Fill from tm1 to tp2
+      std::vector<Vector3, Eigen::aligned_allocator<Vector3>> v;
+      for (int i=tm1; i<=tp2; i++) {
+	v.push_back(position(body, i*c->dt, false).getVector());
+      }
+      c->lut.extend(tm1,v.begin(),v.end());
+    } else if (tm1 < c->lut.iStart()) {
+      int s = c->lut.iStart();
+      // Fill from tm1 to iStart
+      std::vector<Vector3, Eigen::aligned_allocator<Vector3>> v;
+      for (int i=tm1; i<s; i++) {
+	v.push_back(position(body, i*c->dt, false).getVector());
+      }
+      c->lut.extend(tm1,v.begin(),v.end());
+    } else if (tp2 >= c->lut.iEnd()) {
+      // Fill from iEnd to tp2
+      std::vector<Vector3, Eigen::aligned_allocator<Vector3>> v;
+      int s = c->lut.iEnd();
+      for (int i=s; i<=tp2; i++) {
+	v.push_back(position(body, i*c->dt, false).getVector());
+      }
+      c->lut.extend(s,v.begin(),v.end());
+    }
+    
+    // Do cubic interpolation
+    // Sum over 4 nearest nodes
+    double x = abs(tstep-tm1);
+    Vector3 out = (2 + x*(-4. + x*(2.5 - 0.5*x))) * (*c)[tm1];
+    x = abs(tstep-t0);
+    out += (1 + x*x*(1.5*x-2.5)) * (*c)[t0];
+    x = abs(t0+1-tstep);
+    out += (1 + x*x*(1.5*x-2.5)) * (*c)[t0+1];
+    x = abs(tp2-tstep);
+    out += (2 + x*(-4. + x*(2.5 - 0.5*x))) * (*c)[tp2];
+
+    return astrometry::CartesianICRS(out);
+    
+  } else {
+    return state(body,tdb).x;
+  }
 }
 
 double
