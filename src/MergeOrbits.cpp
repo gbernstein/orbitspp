@@ -11,10 +11,14 @@
 #include "FitsImage.h"
 #include "Eigen/StdVector"
 
+#ifdef _OPENMP
+#include "omp.h"
+#endif
+
 using namespace std;
 using namespace orbits;
 
-const int DEBUGLEVEL= 0;
+const int DEBUGLEVEL= 2;
 const int MIN_UNIQUE_FIT=4; // min number of independent detections to fit
 const double FIELD_RADIUS = 1.15*DEGREE; // A bit larger to be complete
 
@@ -238,7 +242,8 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   // Acquire Observation for each detected transient
   obsICRS.clear();
   if (DEBUGLEVEL>1)
-    cerr << "# fitAndFind: Reading detection info "
+#pragma omp critical (io)
+    cerr << "#" << inputID << "  fitAndFind: Reading detection info "
 	 << inputID << " has " << detectionIDs.size()
 	 << " " << nUnique << endl;
   for (auto id : detectionIDs) {
@@ -246,7 +251,8 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   }
 
   if (DEBUGLEVEL>1)
-    cerr << "# ...Calculating arc length" << endl;
+#pragma omp critical (io)
+    cerr << "#" << inputID << "  ...Calculating arc length" << endl;
   // Calculate arc, and arc after dropping one night
   {
     double t1 = obsICRS.front().tdb;
@@ -267,7 +273,8 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   }
 
   if (DEBUGLEVEL>1)
-    cerr << "# ...reference frame" << endl;
+#pragma omp critical (io)
+    cerr << "#" << inputID << "  ...reference frame" << endl;
 
   // Choose a reference frame for this orbit.  Use provided TDB,
   // and mean RA/Dec.  Get this mean by summing 3d coords
@@ -284,11 +291,12 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   }
 
   if (DEBUGLEVEL>1)
-    cerr << "# ...fitting in frame at "
+#pragma omp critical (io)
+    cerr << "#" << inputID << "  ...fitting in frame at "
 	 << frame.orient.getPole() << endl;
 
   // Execute fit
-  Fitter fit(ephem, Gravity::GIANTS);
+  Fitter fit(ephem, Gravity::BARY); //??GIANTS);
   for (auto& obs : obsICRS)
     fit.addObservation(obs);
   fit.setFrame(frame);
@@ -300,7 +308,8 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   fit.newtonFit();
 
   if (DEBUGLEVEL>1)
-    cerr << "# ...Fit complete" << endl;
+#pragma omp critical (io)
+    cerr << "#" << inputID << "  ...Fit complete" << endl;
 
   // Save fit results
   chisq = fit.getChisq();
@@ -310,7 +319,8 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   elCov = fit.getElementCovariance();
 
   if (DEBUGLEVEL>1)
-    cerr << "# ...chisq " << chisq << " abg " << abg
+#pragma omp critical (io)
+    cerr << "#" << inputID << "  ...chisq " << chisq << " abg " << abg
 	 << " a,e " << el[Elements::A] << "," << el[Elements::E] << endl;
 
   // Now go fishing for exposures this orbit crosses
@@ -334,7 +344,9 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   int nHits = hits.array().count();
   
   if (DEBUGLEVEL>1)
-    cerr << "# ...exposure search has " << nHits << " hits" << endl;
+#pragma omp critical (io)
+    cerr << "#" << inputID << "  ...exposure search has "
+	 << nHits << " hits" << endl;
 
   // Collect information on all candidate exposures (??? repetitive reading...)
   opportunities.clear();
@@ -352,7 +364,8 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   }
   
   if (DEBUGLEVEL>1)
-    cerr << "# ...getting predictions" << endl;
+#pragma omp critical (io)
+    cerr << "#" << inputID << "  ...getting predictions" << endl;
 
   // Predict orbit position at each exposure
   // Convert into current frame:
@@ -372,10 +385,14 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   vector<double> timesOfDetections; // used for counting unique
 
   if (DEBUGLEVEL>1)
-    cerr << "# ...finding detections" << endl;
+#pragma omp critical (io)
+    cerr << "#" << inputID << "  ...finding detections" << endl;
 
   for (int i=0; i<nHits; i++) {
     Opportunity& opp = opportunities[i];
+#pragma omp critical (io)
+    /**/cerr << "#" << inputID << "  ...hit " << i << "/"
+	     << nHits << " expnum " << opp.eptr->expnum << endl;
     opp.orbitPred = astrometry::Gnomonic(xPred[i], yPred[i], frame.orient);
     opp.orbitCov(0,0) = covxxPred[i];
     opp.orbitCov(0,1) = covxyPred[i];
@@ -386,6 +403,7 @@ FitResult::fitAndFind(const Ephemeris& ephem,
     opp.ccdnums = opp.eptr->whichCCDs(opp.orbitPred, opp.orbitCov*SEARCH_CHISQ);
 
     // Load transient and corner information into each exposure, using frame
+							   !!!!!! this is the problem:!!!!!							   
     transients.fillExposure(frame, opp.eptr);
 
     DVector allChi = opp.eptr->chisq(xPred[i], yPred[i],
@@ -434,36 +452,44 @@ FitResult::fitAndFind(const Ephemeris& ephem,
 
   }
 
+#pragma omp critical(io)
+  /**/cerr << "#" << inputID << "  ...done detections" << endl;
+							  
   // Compare new and old detection lists
   std::sort(newDetectionIDs.begin(), newDetectionIDs.end());
   std::sort(detectionIDs.begin(), detectionIDs.end());
 
   bool changed = (newDetectionIDs!=detectionIDs);
 
-  if (DEBUGLEVEL>1) {
+  if (DEBUGLEVEL>2) 
+#pragma omp critical(io)
+    {
     set<int> s1;
     s1.insert(detectionIDs.begin(), detectionIDs.end());
     set<int> s2;
     s2.insert(newDetectionIDs.begin(), newDetectionIDs.end());
-    cerr << "# ...detections lost: ";
+    cerr << "#" << inputID << "  ...detections lost: ";
     set<int> result;
     set_difference(s1.begin(), s1.end(), s2.begin(), s2.end(),
 		   std::inserter(result, result.end()));
     for (auto id: result) cerr << " " << id;
     cerr << endl;
-    cerr << "# ...detections gained: ";
+    cerr << "#" << inputID << "  ...detections gained: ";
     result.clear();
     set_difference(s2.begin(), s2.end(), s1.begin(), s1.end(),
 		   std::inserter(result, result.end()));
     for (auto id: result) cerr << " " << id;
     cerr << endl;
-  }
+    }
   if (changed) changedDetectionList = true;
 
   // ?? Check for detections lost from not on an candidate exposure??
 
   // Replace detection list with new one.
   detectionIDs = newDetectionIDs;
+  if (DEBUGLEVEL>1)
+#pragma omp critical(io)
+    cerr << "#" << inputID << " FitAndFind complete" << endl;
   return changed;
 }
 
@@ -515,7 +541,7 @@ public:
     inputOrbitTable.readCell(orb->inputUnique, "NUNIQUE", orbitTableRow);
     orb->nUnique = orb->inputUnique;
     inputOrbitTable.readCell(orb->fpr, "FPR", orbitTableRow);
-	
+    ++orbitTableRow;
     // Collect known transients for this orbit.
     while (objectTableRow < inputObjectTable.nrows()) {
       LONGLONG id;
@@ -691,15 +717,16 @@ int main(int argc,
 	  break;  // No more orbits to acquire
 
 	// Some initial quality checks; first FPR
-	
 	if (orb->fpr > maxFPR) {
 	  // Don't use this one.
+	  /**/cerr << "Deleting for FPR" << endl;
 	  delete orb;
 	  continue;
 	}
 
 	// Also require a minimum number of detections to proceed
 	if (orb->detectionIDs.size() < 4) {
+	  /**/cerr << "Deleting for size" << endl;
 	  delete orb;
 	  continue;
 	}
@@ -717,6 +744,11 @@ int main(int argc,
       for (int i=0; i<imax; i++) 
       {
 	auto orb = blockOfOrbits[i];
+#pragma omp critical(io)
+	/**/ cerr << ">Thread " << omp_get_thread_num()
+		  << " starting " << orb->inputID
+		  << endl;
+
 	// Set some initial flags
 	orb->friendGroup = -1;
 	orb->changedDetectionList = false;
@@ -726,6 +758,9 @@ int main(int argc,
 	int MAX_FIT_ITERATIONS=5;
 	try {
 	  for (int iter=0; iter<MAX_FIT_ITERATIONS; iter++) {
+#pragma omp critical(io)
+	    /**/cerr << "Fitting iteration " << iter << " object "
+		     << orb->inputID  << endl;
 	    if (!orb->fitAndFind(ephem, tdb0, transients, et, pool)) {
 	      success = true;
 	      break;
@@ -743,11 +778,23 @@ int main(int argc,
 	    cerr << e.what() << endl;
 	  }
 	}
+#pragma omp critical(io)
+	/**/ cerr << "#" << orb->inputID << " success " << success << endl;
 	if (success)
 #pragma omp critical(orbitpush)
 	  orbits.push_back(orb);
 	else
-	  delete orb;
+#pragma omp critical(io)
+	  {
+	    /**/cerr <<"Deleting " << orb->inputID << endl;
+	    delete orb;
+	    /**/cerr <<"...Done" << endl;
+	  }
+	  
+#pragma omp critical(io)
+	/**/ cerr << "<Thread " << omp_get_thread_num()
+		  << " done "
+		  << endl;
       } // End orbit loop (and parallel section)
     } // End block loop
 
