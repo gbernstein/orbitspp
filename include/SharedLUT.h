@@ -19,14 +19,19 @@ class SharedLUT {
 
   SharedLUT(const SharedLUT& rhs) {
     // temporarily share rhs LUT to copy it
-    LUTptr tmp_ptr(rhs.lutptr);
+    LUTptr tmp_ptr;
+    std::atomic_store(&tmp_ptr,rhs.lutptr);
     lutptr.reset(new LUT(*tmp_ptr));
   }
 
   SharedLUT& operator=(const SharedLUT& rhs) {
+    if (this == &rhs) return *this; // Self-assignment
     // temporarily share rhs LUT to copy it
-    LUTptr tmp_ptr(rhs.lutptr);
-    lutptr.reset(new LUT(*tmp_ptr));
+    LUTptr tmp_ptr;
+    std::atomic_store(&tmp_ptr,rhs.lutptr);
+    //??LUTptr tmp_ptr(rhs.lutptr);
+    lutptr.reset(new LUT(*tmp_ptr)); // ???
+    return *this;
   }
     
   template <typename Iter>
@@ -39,12 +44,15 @@ class SharedLUT {
     // Get a shared pointer to the current vector of data,
     // so it will persist until the operation is done, even
     // if another thread changes the current vector's location.
-    LUTptr tmp_ptr(lutptr);
+    LUTptr tmp_ptr; //??(lutptr);
+    std::atomic_store(&tmp_ptr,lutptr);
+    //??LUTptr tmp_ptr(lutptr);
     return (*tmp_ptr)[i];
   }
   // Range-checked read
   T at(size_t i) const {
-    LUTptr tmp_ptr(lutptr);
+    LUTptr tmp_ptr; //??(lutptr);
+    std::atomic_store(&tmp_ptr,lutptr);
     if (empty() || i<tmp_ptr->iStart() || i>=tmp_ptr->iEnd())
       throw std::out_of_range("SharedLUT index out of bounds");
     return (*tmp_ptr)[i];
@@ -68,14 +76,15 @@ class SharedLUT {
       // Acquire the lock
       std::lock_guard<std::mutex> g(writeLock);
       if (empty()) {
-	auto newlut = new LUT();
+	auto newlut = std::make_shared<LUT>(); //new LUT();
 	newlut->i0 = i;
 	newlut->data.push_back(t);
 	// Install the LUT atomically
-	lutptr.reset(newlut);
+	std::atomic_store(&lutptr,newlut);
+	//**lutptr.reset(newlut);
       } else if (i==iStart()-1) {
 	// prepend - make new copy as all iterators become invalid
-	auto newlut = new LUT();
+	auto newlut = std::make_shared<LUT>(); //new LUT();
 	newlut->data.resize(size()+1);
 	newlut->i0 = lutptr->i0-1;
 	// Install new point first
@@ -83,14 +92,15 @@ class SharedLUT {
 	// Then copy remainder over
 	std::copy(lutptr->data.begin(), lutptr->data.end(), newlut->data.begin()+1);
 	// And redirect lutptr to new one.
-	lutptr.reset(newlut);
-      } else if (i==iEnd()) {
+	std::atomic_store(&lutptr,newlut);
+	//??lutptr.reset(newlut);
+      } else if (false) { // ???i==iEnd()) {
 	if (lutptr->data.capacity() > lutptr->size()) {
 	  // Can safely just append
 	  lutptr->data.push_back(t);
 	} else {
 	  // Need to expand capacity, so get new LUT object
-	  auto newlut = new LUT();
+	  auto newlut = std::make_shared<LUT>(); //new LUT();
 	  newlut->data.resize(size()+1);
 	  newlut->i0 = lutptr->i0;
 	  // Copy data
@@ -98,7 +108,8 @@ class SharedLUT {
 	  // Install new point 
 	  (newlut->data)[iEnd()] = t;
 	  // And redirect lutptr to new one.
-	  lutptr.reset(newlut);
+	  std::atomic_store(&lutptr,newlut);
+	  //??lutptr.reset(newlut);
 	}
       }
     } else if (i>iEnd() || i<iStart()-1) {
@@ -112,11 +123,12 @@ class SharedLUT {
     if (empty()) {
       // Create and install new LUT
       std::lock_guard<std::mutex> g(writeLock);
-      auto newlut =  new LUT();
+      auto newlut = std::make_shared<LUT>(); //new LUT();
       newlut->i0 = i;
       newlut->data.resize(nAdd);
       std::copy(it,end,newlut->data.begin());
-      lutptr.reset(newlut);
+      std::atomic_store(&lutptr,newlut);
+      //??lutptr.reset(newlut);
       return;
     } else if (i>iEnd() || i+nAdd<iStart()) {
       // Leaving a gap - not allowed
@@ -133,7 +145,7 @@ class SharedLUT {
     size_t newsize = newEnd - newStart;
     if (newStart<iStart()) {
       // Prepending to do.  Make new LUT
-      auto newlut =  new LUT();
+      auto newlut = std::make_shared<LUT>(); //new LUT();
       newlut->i0 = newStart;
       newlut->data.resize(newsize);
       // Copy in new data until we reach the old stuff
@@ -150,20 +162,21 @@ class SharedLUT {
 	std::copy(it,end,newit);
 
       // Install new table
-      lutptr.reset(newlut);
+      std::atomic_store(&lutptr,newlut);
+      //??lutptr.reset(newlut);
       return;
     }
 
     // Need to append?
     if (newEnd > iEnd()) {
-      if (lutptr->data.capacity() >= newsize) {
+      if (false) { //??lutptr->data.capacity() >= newsize) {
 	// Just append to existing array, will not invalidate iterators
 	size_t oldsize = lutptr->data.size();
 	lutptr->data.resize(newsize);
 	std::copy( it + (lutptr->i0 + oldsize -i), end, lutptr->data.begin()+oldsize);
       } else {
 	// Need to expand array, make & install new LUT
-	auto newlut =  new LUT();
+	auto newlut = std::make_shared<LUT>(); //new LUT();
 	newlut->i0 = newStart;
 	newlut->data.resize(newsize);
 	auto newit = newlut->data.begin();
@@ -172,7 +185,8 @@ class SharedLUT {
 	std::copy( it + (iEnd()-i), end, newit);
 
 	// Install new table
-	lutptr.reset(newlut);
+	std::atomic_store(&lutptr,newlut);
+	//??lutptr.reset(newlut);
       }
     }
     return;
