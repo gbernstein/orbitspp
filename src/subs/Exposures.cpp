@@ -419,8 +419,21 @@ TransientTable::getObservation(int objectID,
 
 
 bool
-TransientTable::fillExposure(const Frame& frame,
-			     Exposure* eptr) const {
+TransientTable::fillExposure(Exposure* eptr) const {
+  // Fill the exposure only once
+  if (eptr->isFilled) return true;
+
+#ifdef _OPENMP
+  // Acquire lock for this exposure prior to filling
+  omp_set_lock(eptr->fillLock);
+  // Only continue if another thread did not lock in the interim
+  if (eptr->isFilled) {
+    omp_unset_lock(eptr->fillLock);
+    return true;
+  }
+#endif
+
+  // Proceed to fill the Exposure structure
   auto iter = findExpnum.find(eptr->expnum);
   if (iter == findExpnum.end())
     return false; // No entries for this.
@@ -449,7 +462,7 @@ TransientTable::fillExposure(const Frame& frame,
   // Fill in individual detections' properties
   // Their coordinates and sigma are in degrees.
   int nTransients = use.array().count();
-  eptr->xy.resize(nTransients, 2);
+  eptr->icrs.resize(nTransients, 3);
   eptr->covXX.resize(nTransients);
   eptr->covXY.resize(nTransients);
   eptr->covYY.resize(nTransients);
@@ -465,21 +478,14 @@ TransientTable::fillExposure(const Frame& frame,
     eptr->covXY[i] = eptr->atmosphereCov(1,0);
     eptr->covYY[i] = sig[j]*sig[j]*DEGREE*DEGREE + eptr->atmosphereCov(1,1);
     astrometry::SphericalICRS radec(ra[j]*DEGREE, dec[j]*DEGREE);
-    try {
-      astrometry::Gnomonic xy(radec, frame.orient);
-      double x,y;
-      xy.getLonLat(x,y);
-      eptr->xy(i,0) = x;
-      eptr->xy(i,1) = y;
-      eptr->valid[i] = true;
-    } catch (astrometry::AstrometryError& a) {
-      // Get here for projection out of gnomonic's hemisphere
-      eptr->xy(i,0) = 0.;
-      eptr->xy(i,1) = 0.;
-      eptr->valid[i] = false;
-    }
+    eptr->icrs.row(i) = radec.getUnitVector().transpose();
     i++;
   }
+
+  eptr->isFilled = true;
+#ifdef _OPENMP
+  omp_unset_lock(eptr->fillLock);
+#endif
   return true;
 }
 
@@ -903,7 +909,9 @@ DESTree::find(const Fitter& path) const {
 
 DVector
 Exposure::chisq(double x0, double y0, double covxx, double covyy, double covxy) const {
-  if (xy.rows()==0) return DVector();
+  if (icrs.rows()==0) return DVector();
+  if (xy.rows()==0)
+    throw std::runtime_error("Exposure::chisq called without any internal frame set");
   DVector dx = xy.col(0).array() - x0;
   DVector dy = xy.col(1).array() - y0;
   DVector cxx = covXX.array() + covxx;
@@ -916,4 +924,50 @@ Exposure::chisq(double x0, double y0, double covxx, double covyy, double covxy) 
   chisq.array() /= det.array();
   return chisq;
 }
+
+void
+Exposure::mapToFrame(const Frame& frame, DVector& x, DVector& y) const {
+  if (!isFilled) {
+    throw runtime_error("Attempt to map Exposure detections that have not been filled");
+  }
+  // Remap unit circle from ICRS to local frame
+  DMatrix xyz = frame.fromICRS(icrs);
+  DVector zz = xyz.col(2).array().min(0.0001); // Avoid divide-by-zero
+  x = xyz.col(0).array() / zz.array();
+  y = xyz.col(1).array() / zz.array();
+  return;
+}
   
+void Exposure::setFrameXY(const Frame& frame) {
+  // Write to internal array - lock this
+#ifdef _OPENMP
+  omp_set_lock(fillLock);
+#endif
+  DVector x,y;
+  mapToFrame(frame,x,y);
+  xy.resize(icrs.rows(),3);
+  xy.col(0) = x;
+  xy.col(1) = y;
+#ifdef _OPENMP
+  omp_unset_lock(fillLock);
+#endif
+}
+
+    DVector
+Exposure::chisq(const Frame& frame,
+		double x0, double y0, double covxx, double covyy, double covxy) const {
+  if (icrs.rows()==0) return DVector();
+  DVector dx, dy;
+  mapToFrame(frame,dx,dy);
+  dx.array() -= x0;
+  dy.array() -= y0;
+  DVector cxx = covXX.array() + covxx;
+  DVector cxy = covXY.array() + covxy;
+  DVector cyy = covYY.array() + covyy;
+
+  DVector det = cxx.array() * cyy.array() - cxy.array()*cxy.array();
+  DVector chisq = dx.array() * (dx.array()*cyy.array() - dy.array()*cxy.array())
+    + dy.array() * (dy.array()*cxx.array() - dx.array()*cxy.array());
+  chisq.array() /= det.array();
+  return chisq;
+}
