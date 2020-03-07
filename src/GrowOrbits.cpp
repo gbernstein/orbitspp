@@ -720,7 +720,9 @@ public:
       for (auto iter = exposurePool.begin();
 	   iter != exposurePool.end();
 	   ++iter) {
-	if (tt.fillExposure(globals.frame, *iter)) {
+	if (tt.fillExposure(*iter)) {
+	  // Map exposures to the global frame
+	  (*iter)->setFrameXY(globals.frame);
 	  // Add all these transients to the index
 	  for (int i=0; i<(*iter)->id.size(); i++)
 	    detectionIndex[(*iter)->id[i]] = Detection(*iter,i);

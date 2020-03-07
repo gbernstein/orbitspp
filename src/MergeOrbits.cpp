@@ -402,11 +402,11 @@ FitResult::fitAndFind(const Ephemeris& ephem,
     // Check in detail for error ellipse crossing a CCD
     opp.ccdnums = opp.eptr->whichCCDs(opp.orbitPred, opp.orbitCov*SEARCH_CHISQ);
 
-    // Load transient and corner information into each exposure, using frame
-							   !!!!!! this is the problem:!!!!!							   
-    transients.fillExposure(frame, opp.eptr);
+    // Load transient information into each exposure, if not done already
+    transients.fillExposure(opp.eptr);
 
-    DVector allChi = opp.eptr->chisq(xPred[i], yPred[i],
+    DVector allChi = opp.eptr->chisq(frame,
+				     xPred[i], yPred[i],
 				     covxxPred[i], covyyPred[i], covxyPred[i]);
     if (DEBUGLEVEL>2) {
       double t = 0.5*(covxxPred[i]+covyyPred[i]);

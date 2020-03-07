@@ -10,11 +10,26 @@
 #include "Fitter.h"
 #include "FitsTable.h"
 
+#ifdef _OPENMP
+#include "omp.h"
+#endif
+
 namespace orbits {
 
   class Exposure {
     // Information on an exposure.  All quantities in radians internally.
   public:
+    Exposure(): isFilled(false) {
+#ifdef _OPENMP
+      omp_init_lock(fillLock);
+#endif
+    }
+    ~Exposure() {
+#ifdef _OPENMP
+      omp_destroy_lock(fillLock);
+#endif
+    }
+
     int expnum;
     double mjd;
     double tdb;
@@ -30,17 +45,30 @@ namespace orbits {
 
     // Info on transients:
     double detectionDensity; // Density of transients, per sr
-    DMatrix xy;   // Transient coordinates, in Frame
-    DVector covXX;
+    DMatrix icrs;  // 3xN matrix of ICRS coordinates on unit sphere
+    DVector covXX; // cov matrix of detections in an exposure-centered Frame
     DVector covXY;
     DVector covYY;
     vector<int> ccdnum; // CCD of origin of transients
     vector<int> id;  // ID or row number of transient in original file
     BVector valid;   // Is this a possible new TNO?
 
+    
+    // map icrs positions into some frame.  Return the two vectors filled with the
+    // coordinates of all detections.  
+    void mapToFrame(const Frame& frame, DVector& x, DVector& y) const;
+
+    // Use this to set internal xy to values for a frame
+    void setFrameXY(const Frame& frame);
+    DMatrix xy;   // Transient coordinates, in some user-defined Frame
+
     // Return chisq of transients determined
     // by the given error ellipse.  Transients' measurement errors are added in.
     DVector chisq(double x0, double y0, double covxx, double covyy, double covxy) const;
+    // This one specifies the Frame in which x0,y0 are given, if it may not
+    // be whichever one was used to set up xy array.
+    DVector chisq(const Frame& frame,
+		  double x0, double y0, double covxx, double covyy, double covxy) const;
     
     // Info on CCDs:
     vector<int> devices; // List of ccdnums of devices
@@ -55,6 +83,13 @@ namespace orbits {
     vector<int> whichCCDs(const astrometry::SphericalCoords& posn,
 			   const Matrix22& cov) const;
     EIGEN_NEW;
+
+  private:
+    friend class TransientTable;
+    bool isFilled;  //
+#ifdef _OPENMP
+    omp_lock_t *fillLock;  // Lock for filling detection structures
+#endif
   };
 
   class ExposureTable {
@@ -117,10 +152,9 @@ namespace orbits {
     // Null string input will look to an environment variable.
     TransientTable(const string transientFile="");
     bool hasExpnum(int expnum) const;  // Are there transients for this exposure?
-    // Fill the exposure structure with info for all its transients, transforming
-    // to the selected Frame.  Return false if there are none.
-    bool fillExposure(const Frame& frame,
-		      Exposure* eptr) const;
+    // Fill the exposure structure with info for all its transients, if not done already.
+    // Return false if there are none.  Thread-safe.
+    bool fillExposure(Exposure* eptr) const;
     // Return an Observation object for the transient in selected row
     Observation getObservation(int objectID,
 			       const Ephemeris& ephem,
