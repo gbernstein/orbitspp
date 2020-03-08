@@ -18,7 +18,7 @@
 using namespace std;
 using namespace orbits;
 
-const int DEBUGLEVEL= 2;
+const int DEBUGLEVEL= 0;
 const int MIN_UNIQUE_FIT=4; // min number of independent detections to fit
 const double FIELD_RADIUS = 1.15*DEGREE; // A bit larger to be complete
 
@@ -302,9 +302,15 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   fit.setFrame(frame);
   // ! No priors on the orbit.
   // ?? maybe a little
-  fit.setBindingConstraint(1.);
+  fit.setBindingConstraint(4.); // ?? stronger binding  than 1.
   fit.setLinearOrbit();
   fit.setLinearOrbit();
+  if (DEBUGLEVEL>1)
+#pragma omp critical (io)
+    {
+      cerr << "#" << inputID << "  linear chisq " << chisq << " abg " << fit.getABG(true)
+	   << " a " << fit.getElements()[Elements::A] << endl;
+    }
   fit.newtonFit();
 
   if (DEBUGLEVEL>1)
@@ -391,8 +397,6 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   for (int i=0; i<nHits; i++) {
     Opportunity& opp = opportunities[i];
 #pragma omp critical (io)
-    /**/cerr << "#" << inputID << "  ...hit " << i << "/"
-	     << nHits << " expnum " << opp.eptr->expnum << endl;
     opp.orbitPred = astrometry::Gnomonic(xPred[i], yPred[i], frame.orient);
     opp.orbitCov(0,0) = covxxPred[i];
     opp.orbitCov(0,1) = covxyPred[i];
@@ -452,9 +456,6 @@ FitResult::fitAndFind(const Ephemeris& ephem,
 
   }
 
-#pragma omp critical(io)
-  /**/cerr << "#" << inputID << "  ...done detections" << endl;
-							  
   // Compare new and old detection lists
   std::sort(newDetectionIDs.begin(), newDetectionIDs.end());
   std::sort(detectionIDs.begin(), detectionIDs.end());
@@ -489,7 +490,7 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   detectionIDs = newDetectionIDs;
   if (DEBUGLEVEL>1)
 #pragma omp critical(io)
-    cerr << "#" << inputID << " FitAndFind complete" << endl;
+    cerr << "#" << inputID << " FitAndFind complete" << changed << endl;
   return changed;
 }
 
@@ -719,14 +720,14 @@ int main(int argc,
 	// Some initial quality checks; first FPR
 	if (orb->fpr > maxFPR) {
 	  // Don't use this one.
-	  /**/cerr << "Deleting for FPR" << endl;
+	  //**/cerr << "Deleting for FPR" << endl;
 	  delete orb;
 	  continue;
 	}
 
 	// Also require a minimum number of detections to proceed
 	if (orb->detectionIDs.size() < 4) {
-	  /**/cerr << "Deleting for size" << endl;
+	  //**/cerr << "Deleting for size" << endl;
 	  delete orb;
 	  continue;
 	}
@@ -736,6 +737,7 @@ int main(int argc,
 
       int imax = blockOfOrbits.size();
       /**/cerr << "Acquired block of " << imax << " input orbits" << endl;
+      /**/cerr << "   Kept so far: " << orbits.size() << endl;
       if (imax==0)
 	break;  // Done with all input!
 
@@ -744,11 +746,12 @@ int main(int argc,
       for (int i=0; i<imax; i++) 
       {
 	auto orb = blockOfOrbits[i];
+	/*
 #pragma omp critical(io)
-	/**/ cerr << ">Thread " << omp_get_thread_num()
+	cerr << ">Thread " << omp_get_thread_num()
 		  << " starting " << orb->inputID
 		  << endl;
-
+	*/
 	// Set some initial flags
 	orb->friendGroup = -1;
 	orb->changedDetectionList = false;
@@ -758,43 +761,34 @@ int main(int argc,
 	int MAX_FIT_ITERATIONS=5;
 	try {
 	  for (int iter=0; iter<MAX_FIT_ITERATIONS; iter++) {
-#pragma omp critical(io)
-	    /**/cerr << "Fitting iteration " << iter << " object "
-		     << orb->inputID  << endl;
 	    if (!orb->fitAndFind(ephem, tdb0, transients, et, pool)) {
 	      success = true;
 	      break;
 	    }
 	    // Also quit if we no longer have enough detections
-	    if (orb->nUnique < MIN_UNIQUE_FIT) 
+	    if (orb->nUnique < MIN_UNIQUE_FIT)  {
 	      break;
+	    }
 	    if (iter==MAX_FIT_ITERATIONS-1) cerr << "# WARNING: Not converging at " << orb->inputID << endl;
 	  }
 	} catch (Fitter::NonConvergent& e) {
-#pragma omp critical(io)
+	  /*#pragma omp critical(io)
 	  {
 	    cerr << "# Fitting failure " << orb->inputFile << "/" << orb->inputID
 		 << " nUnique " << orb->nUnique << " arc " << orb->arc << endl;
 	    cerr << e.what() << endl;
-	  }
+	    }*/
+	  
 	}
-#pragma omp critical(io)
-	/**/ cerr << "#" << orb->inputID << " success " << success << endl;
 	if (success)
 #pragma omp critical(orbitpush)
-	  orbits.push_back(orb);
-	else
-#pragma omp critical(io)
 	  {
-	    /**/cerr <<"Deleting " << orb->inputID << endl;
-	    delete orb;
-	    /**/cerr <<"...Done" << endl;
+	    orbits.push_back(orb);
 	  }
+	else {
+	    delete orb;
+	}
 	  
-#pragma omp critical(io)
-	/**/ cerr << "<Thread " << omp_get_thread_num()
-		  << " done "
-		  << endl;
       } // End orbit loop (and parallel section)
     } // End block loop
 

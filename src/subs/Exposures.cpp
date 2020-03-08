@@ -425,18 +425,22 @@ TransientTable::fillExposure(Exposure* eptr) const {
 
 #ifdef _OPENMP
   // Acquire lock for this exposure prior to filling
-  omp_set_lock(eptr->fillLock);
+  omp_set_lock(&(eptr->fillLock));
   // Only continue if another thread did not lock in the interim
   if (eptr->isFilled) {
-    omp_unset_lock(eptr->fillLock);
+    omp_unset_lock(&(eptr->fillLock));
     return true;
   }
 #endif
 
   // Proceed to fill the Exposure structure
   auto iter = findExpnum.find(eptr->expnum);
-  if (iter == findExpnum.end())
+  if (iter == findExpnum.end()) {
+#ifdef _OPENMP
+    omp_unset_lock(&(eptr->fillLock));
+#endif
     return false; // No entries for this.
+  }
   int index = iter->second;
   int begin,end;
   transientIndex.readCell(begin, "FIRST", index);
@@ -484,7 +488,7 @@ TransientTable::fillExposure(Exposure* eptr) const {
 
   eptr->isFilled = true;
 #ifdef _OPENMP
-  omp_unset_lock(eptr->fillLock);
+  omp_unset_lock(&(eptr->fillLock));
 #endif
   return true;
 }
@@ -931,8 +935,8 @@ Exposure::mapToFrame(const Frame& frame, DVector& x, DVector& y) const {
     throw runtime_error("Attempt to map Exposure detections that have not been filled");
   }
   // Remap unit circle from ICRS to local frame
-  DMatrix xyz = frame.fromICRS(icrs);
-  DVector zz = xyz.col(2).array().min(0.0001); // Avoid divide-by-zero
+  DMatrix xyz = frame.fromICRS(icrs,true);  
+  DVector zz = xyz.col(2).array().max(0.0001); // Avoid divide-by-zero
   x = xyz.col(0).array() / zz.array();
   y = xyz.col(1).array() / zz.array();
   return;
@@ -941,7 +945,7 @@ Exposure::mapToFrame(const Frame& frame, DVector& x, DVector& y) const {
 void Exposure::setFrameXY(const Frame& frame) {
   // Write to internal array - lock this
 #ifdef _OPENMP
-  omp_set_lock(fillLock);
+  omp_set_lock(&fillLock);
 #endif
   DVector x,y;
   mapToFrame(frame,x,y);
@@ -949,11 +953,11 @@ void Exposure::setFrameXY(const Frame& frame) {
   xy.col(0) = x;
   xy.col(1) = y;
 #ifdef _OPENMP
-  omp_unset_lock(fillLock);
+  omp_unset_lock(&fillLock);
 #endif
 }
 
-    DVector
+DVector
 Exposure::chisq(const Frame& frame,
 		double x0, double y0, double covxx, double covyy, double covxy) const {
   if (icrs.rows()==0) return DVector();
