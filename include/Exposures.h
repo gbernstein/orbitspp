@@ -21,12 +21,12 @@ namespace orbits {
   public:
     Exposure(): isFilled(false) {
 #ifdef _OPENMP
-      omp_init_lock(fillLock);
+      omp_init_lock(&fillLock);
 #endif
     }
     ~Exposure() {
 #ifdef _OPENMP
-      omp_destroy_lock(fillLock);
+      omp_destroy_lock(&fillLock);
 #endif
     }
 
@@ -88,7 +88,7 @@ namespace orbits {
     friend class TransientTable;
     bool isFilled;  //
 #ifdef _OPENMP
-    omp_lock_t *fillLock;  // Lock for filling detection structures
+    omp_lock_t fillLock;  // Lock for filling detection structures
 #endif
   };
 
