@@ -1,6 +1,7 @@
 To do on the orbit-fitting software:
 
-* Need copy assignment for trajectory
+* Why does merge have WEIRD outputs?
+* Grow crashes - what is overflowing? Add start/end row counts
 * faster compare() orbit pairs in Grow.
 * Change all FITS array writes to fixed length
 * Inertial Trajectory crashing (?)
@@ -21,3 +22,4 @@ Outlier rejection in fits
 * Cachable planets in Ephemeris
 * Get rid of WORST
 * Multithread Merge
+* Need copy assignment for trajectory
