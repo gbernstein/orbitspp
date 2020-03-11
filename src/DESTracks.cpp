@@ -165,6 +165,8 @@ int main(int argc,
 	tt.fillExposure(eptr);
     }
 
+    cerr << "# Loaded corners" << endl;
+
     // convert field radius to a maximum chord length between
     // unit vectors
     const double maxChordSq = pow(2. * sin(fieldRadius/2.),2.);
