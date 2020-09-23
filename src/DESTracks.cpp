@@ -165,6 +165,8 @@ int main(int argc,
 	tt.fillExposure(eptr);
     }
 
+    cerr << "# Loaded corners" << endl;
+
     // convert field radius to a maximum chord length between
     // unit vectors
     const double maxChordSq = pow(2. * sin(fieldRadius/2.),2.);
@@ -200,13 +202,37 @@ int main(int argc,
 
       // Predict for all relevant exposures - get ICRS direction cosines
       Trajectory orbit(ephem, xv, Gravity::GIANTS);
+      /**/cerr << "position 2016: " << orbit.observe(16.,astrometry::CartesianICRS(earth.row(0))) << endl;
       DMatrix target = orbit.observe(tdb, earth);
       // Find those within radius
       BVector hits = (target - axis).rowwise().squaredNorm().array() < maxChordSq;
       
+      /**/ {
+	DVector rr = (target - axis).rowwise().squaredNorm().array();
+	/**/cerr << "TDB0: " << tdb0 << endl;
+	for (int i=0; i<rr.size(); i++) {
+	  if (i%10==0 || sqrt(rr[i])/DEGREE < 5.) {
+	    astrometry::SphericalICRS tt;
+	    tt.setUnitVector(target.row(i));
+	    double tx,ty;
+	    tt.getLonLat(tx,ty);
+	    tt.setUnitVector(axis.row(i));
+	    double ax,ay;
+	    tt.getLonLat(ax,ay);
+	    cout << i << " " << tdb[i]
+		 << " Target: " << target(i,0) << " " << target(i,1) << " " << target(i,2)
+		 << " radius " << sqrt(rr[i])*180. / 3.14159
+		 << endl;
+	    cerr << "   tt: " << tx/DEGREE << " " << ty/DEGREE << endl;
+	    cerr << "   aa: " << ax/DEGREE << " " << ay/DEGREE << endl;
+	  }
+	}
+      }
       for (int i=0; i<nExposures; i++) {
 	if (!hits[i]) continue;
 
+	/**/cerr << "Hit at " << i << endl;
+	
 	astrometry::SphericalICRS radec;
 	radec.setUnitVector(target.row(i).transpose());
 	double ra,dec;

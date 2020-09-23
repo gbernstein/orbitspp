@@ -79,6 +79,9 @@ namespace orbits {
     // Is the point within requested distance of interior?
     bool isWithin(const Point& p, double distance) const;
     
+    int size() const {return edges.size();}
+    Segment edge(int i) const {return edges[i];}
+
     EIGEN_NEW
   private:
     vector<Segment, Eigen::aligned_allocator<Segment>> edges;

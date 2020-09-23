@@ -114,7 +114,7 @@ int main(int argc,
       vector<Exposure*> keep;
       TransientTable tt(transientPath);
       for (auto& eptr : possibleExposures)
-	if (tt.fillExposure(frame, eptr)) {
+	if (tt.fillExposure(eptr)) {
 	  keep.push_back(eptr);
 	} else {
 	  delete eptr;
@@ -202,7 +202,8 @@ int main(int argc,
       //**double CHISQ_THRESHOLD=50; //** ?? try more
       for (int i=0; i<n; i++) {
 	const Exposure& expo = *possibleExposures[i];
-	DVector chisq = expo.chisq(x[i], y[i], covxx[i], covyy[i], covxy[i]);
+	DVector chisq = expo.chisq(frame,
+				   x[i], y[i], covxx[i], covyy[i], covxy[i]);
 	int counts = (chisq.array() < CHISQ_THRESHOLD).count();
 	totalCounts += counts;
 	if (counts>0) {

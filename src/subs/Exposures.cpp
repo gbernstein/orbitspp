@@ -334,9 +334,10 @@ Exposure::whichCCD(const astrometry::SphericalICRS& radec) const {
   double xx,yy;
   gn.getLonLat(xx,yy);
   Point p(xx,yy);
-  for (int i=0; i<deviceBoundsLocalICRS.size(); i++)
+  for (int i=0; i<deviceBoundsLocalICRS.size(); i++) {
     if (deviceBoundsLocalICRS[i].inside(p))
       return devices[i];
+  }
   return 0;
 }
 
