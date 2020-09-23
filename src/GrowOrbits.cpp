@@ -507,7 +507,7 @@ FitStep::search(double& totalFPR) {
     for (int i=0;
 	 eiter!=possibleExposures.end();
 	 i++) {
-      if (useExposure[i]) {
+      if (useExposure[i] && det[i]>0.) {
 	ExposureInfo info;
 	info.eptr = *eiter;
 	info.x = x[i];  info.y = y[i];
