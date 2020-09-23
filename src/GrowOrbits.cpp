@@ -505,7 +505,8 @@ FitStep::search(double& totalFPR) {
     for (int i=0;
 	 eiter!=possibleExposures.end();
 	 i++) {
-      if (useExposure[i]) {
+      if (useExposure[i] && det[i] > 0.) {
+         // Note rejecting exposures with degenerate errors
 	ExposureInfo info;
 	info.eptr = *eiter;
 	info.x = x[i];  info.y = y[i];
@@ -1006,7 +1007,7 @@ main(int argc, char **argv) {
 
     // We'll break the input into blocks that we'll distribute to threads.
 #ifdef _OPENMP
-    int blocksize = omp_get_max_threads() * 32;
+    int blocksize = omp_get_max_threads() * 128;
 #else
     int blocksize = 32;
 #endif
