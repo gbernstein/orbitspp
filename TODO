@@ -1,5 +1,6 @@
 To do on the orbit-fitting software:
 
+* testSharedLUT and testExposure* failures.
 * Why does merge have WEIRD outputs?
 * Grow crashes - what is overflowing? Add start/end row counts
 * faster compare() orbit pairs in Grow.

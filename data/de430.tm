@@ -6,7 +6,7 @@ The PATH_VALUES needs to be changed to site-specific location of the repo.
 
 \begindata
 
-PATH_VALUES = ('/home/gary/CODE/orbitspp/data')
+PATH_VALUES = ('/Users/garyb/CODE/orbitspp/data')
 PATH_SYMBOLS= ('DATA')
 KERNELS_TO_LOAD = ( '$DATA/naif0012.tls',
                     '$DATA/de430_tno.bsp',

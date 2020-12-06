@@ -50,8 +50,8 @@ $(error Require EIGEN_DIR in environment)
 endif
 
 ifdef MKL_DIR
-INCLUDES += -I $(MKL_DIR)/include -D USE_MKL
-LIBS +=  -L${MKL_DIR}/lib/intel64 -Wl,--no-as-needed -lmkl_intel_lp64 -lmkl_gnu_thread -lmkl_core -lgomp -lpthread -lm -ldl
+INCLUDES += -D USE_MKL ${MKL_OPTS}
+LIBS += ${MKL_LINK}
 endif
 
 # Not really using this but Astrometry might, so
@@ -62,7 +62,7 @@ endif
 
 ifdef CFITSIO_DIR
 INCLUDES += -I $(CFITSIO_DIR)/include
-LIBS += -L $(CFITSIO_DIR)/lib -lcfitsio -lcurl
+LIBS += -L $(CFITSIO_DIR)/lib -lcfitsio
 else
 $(error Require CFITSIO_DIR in environment)
 endif

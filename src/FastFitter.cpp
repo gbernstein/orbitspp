@@ -1,4 +1,5 @@
 // Run a simple fit on data given in degrees, from CTIO
+// Error on the line is isotropic and in arcsec.
 #include "Fitter.h"
 #include "Elements.h"
 #include "StringStuff.h"
@@ -16,18 +17,18 @@ int main(int argc,
 
     //Fitter fit(eph, Gravity::BARY);
     Fitter fit(eph, Gravity::GIANTS);
-    fit.setBindingConstraint(1.);
+    fit.setBindingConstraint(0.);
 
     string buffer;
     while (stringstuff::getlineNoComment(cin, buffer)) {
       std::istringstream iss(buffer);
-      double mjd, ra, dec;
-      iss >> mjd >> ra >> dec;
+      double mjd, ra, dec,err;
+      iss >> mjd >> ra >> dec >> err;
       Observation obs;
       obs.radec = astrometry::SphericalICRS(ra*DEGREE, dec*DEGREE);
       obs.tdb = eph.mjd2tdb(mjd);
       obs.observer = eph.observatory(807, obs.tdb);
-      obs.cov(0,0) = obs.cov(1,1) = pow(0.015*ARCSEC,2.);
+      obs.cov(0,0) = obs.cov(1,1) = pow(err*ARCSEC,2.);
       obs.cov(1,0) = obs.cov(0,1) = 0.;
       fit.addObservation(obs);
     }

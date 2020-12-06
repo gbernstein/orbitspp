@@ -539,15 +539,16 @@ Fitter::printResiduals(std::ostream& os) {
   double chi;
   DVector dx = thetaX - thetaXModel;
   DVector dy = thetaY - thetaYModel;
-  os << "# N    T      dx      dy    chisq" << endl;
-  os << "#    (days)  (arcsecond)   " << endl;
+  os << "# N    T        dx      dy  chisq" << endl;
+  os << "#    (days)        (mas)   " << endl;
   for (int i=0; i<dx.size(); i++) {
     chi = dx[i]*dx[i]*invcovXX[i] + 2.*dx[i]*dy[i]*invcovXY[i] + dy[i]*dy[i]*invcovYY[i];
     os << std::setw(3) << i << "  "
-       << std::showpos << tObs[i]/DAY << " "
-       << std::setprecision(3)
-       << std::setw(7) << dx[i]/ARCSEC << " "
-       << std::setw(7) << dy[i]/ARCSEC << " "
+       << std::setprecision(2)
+       << std::setw(7) << std::showpos << tObs[i]/DAY << " "
+       << std::setprecision(2)
+       << std::setw(7) << 1000.*dx[i]/ARCSEC << " "
+       << std::setw(7) << 1000.*dy[i]/ARCSEC << " "
        << std::noshowpos << std::setprecision(2) << chi
        << endl;
     chitot += chi;
