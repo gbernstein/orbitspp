@@ -128,7 +128,7 @@ const string usage =
   " (unless they are also secure).\n"
   "\nParameters and defaults:\n";
 
-const bool DEBUG=false;
+const int DEBUG=0;  // 0 to be quiet
 
 const double FIELD_RADIUS = 1.1*DEGREE;  // Generous DECam field radius
 // Chisq small enough to consider old orbit matched to new detection:
@@ -137,6 +137,8 @@ const double NOMINAL_POSITION_ERROR = 0.1*ARCSEC; // Position error for typical 
 
 // Area to be used for assessing false positive rate:
 const double FALSE_POSITIVE_COUNTING_AREA = 0.5*DEGREE*DEGREE;
+// Do not pursue any orbit where uncertainty is too large:
+const double MAXIMUM_SEARCH_AREA = 3 * DEGREE * DEGREE; // ??? Make this a parameter?
 
 // We won't attempt to link to exposures that have too many
 // expected detections, defined as being above this number
@@ -505,7 +507,7 @@ FitStep::search(double& totalFPR) {
     for (int i=0;
 	 eiter!=possibleExposures.end();
 	 i++) {
-      if (useExposure[i]) {
+      if (useExposure[i] && det[i]>0.) {
 	ExposureInfo info;
 	info.eptr = *eiter;
 	info.x = x[i];  info.y = y[i];
@@ -518,7 +520,7 @@ FitStep::search(double& totalFPR) {
     }
   } // Done making exposure list.
   
-  if (DEBUG) cerr << "Search from nobs " << fitptr->nObservations()
+  if (DEBUG>1) cerr << "Search from nobs " << fitptr->nObservations()
 		  << " independent " << nUnique
 		  << " from " << possibleExposures.size() << " exposures"
 		  << " last " << members.back().id()
@@ -536,16 +538,27 @@ FitStep::search(double& totalFPR) {
     double searchArea = PI * sqrt( (info.covXX + NOMINAL_POSITION_ERROR*NOMINAL_POSITION_ERROR)*
 				   (info.covYY + NOMINAL_POSITION_ERROR*NOMINAL_POSITION_ERROR) - info.covXY*info.covXY);
 				   
-    // False positive rate will be calculated by scaling error ellipse
-    // to have this size, and counting detections in it.
-    double chisqForFalsePositive = FALSE_POSITIVE_COUNTING_AREA / searchArea;
     searchArea *= SINGLE_CHISQ_THRESHOLD;
+    // If the search area is too large, ignore
+    if (searchArea > MAXIMUM_SEARCH_AREA) {
+      skippedExposures = true;
+      continue;
+    }
     
     // Get chisq of all points
     DVector chisq = info.eptr->chisq(info.x,info.y,info.covXX,info.covYY,info.covXY);
 
-    double thisFPR = (chisq.array() <= chisqForFalsePositive).count()
-      * searchArea / FALSE_POSITIVE_COUNTING_AREA;
+    // False positive rate will be calculated by scaling error ellipse
+    // to have this size, and counting detections in it.
+    double thisFPR;
+    // Choose size of area to count false positives to be at least a minimum
+    double fprAreaFactor = FALSE_POSITIVE_COUNTING_AREA / searchArea;
+    if (fprAreaFactor < 1.) fprAreaFactor = 1.;
+    // Find out chisq value bounding false positive estimation region
+    double chisqForFalsePositive = SINGLE_CHISQ_THRESHOLD * fprAreaFactor;
+    // Count detections in FPR area and rescale to true search area
+    thisFPR = (chisq.array() <= chisqForFalsePositive).count() / fprAreaFactor;
+    
     if ((nUnique>=START_IGNORING_HIGH_FPR)
 	&& (thisFPR > MAXIMUM_FPR_PER_EXPOSURE)) {
       // This exposure is too busy for this stage of linking, do not link to it.
@@ -556,13 +569,13 @@ FitStep::search(double& totalFPR) {
       totalFPR += thisFPR;
     }
 
-    if (DEBUG)
+    if (DEBUG>1)
       cerr << "Exposure " << info.eptr->expnum
 	   << " area " << searchArea * pow(180.*60./3.14159,2)
 	   << " fpr " << thisFPR
 	   << " minchi " << chisq.minCoeff()
 	   << endl;
-    if (DEBUG && searchArea!=searchArea)
+    if (DEBUG>1 && searchArea!=searchArea)
       cerr << "cov: " << info.covXX << " " << info.covYY << " " << info.covXY
 	   << " det " << info.covXX*info.covYY - info.covXY*info.covXY
 	   << endl;
@@ -584,7 +597,7 @@ FitStep::search(double& totalFPR) {
       // Exclude points that are tagged as invalid or bad matches to orbit.
       if (chisq[i] > SINGLE_CHISQ_THRESHOLD || !info.eptr->valid[i])
 	continue;
-      if (DEBUG) cerr << "....match exposure " << info.eptr->expnum << " id " << i << " chisq " << chisq[i] << endl;
+      if (DEBUG>1) cerr << "....match exposure " << info.eptr->expnum << " id " << i << " chisq " << chisq[i] << endl;
       try {
 	nextFit = fitptr->augmentObservation(info.eptr->tobs,
 					     info.eptr->xy(i,0), info.eptr->xy(i,1),
@@ -603,7 +616,7 @@ FitStep::search(double& totalFPR) {
 
       // Check chisq to see if we keep it
       if (!globals.goodFit(nextFit)) {
-	if (DEBUG) cerr << "....bad fit, deleting" << endl;
+	if (DEBUG>1) cerr << "....bad fit, deleting" << endl;
 	delete nextFit;
 	continue;
       }
@@ -621,7 +634,7 @@ FitStep::search(double& totalFPR) {
     } // End of N+1 detection loop
   } // End of N+1 exposure loop
 
-  if (DEBUG) cerr << "->total FPR for search " << totalFPR << endl;
+  if (DEBUG>1) cerr << "->total FPR for search " << totalFPR << endl;
 
   // Sort the new FitSteps to have lowest FPR first, searched first
   out.sort(&fitStepCompare);
@@ -687,6 +700,8 @@ public:
       // Read the central gamma and half-width from header too
       tab.header()->getValue("GAMMA0",gamma0);
       tab.header()->getValue("DGAMMA",dGamma);
+
+      cerr << "# Triplet table has " << tab.nrows() << " rows" << endl;
     }
 
     // Build the reference frame
@@ -795,7 +810,7 @@ public:
       if (members.size() < 3)
 	continue; // don't try these... move on to next input.
 
-      if (DEBUG) cerr << "Making initial with " << members.size() << " detections" << endl;
+      if (DEBUG>1) cerr << "Making initial with " << members.size() << " detections" << endl;
       // Make an orbit fit
       auto fitptr = new Fitter(eph, Gravity::BARY);  // ?? Need giants' gravity??
       fitptr->setFrame(globals.frame);
@@ -829,19 +844,19 @@ public:
       try {
 	fitptr->setLinearOrbit();
 	fitptr->setLinearOrbit();
-	if (DEBUG) cerr << "Initial linear fit chisq " << fitptr->getChisq()
-			<< " " << fitptr->getABG(true)[ABG::G] << endl;
+	if (DEBUG>1) cerr << "Initial linear fit chisq " << fitptr->getChisq()
+			  << " " << fitptr->getABG(true)[ABG::G] << endl;
 	fitptr->newtonFit();  // ?? any more elaborate fitting needed ??
-	if (DEBUG) cerr << "Newton fit chisq " << fitptr->getChisq()
-			<< " " << fitptr->getABG()[ABG::G] << endl;
+	if (DEBUG>1) cerr << "Newton fit chisq " << fitptr->getChisq()
+			  << " " << fitptr->getABG()[ABG::G] << endl;
       } catch (std::runtime_error& e) {
 	goodFit = false;
       }
 
       // Skip the orbit if fit failed or is poor
       if (!goodFit || !globals.goodFit(fitptr)) {
-	if (DEBUG) cerr << "Not a good fit " << goodFit << endl;
-	if (DEBUG) fitptr->printResiduals(cerr);
+	if (DEBUG>1) cerr << "Not a good fit " << goodFit << endl;
+	if (DEBUG>2) fitptr->printResiduals(cerr);
 	delete fitptr;
 	continue;  // Move on to next input orbit
       }
@@ -1011,6 +1026,8 @@ main(int argc, char **argv) {
     int blocksize = 32;
 #endif
 
+    int iTriplet = 0;  // Counter used for debugging
+    
     while (true) {
       vector<FitStep*> blockOfOrbits;
       do {
@@ -1041,8 +1058,16 @@ main(int argc, char **argv) {
 	fitQueue.push_back(blockOfOrbits[i]);
 	
 	while (!fitQueue.empty()) {
+	  if (DEBUG>0) {
+	    cerr << "Current queue size " << fitQueue.size() << endl;
+	  }
 	  auto thisFit = fitQueue.front();
 	  fitQueue.pop_front();
+	  if (DEBUG>0 && thisFit->members.size()==3) {
+	    cerr << "**** New triplet " << iTriplet
+		 << " ID " << thisFit->orbitID <<" ***" << endl;
+	    iTriplet++;
+	  }
 
 #pragma omp critical(settledOrbit)
 	  if (settledOrbitIDs.count(thisFit->orbitID)) {
@@ -1065,6 +1090,13 @@ main(int argc, char **argv) {
 	  }
 	  if (thisFit==nullptr) continue;
 
+	  if (DEBUG>0) {
+	    cerr << "...About to search [";
+	    for (auto& m : thisFit->members)
+	      cerr << m.objectRow << ",";
+	    cerr << "]" << endl;
+	  }
+	  
 	  double totalFPR;
 	  // Here's where the search happens:
 	  auto newFits = thisFit->search(totalFPR);
@@ -1074,7 +1106,7 @@ main(int argc, char **argv) {
 #pragma omp critical(accumulator)
 	  accumulator.addOrbit(thisFit->nUnique, totalFPR);
 
-	  if (DEBUG) cerr << "search returns " << newFits.size() << endl;
+	  if (DEBUG>0) cerr << "search returns " << newFits.size() << endl;
 	  if (newFits.empty()) {
 	    // No new points can be added to this fit.  So it's a completed search,
 	    // i.e. "terminal orbit"
@@ -1087,7 +1119,7 @@ main(int argc, char **argv) {
 	      {
 		savedResults.push_back(FitResult(*thisFit));
 		if (isSecure) savedResults.back().isSecure = true;
-		if (DEBUG) savedResults.back().write(cout);
+		if (DEBUG>0) savedResults.back().write(cout);
 	      }
 	    }
 	    // If this is a secure fit, shut down further use of its detections
