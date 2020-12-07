@@ -183,16 +183,37 @@ public:
   FitStep(Fitter* fitptr_,
 	  list<Exposure*> possibleExposures_,
 	  vector<Detection> members_,
-	  int nUnique_,
 	  int orbitID_,
-	  double fpr_):
+	  double fpr_,
+	  int nUnique_=0):
     fitptr(fitptr_), possibleExposures(possibleExposures_),
     members(members_), nUnique(nUnique_),
     orbitID(orbitID_), fpr(fpr_),
-    skippedExposures(false)  {}
+    skippedExposures(false)  {
+
+    tdb.resize(members.size());
+    int i=0;
+    for (auto& m : members) {
+      tdb[i] = m.eptr->tdb;
+      ++i;
+    }
+    
+    /* Check unique nights */
+    if (nUnique<=0) {
+      nUnique = 1;
+      for (int j=1;j<tdb.size();j++) {
+	if ( abs(tdb.subVector(0,j).array()-tdb[j]).minCoeff()
+	     > INDEPENDENT_TIME_INTERVAL) {
+	  nUnique++;
+	}
+      }
+    }
+      
+  }
   ~FitStep() {delete fitptr;}
 
   Fitter* fitptr;  // An orbit fit to the N objects
+  DVector tdb;
 
   // Exposures potentially holding the (N+1)th.
   // This list should not include exposures already having a detection, but might
@@ -269,6 +290,10 @@ public:
   bool goodToOutput() const {
     // Does it meet the criteria for saving to output?
     // Note need to set the class variables that define this test.
+    /**/if (nUnique >= minUnique)
+      cerr << "**nUnique " << nUnique << " fpr " << fpr
+	   << " arc,cut " << arc() << " " << arccut()
+	   << " nobs " << members.size() << endl;
     return nUnique >= minUnique &&
       fpr <= maxFPR &&
       arc() >= minArc &&
@@ -504,10 +529,23 @@ FitStep::search(double& totalFPR) {
     // Collect info for possible exposures, and
     // pop the ones that don't cross orbit
     auto eiter=possibleExposures.begin();
+    const int MAX_CLOSE_IN_TIME=2;
     for (int i=0;
 	 eiter!=possibleExposures.end();
 	 i++) {
       if (useExposure[i]) {
+	/* Do not search an exposure that's on a night where
+	 * we already have 2 detections, to avoid
+	 * hashing through all permutations of a 
+	 * series of nearby same-night exposures.
+	 */
+	int nCloseInTime = (abs(tdb.array()-(*eiter)->tdb)
+			    <INDEPENDENT_TIME_INTERVAL).count();
+	if (nCloseInTime >= MAX_CLOSE_IN_TIME) {
+	  // Skip this exposure, move on
+	  eiter = possibleExposures.erase(eiter);
+	  continue;
+	}
 	ExposureInfo info;
 	info.eptr = *eiter;
 	info.x = x[i];  info.y = y[i];
@@ -624,8 +662,8 @@ FitStep::search(double& totalFPR) {
       // Make a new FitStep that has this detection.
       // Temporarily install the FPR just for this exposure.
       out.push_back(new FitStep(nextFit, possibleExposures, members,
-			       (closeInTime ? nUnique : nUnique+1),
-			       orbitID, thisFPR));
+				orbitID, thisFPR,
+				(closeInTime ? nUnique : nUnique+1)));
       // Add this detection to the new FitStep
       out.back()->members.push_back(Detection(info.eptr, i));
       // And remove its exposure from the possibleExposures so we don't
@@ -871,7 +909,7 @@ public:
 
       // Got a good one, return it
       return new FitStep(fitptr, possibleExposures, members,
-			 members.size(), orbitID,
+			 orbitID,
 			 1000.); // Set a high FPR so we don't trigger output on this
     }
   }
@@ -1093,7 +1131,7 @@ main(int argc, char **argv) {
 	  if (DEBUG>0) {
 	    cerr << "...About to search [";
 	    for (auto& m : thisFit->members)
-	      cerr << m.objectRow << ",";
+	      cerr << m.eptr->expnum << "/" << m.objectRow << ", ";
 	    cerr << "]" << endl;
 	  }
 	  
