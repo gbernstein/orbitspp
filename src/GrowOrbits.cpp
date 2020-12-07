@@ -533,7 +533,7 @@ FitStep::search(double& totalFPR) {
     for (int i=0;
 	 eiter!=possibleExposures.end();
 	 i++) {
-      if (useExposure[i]) {
+      if (useExposure[i] && det[i]>0.) {
 	/* Do not search an exposure that's on a night where
 	 * we already have 2 detections, to avoid
 	 * hashing through all permutations of a 
