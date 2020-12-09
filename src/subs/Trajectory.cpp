@@ -66,6 +66,26 @@ Trajectory::Trajectory (const Ephemeris& ephem_,
   }
 }
 
+Trajectory::Trajectory(const Trajectory& rhs): ephem(rhs.ephem),
+					       x0(rhs.x0),
+					       v0(rhs.v0),
+					       tdb0(rhs.tdb0),
+					       dt(rhs.dt),
+					       grav(rhs.grav)
+{
+  if (grav == INERTIAL) {
+    return;
+  } else {
+    // Put in initial values for fwd and bwd leapfrog tables
+    auto dv = deltaV(x0, tdb0);
+    Matrix33 xva;
+    xva.col(0) = x0;
+    xva.col(1) = v0*dt;
+    xva.col(2) = dv*0.5*dt;
+    xvaLUT.extend(0,xva);
+  }
+}
+
 void
 Trajectory::span(double tdb) const {
   // How many time steps fwd / back must we go?
@@ -147,7 +167,7 @@ Trajectory::position(const DVector& tdb,
 
     // Interpolate all positions
     DVector tstep = (tdb.array()-tdb0)/dt;
-    DVector istep = tstep.array().floor(); // Integer and fraction parts of |tstep|
+    DVector istep = floor(tstep.array());
     DVector f = tstep - istep;  
 
     // Note that the SharedLUT takes care of parallel reads,
@@ -252,4 +272,67 @@ Trajectory::observe(const DVector& tdbObserve,
   target.col(1).array() /= targetRadius.array();
   target.col(2).array() /= targetRadius.array();
   return target;
+}
+
+Circumstances
+Trajectory::getCircumstances(double tdb,
+			     const Vector3& observer) const {
+  // Get the light-travel time object to Earth with one iteration
+  astrometry::CartesianICRS velocity;
+  auto target = position(tdb, &velocity);
+  target -= observer;
+  double distance = target.radius();
+  double v_los = velocity.getVector().dot(target.getVector()) / distance;
+  double tEmit = tdb - distance / (v_los + SpeedOfLightAU);
+  
+  // Final target position:
+  target = position(tEmit);
+
+  // Create output
+  Circumstances out;
+
+  // Get observer-target distances and vectors
+  Vector3 xOT = observer - target.getVector();
+  distance =  xOT.norm();
+  out.obsDistance = distance;
+  xOT /= distance;
+  
+  // Calculate time delay to Sun and solar position, using
+  // barycenter at 0 to get initial light-travel time.
+  Vector3 solar = target.getVector();
+  double solarDistance = solar.norm(); 
+  double tSun = tEmit - solarDistance/SpeedOfLightAU;
+  State xv;
+
+  // Get solar state vectors from Ephemeris:
+  xv = ephem.state(orbits::SUN, tSun);
+  auto vSun = xv.v.getVector();
+    
+  // Refine solar light emission time once
+  Vector3 xST = xv.x.getVector() - target.getVector();
+  double dSun = xST.norm();
+  v_los = vSun.dot(xST) / dSun;
+  double dt = tEmit - dSun / (v_los+SpeedOfLightAU) - tSun;
+  // And refine relative position for motion in time adjustment
+  xST += dt * vSun;
+
+  // Now calculate sun-target vectors
+  dSun = xST.norm();
+  out.sunDistance = dSun;
+  xST /= dSun;
+
+  out.phaseAngle = acos(xST.dot(xOT)); 
+  // And PA of phase axis - these are y and z values of xST after rotation to frame
+  // with xOT along x axis, preserving vector to north.
+  double yy = xOT[0]*xST[1] - xOT[1]*xST[0];
+    // That's xOT*yST-yOT*xST
+  double zz = (xOT[0]*xOT[0] + xOT[1]*xOT[1])*xST[2]
+    - 2.*xOT[0]*xOT[2]*xST[0]
+    - 2.*xOT[1]*xOT[2]*xST[1];
+  // That's (xOT^2+yOT*2)*zST - 2 * xOT*zOT*xST - 2 *  yOT*zOT*yST
+
+  // Now get the angle of the bright side (negative of y,z) as measured
+  // from N (+z direction) through E (+y direction)
+  out.phasePA = atan2(-yy,-zz);
+  return out;
 }

@@ -134,6 +134,9 @@ const string usage =
 
 struct FitResult {
   // Everything we need to know about an orbit
+  FitResult(): trajectory(nullptr) {};
+  ~FitResult() {if (trajectory) delete trajectory;}
+  
   string inputFile; // Orbit file it came from
   LONGLONG inputID;      // Starting orbit ID
   int inputUnique; // Different nights in original fit
@@ -146,6 +149,8 @@ struct FitResult {
   double arc;       // Time span from first to last detection
   double arccut;    // Shortest time span after we cut out any one night.
 
+  Trajectory* trajectory;  // Fitted trajectory to the object
+  
   class Opportunity {
   public:
     Opportunity(): eptr(nullptr), orbitCov(0.), hasDetection(false) {}
@@ -296,7 +301,7 @@ FitResult::fitAndFind(const Ephemeris& ephem,
 	 << frame.orient.getPole() << endl;
 
   // Execute fit
-  Fitter fit(ephem, Gravity::BARY); //??GIANTS);
+  Fitter fit(ephem, Gravity::GIANTS);
   for (auto& obs : obsICRS)
     fit.addObservation(obs);
   fit.setFrame(frame);
@@ -323,7 +328,8 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   abgcov = fit.getInvCovarABG();
   el = fit.getElements();
   elCov = fit.getElementCovariance();
-
+  trajectory = new Trajectory(fit.getTrajectory());
+  
   if (DEBUGLEVEL>1)
 #pragma omp critical (io)
     cerr << "#" << inputID << "  ...chisq " << chisq << " abg " << abg
@@ -1022,6 +1028,10 @@ int main(int argc,
     vector<string>         band;
     vector<double>         mag;
     vector<double>         sn;          //S/N level of flux detection
+    vector<double>         distance;    //Observer-target distance
+    vector<double>         sunDistance; //Sun-target distance
+    vector<double>         phase;       //Illumination phase
+    vector<double>         phasePA;     // PA of illuminated hemisphere
     
     // Loop through surviving orbits to collect outputs
     int groupCounter = -1;
@@ -1075,6 +1085,9 @@ int main(int argc,
 	for (auto& opp: orb->opportunities) {
 	  const Exposure& expo = *(opp.eptr);
 
+	  // Get the phase angles and distances for this opportunity
+	  Circumstances cc = orb->trajectory->getCircumstances(expo.tdb,expo.earth);
+	  
 	  // Transform orbit prediction and error into
 	  // ICRS (cov in local gnomonic, ICRS aligned)
 	  astrometry::SphericalICRS radecPred(opp.orbitPred);
@@ -1121,6 +1134,11 @@ int main(int argc,
 	      mag.push_back(transients.getValue<double>("MAG",id));
 	      sn.push_back(transients.getValue<double>("FLUX_AUTO",id)
 			   / transients.getValue<double>("FLUXERR_AUTO",id) );
+	      // Add observing circumstances
+	      distance.push_back(cc.obsDistance);
+	      sunDistance.push_back(cc.sunDistance);
+	      phase.push_back(cc.phaseAngle);
+	      phasePA.push_back(cc.phasePA);
 	    }
 	  } else {
 	    // No detection in this exposure.  Output a row for every CCD it might be on.
@@ -1150,6 +1168,13 @@ int main(int argc,
 	      residual.push_back(vector<double>(2,0.));
 	      mag.push_back(0.);
 	      sn.push_back(0.);
+
+	      // Add observing circumstances
+	      distance.push_back(cc.obsDistance);
+	      sunDistance.push_back(cc.sunDistance);
+	      phase.push_back(cc.phaseAngle);
+	      phasePA.push_back(cc.phasePA);
+	      
 	    }
 	  }
 	} // End loop over opportunities
@@ -1210,6 +1235,10 @@ int main(int argc,
       table.addColumn(detectChisq,"CHISQ");
       table.addColumn(mag,"MAG");
       table.addColumn(sn,"SN");
+      table.addColumn(distance,"RANGE");
+      table.addColumn(sunDistance,"SOLARD");
+      table.addColumn(phase,"PHASE");
+      table.addColumn(phasePA,"PHASEPA");
     }
     cerr << "# Write FP image" <<  endl;
     {

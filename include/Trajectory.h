@@ -30,6 +30,15 @@ namespace orbits {
   // GIANTS = gravity from giant planets considered distinctly, terrestrials
   //       are placed with the Sun.
 
+  struct Circumstances {
+    // Structure to hold object distance/phase information
+  public:
+    double obsDistance;     // Distance from Observer, in AU
+    double sunDistance;     // Distance from Sun, in AU
+    double phaseAngle;      // Angle between Observer-Target and Sun-Target vectors
+    double phasePA;         // position angle (N thru E) of bright hemisphere
+  };
+
   class Trajectory {
   public:
     Trajectory(const Ephemeris& ephem_,
@@ -39,6 +48,9 @@ namespace orbits {
     // dt will be time step for integrators.  All positions are in
     // ICRS barycentric coordinates, all times are TDB, units are AU and
     // years.
+
+    // Copy constructor won't copy the LUT
+    Trajectory(const Trajectory& rhs); 
 
     DMatrix position(const DVector& tdb,
 		     DMatrix* velocity=nullptr) const;
@@ -56,6 +68,11 @@ namespace orbits {
     // Input and output matrices are Nx3.  Output is ICRS direction cosines.
     DMatrix observe(const DVector& tdbObserve,
 		    const DMatrix& observer) const;
+
+    // Return observational phase/circumstances for observation at given time/posn
+    Circumstances getCircumstances(double tdb,
+				   const Vector3& observer) const;
+
     EIGEN_NEW
     
   private:
