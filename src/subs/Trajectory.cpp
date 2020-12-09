@@ -327,9 +327,9 @@ Trajectory::getCircumstances(double tdb,
   double yy = xOT[0]*xST[1] - xOT[1]*xST[0];
     // That's xOT*yST-yOT*xST
   double zz = (xOT[0]*xOT[0] + xOT[1]*xOT[1])*xST[2]
-    - 2.*xOT[0]*xOT[2]*xST[0]
-    - 2.*xOT[1]*xOT[2]*xST[1];
-  // That's (xOT^2+yOT*2)*zST - 2 * xOT*zOT*xST - 2 *  yOT*zOT*yST
+    - xOT[0]*xOT[2]*xST[0]
+    - xOT[1]*xOT[2]*xST[1];
+  // That's (xOT^2+yOT*2)*zST - xOT*zOT*xST - yOT*zOT*yST
 
   // Now get the angle of the bright side (negative of y,z) as measured
   // from N (+z direction) through E (+y direction)

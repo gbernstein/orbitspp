@@ -1086,7 +1086,8 @@ int main(int argc,
 	  const Exposure& expo = *(opp.eptr);
 
 	  // Get the phase angles and distances for this opportunity
-	  Circumstances cc = orb->trajectory->getCircumstances(expo.tdb,expo.earth);
+	  Circumstances cc = orb->trajectory->getCircumstances(expo.tdb,
+							       expo.earthICRS.getVector());
 	  
 	  // Transform orbit prediction and error into
 	  // ICRS (cov in local gnomonic, ICRS aligned)
