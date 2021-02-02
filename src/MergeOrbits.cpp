@@ -313,7 +313,7 @@ FitResult::fitAndFind(const Ephemeris& ephem,
   if (DEBUGLEVEL>1)
 #pragma omp critical (io)
     {
-      cerr << "#" << inputID << "  linear chisq " << chisq << " abg " << fit.getABG(true)
+      cerr << "#" << inputID << "  linear chisq " << fit.getChisq() << " abg " << fit.getABG(true)
 	   << " a " << fit.getElements()[Elements::A] << endl;
     }
   fit.newtonFit();
@@ -402,7 +402,6 @@ FitResult::fitAndFind(const Ephemeris& ephem,
 
   for (int i=0; i<nHits; i++) {
     Opportunity& opp = opportunities[i];
-#pragma omp critical (io)
     opp.orbitPred = astrometry::Gnomonic(xPred[i], yPred[i], frame.orient);
     opp.orbitCov(0,0) = covxxPred[i];
     opp.orbitCov(0,1) = covxyPred[i];
@@ -410,7 +409,17 @@ FitResult::fitAndFind(const Ephemeris& ephem,
     opp.orbitCov(1,1) = covyyPred[i];
 
     // Check in detail for error ellipse crossing a CCD
-    opp.ccdnums = opp.eptr->whichCCDs(opp.orbitPred, opp.orbitCov*SEARCH_CHISQ);
+    try {
+      opp.ccdnums = opp.eptr->whichCCDs(opp.orbitPred,
+					opp.orbitCov*SEARCH_CHISQ);
+    } catch (astrometry::AstrometryError &m) {
+      // Catch prediction that has moved out of hemisphere
+#pragma omp critical (io)
+      cerr << "WARNING: Orbit " << inputID << " AstrometryError" << endl;
+      opp.nearestID = 0;
+      opp.nearestChisq = 0;
+      continue;  // Move on to next exposure
+    }
 
     // Load transient information into each exposure, if not done already
     transients.fillExposure(opp.eptr);
