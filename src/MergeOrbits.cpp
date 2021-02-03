@@ -230,7 +230,7 @@ private:
   static double secureArccut;
 };
 
-int FitResult::secureUnique = 7;
+int FitResult::secureUnique = 8;
 double FitResult::secureFPR = 0.001;
 double FitResult::secureArccut = 0.7;
 
@@ -374,6 +374,9 @@ FitResult::fitAndFind(const Ephemeris& ephem,
       opportunities.push_back(opp);
     }
   }
+
+  // ??? Did every input detection's exposure show up as an opportunity?
+
   
   if (DEBUGLEVEL>1)
 #pragma omp critical (io)
@@ -645,7 +648,7 @@ int main(int argc,
       parameters.addMember("maxFPR",&maxFPR, def | lowopen,
 			   "Maximum FPR input orbit to use", 0.03,0.);
       parameters.addMember("secureUnique",&secureUnique, def | low,
-			   "minimum unique nights for secure detection", 7, 5);
+			   "minimum unique nights for secure detection", 8, 5);
       parameters.addMember("secureFPR",&secureFPR, def,
 			   "maximum FPR for secure detection", 0.001);
       parameters.addMember("secureArccut",&secureArccut, def | low,
@@ -809,12 +812,12 @@ int main(int argc,
 
     cerr << "# Processed " << orbits.size() << " orbits" << endl;
 
-    // Count secure orbits
+    // Determine and count secure orbits
     set<int> secureDetections;
     // "secure" detections meet these criteria:
     int nSecure = 0;
     for (auto ptr : orbits) {
-      if (ptr->secure) {
+      if (ptr->testSecure()) {
 	secureDetections.insert(ptr->detectionIDs.begin(),
 				ptr->detectionIDs.end());
 	++nSecure;

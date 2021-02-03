@@ -9,6 +9,10 @@ To do on the orbit-fitting software:
 * Makefile should work without FITSIO info.
 * Thread the Bulk* programs
 * Make versions of old executables
++* Getting WEIRD outputs for MergeOrbits, like
++#WEIRD: detection 58098294 in exposure 584979 was not output for orbit 270
++#WEIRD: detection 100009191 in exposure 796452 was not output for orbit 280
+
 
 ---old todo's:
 hard-wired things that should be configurable:
