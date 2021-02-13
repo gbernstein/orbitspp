@@ -1,7 +1,6 @@
 To do on the orbit-fitting software:
 
 * testSharedLUT and testExposure* failures.
-* Why does merge have WEIRD outputs?
 * Grow crashes - what is overflowing? Add start/end row counts
 * faster compare() orbit pairs in Grow.
 * Change all FITS array writes to fixed length
@@ -9,9 +8,6 @@ To do on the orbit-fitting software:
 * Makefile should work without FITSIO info.
 * Thread the Bulk* programs
 * Make versions of old executables
-+* Getting WEIRD outputs for MergeOrbits, like
-+#WEIRD: detection 58098294 in exposure 584979 was not output for orbit 270
-+#WEIRD: detection 100009191 in exposure 796452 was not output for orbit 280
 
 
 ---old todo's:
@@ -28,3 +24,4 @@ Outlier rejection in fits
 * Get rid of WORST
 * Multithread Merge
 * Need copy assignment for trajectory
+* Why does merge have WEIRD outputs?

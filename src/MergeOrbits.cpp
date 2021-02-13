@@ -375,9 +375,6 @@ FitResult::fitAndFind(const Ephemeris& ephem,
     }
   }
 
-  // ??? Did every input detection's exposure show up as an opportunity?
-
-  
   if (DEBUGLEVEL>1)
 #pragma omp critical (io)
     cerr << "#" << inputID << "  ...getting predictions" << endl;
