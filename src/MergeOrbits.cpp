@@ -814,7 +814,6 @@ int main(int argc,
 
     // Determine and count secure orbits
     set<int> secureDetections;
-    // "secure" detections meet these criteria:
     int nSecure = 0;
     for (auto ptr : orbits) {
       if (ptr->testSecure()) {
