@@ -44,16 +44,15 @@ class SharedLUT {
     // Get a shared pointer to the current vector of data,
     // so it will persist until the operation is done, even
     // if another thread changes the current vector's location.
-    LUTptr tmp_ptr; //??(lutptr);
+    LUTptr tmp_ptr;
     std::atomic_store(&tmp_ptr,lutptr);
-    //??LUTptr tmp_ptr(lutptr);
     return (*tmp_ptr)[i];
   }
   // Range-checked read
   T at(size_t i) const {
-    LUTptr tmp_ptr; //??(lutptr);
+    LUTptr tmp_ptr;
     std::atomic_store(&tmp_ptr,lutptr);
-    if (empty() || i<tmp_ptr->iStart() || i>=tmp_ptr->iEnd())
+    if (!tmp_ptr || i<tmp_ptr->iStart() || i>=tmp_ptr->iEnd())
       throw std::out_of_range("SharedLUT index out of bounds");
     return (*tmp_ptr)[i];
   }
@@ -71,75 +70,94 @@ class SharedLUT {
   // Any writes
   // to table elements that already exist are IGNORED.
   void extend(int i, const T& t) {
-    if (empty() || i==iStart()-1 || i==iEnd()) {
-      // We should insert the item
-      // Acquire the lock
-      std::lock_guard<std::mutex> g(writeLock);
-      if (empty()) {
-	auto newlut = std::make_shared<LUT>(); //new LUT();
-	newlut->i0 = i;
-	newlut->data.push_back(t);
-	// Install the LUT atomically
-	std::atomic_store(&lutptr,newlut);
-	//**lutptr.reset(newlut);
-      } else if (i==iStart()-1) {
-	// prepend - make new copy as all iterators become invalid
-	auto newlut = std::make_shared<LUT>(); //new LUT();
-	newlut->data.resize(size()+1);
-	newlut->i0 = lutptr->i0-1;
-	// Install new point first
-	(newlut->data)[0] = t;
-	// Then copy remainder over
-	std::copy(lutptr->data.begin(), lutptr->data.end(), newlut->data.begin()+1);
-	// And redirect lutptr to new one.
-	std::atomic_store(&lutptr,newlut);
-	//??lutptr.reset(newlut);
-      } else if (false) { // ???i==iEnd()) {
-	if (lutptr->data.capacity() > lutptr->size()) {
-	  // Can safely just append
-	  lutptr->data.push_back(t);
-	} else {
-	  // Need to expand capacity, so get new LUT object
-	  auto newlut = std::make_shared<LUT>(); //new LUT();
-	  newlut->data.resize(size()+1);
-	  newlut->i0 = lutptr->i0;
-	  // Copy data
-	  std::copy(lutptr->data.begin(), lutptr->data.end(), newlut->data.begin());
-	  // Install new point 
-	  (newlut->data)[iEnd()] = t;
-	  // And redirect lutptr to new one.
-	  std::atomic_store(&lutptr,newlut);
-	  //??lutptr.reset(newlut);
-	}
-      }
+    // Acquire the lock
+    std::lock_guard<std::mutex> g(writeLock);
+    if (empty()) {
+      auto newlut = std::make_shared<LUT>(); //new LUT();
+      newlut->i0 = i;
+      newlut->data.push_back(t);
+      // Install the LUT atomically
+      std::atomic_store(&lutptr,newlut);
     } else if (i>iEnd() || i<iStart()-1) {
       throw std::runtime_error("ERROR: non-contiguous SharedLUT::extend()");
+    } else if (i==iStart()-1) {
+      // prepend - make new copy as all iterators become invalid
+      auto newlut = std::make_shared<LUT>(); //new LUT();
+      newlut->data.resize(size()+1);
+      newlut->i0 = lutptr->i0-1;
+      // Install new point first
+      (newlut->data)[0] = t;
+      // Then copy remainder over
+      std::copy(lutptr->data.begin(), lutptr->data.end(), newlut->data.begin()+1);
+      // And redirect lutptr to new one.
+      std::atomic_store(&lutptr,newlut);
+    } else if (i==iEnd()) {
+      if (lutptr->data.capacity() > lutptr->size()) {
+	// Can safely just append
+	lutptr->data.push_back(t);
+      } else {
+	// Need to expand capacity, so get new LUT object
+	auto newlut = std::make_shared<LUT>(); //new LUT();
+	newlut->data.resize(size()+1);
+	newlut->i0 = lutptr->i0;
+	// Copy data
+	std::copy(lutptr->data.begin(), lutptr->data.end(), newlut->data.begin());
+	// Install new point 
+	(newlut->data)[iEnd()] = t;
+	// And redirect lutptr to new one.
+	std::atomic_store(&lutptr,newlut);
+      }
     }
+    // Lock released on exit
   }
   
   template <typename Iter>
   void extend(int i, Iter it, Iter end) {
     int nAdd = end-it;
+    // Freeze out other changes to lut
+    std::lock_guard<std::mutex> g(writeLock);
+    /***
+#pragma omp critical (io)
+    {
+      cerr << "->Extending from " << i
+             << " to " << i+nAdd
+	       << " currently ";
+      if (empty())
+	cerr << "empty" << endl;
+      else
+	cerr << iStart() << "--" << iEnd()  << endl;
+    }
+    **/
     if (empty()) {
       // Create and install new LUT
-      std::lock_guard<std::mutex> g(writeLock);
       auto newlut = std::make_shared<LUT>(); //new LUT();
       newlut->i0 = i;
       newlut->data.resize(nAdd);
       std::copy(it,end,newlut->data.begin());
       std::atomic_store(&lutptr,newlut);
-      //??lutptr.reset(newlut);
+      /**
+#pragma omp critical (io)
+      cerr << "<-Init to  " << i
+	       << " to " << i+nAdd
+	       << " currently " << iStart() << "--" << iEnd()
+	       << endl;
+      **/
       return;
     } else if (i>iEnd() || i+nAdd<iStart()) {
       // Leaving a gap - not allowed
       throw std::runtime_error("ERROR: non-contiguous SharedLUT::extend()");
     } else if (i>=iStart() && i+nAdd<=iEnd()) {
       // "extension" already contained in LUT.  Nothing to do.
+      /***
+#pragma omp critical (io)
+      cerr << "<-Nop for  " << i
+	       << " to " << i+nAdd
+	       << endl;
+      ***/
       return;
     }
 
-    // Need to append and/or prepend.  Lock array 
-    std::lock_guard<std::mutex> g(writeLock);
+    // Need to append and/or prepend.
     int newStart = std::min(i,iStart());
     int newEnd = std::max(i+nAdd, iEnd());
     size_t newsize = newEnd - newStart;
@@ -163,7 +181,13 @@ class SharedLUT {
 
       // Install new table
       std::atomic_store(&lutptr,newlut);
-      //??lutptr.reset(newlut);
+      /***
+#pragma omp critical (io)
+      cerr << "<-Prepended " << i
+	       << " to " << i+nAdd
+	       << " currently " << iStart() << "--" << iEnd()
+	       << endl;
+      ***/
       return;
     }
 
@@ -186,8 +210,15 @@ class SharedLUT {
 
 	// Install new table
 	std::atomic_store(&lutptr,newlut);
-	//??lutptr.reset(newlut);
       }
+      
+      /***
+#pragma omp critical (io)
+      cerr << "<-Appended " << i
+	       << " to " << i+nAdd
+	       << " currently " << iStart() << "--" << iEnd()
+	       << endl;
+      **/
     }
     return;
   }

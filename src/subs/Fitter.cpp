@@ -306,6 +306,7 @@ Fitter::calculateGravity() {
     xGrav.setZero();
     return;
   }
+
   createTrajectory();
   
   DMatrix xyz = fullTrajectory->position(tdbEmit);
@@ -329,7 +330,6 @@ Fitter::calculateGravity() {
   // Solutions no longer match gravity
   newABG();
   abgIsFit = false;
-
   return;
 }
 
@@ -489,6 +489,10 @@ Fitter::newtonFit(double chisqTolerance, bool dump) {
     if (dump) cerr << endl << " New chisq: " << chisq << endl;
     iterations++;
   } while (iterations < MAX_ITERATIONS && abs(chisq-oldChisq) > chisqTolerance);
+  /**
+#pragma omp critical (io)
+  cerr << "--NewtonFit done at iteration " << iterations << endl; 
+  ***/
   if (iterations >= MAX_ITERATIONS)
     throw NonConvergent("newtonFit exceeded max iterations");
    
