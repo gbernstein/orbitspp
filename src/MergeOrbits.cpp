@@ -316,7 +316,7 @@ FitResult::fitAndFind(const Ephemeris& ephem,
       cerr << "#" << inputID << "  linear chisq " << fit.getChisq() << " abg " << fit.getABG(true)
 	   << " a " << fit.getElements()[Elements::A] << endl;
     }
-  fit.newtonFit();
+    fit.newtonFit();
 
   if (DEBUGLEVEL>1)
 #pragma omp critical (io)
@@ -673,7 +673,16 @@ int main(int argc,
     // Read the ephemeris
     Ephemeris ephem(ephemerisPath);
     ephem.cacheGiants();
-    
+
+    //** Preload cache for giants to
+    // avoid a bug in the SharedLUT
+    for (auto body : {SUN, JUPITER, SATURN, URANUS, NEPTUNE}) {
+      // Ask for positions at starts of 2012, 2020
+      ephem.position(body, 12.);
+      ephem.position(body, 20.);
+    }
+    cerr << "# Primed ephemeris cache" << endl;
+    /**/
     // Establish a reference frame
     Frame frame;
     {
@@ -761,12 +770,13 @@ int main(int argc,
       for (int i=0; i<imax; i++) 
       {
 	auto orb = blockOfOrbits[i];
-	/*
+	/***
 #pragma omp critical(io)
 	cerr << ">Thread " << omp_get_thread_num()
-		  << " starting " << orb->inputID
-		  << endl;
-	*/
+	     << " starting " << orb->inputID
+	     << " i " << i
+	     << endl;
+	/**/
 	// Set some initial flags
 	orb->friendGroup = -1;
 	orb->changedDetectionList = false;
@@ -784,16 +794,16 @@ int main(int argc,
 	    if (orb->nUnique < MIN_UNIQUE_FIT)  {
 	      break;
 	    }
-	    if (iter==MAX_FIT_ITERATIONS-1) cerr << "# WARNING: Not converging at " << orb->inputID << endl;
+	    if (iter==MAX_FIT_ITERATIONS-1)
+	      cerr << "# WARNING: Not converging at " << orb->inputID << endl;
 	  }
 	} catch (Fitter::NonConvergent& e) {
-	  /*#pragma omp critical(io)
+#pragma omp critical(io)
 	  {
 	    cerr << "# Fitting failure " << orb->inputFile << "/" << orb->inputID
 		 << " nUnique " << orb->nUnique << " arc " << orb->arc << endl;
 	    cerr << e.what() << endl;
-	    }*/
-	  
+	  }
 	}
 	if (success)
 #pragma omp critical(orbitpush)
@@ -805,6 +815,7 @@ int main(int argc,
 	}
 	  
       } // End orbit loop (and parallel section)
+      //**/cerr << "Completed orbit block" << endl;
     } // End block loop
 
     cerr << "# Processed " << orbits.size() << " orbits" << endl;
