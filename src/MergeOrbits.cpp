@@ -26,8 +26,6 @@ const double FIELD_RADIUS = 1.15*DEGREE; // A bit larger to be complete
 // (e.g. when asteroids or defects would have moved out of linking range)
 const double INDEPENDENT_TIME_INTERVAL = 0.1*DAY;
 
-const double SEARCH_CHISQ=9.; // Maximum chisq to consider a match in 2d
-
 const string usage =
   "MergeOrbits: program to combine multiple orbit files (produced by\n"
   "   GrowOrbits or by this program) into a single file with duplicates\n"
@@ -224,15 +222,20 @@ struct FitResult {
     secureFPR = secureFPR_;
     secureArccut = secureArccut_;
   }
+  static void setSearchChisq(double chisq) {
+    searchChisq = chisq;
+  }
 private:
   static int secureUnique;
   static double secureFPR;
   static double secureArccut;
+  static double searchChisq;  // Maximum chisq to consider a match in 2d
 };
 
 int FitResult::secureUnique = 8;
 double FitResult::secureFPR = 0.001;
 double FitResult::secureArccut = 0.7;
+double FitResult::searchChisq = 9.;
 
 bool
 FitResult::fitAndFind(const Ephemeris& ephem,
@@ -411,7 +414,7 @@ FitResult::fitAndFind(const Ephemeris& ephem,
     // Check in detail for error ellipse crossing a CCD
     try {
       opp.ccdnums = opp.eptr->whichCCDs(opp.orbitPred,
-					opp.orbitCov*SEARCH_CHISQ);
+					opp.orbitCov*searchChisq);
     } catch (astrometry::AstrometryError &m) {
       // Catch prediction that has moved out of hemisphere
 #pragma omp critical (io)
@@ -448,7 +451,7 @@ FitResult::fitAndFind(const Ephemeris& ephem,
 	opp.nearestChisq = allChi[iTrans];
       }
       
-      if (allChi[iTrans]<SEARCH_CHISQ && opp.eptr->valid[iTrans]) {
+      if (allChi[iTrans]<searchChisq && opp.eptr->valid[iTrans]) {
 	opp.hasDetection = true;
 	newDetectionIDs.push_back(opp.eptr->id[iTrans]);
 	if (DEBUGLEVEL>2) cerr << opp.eptr->id[iTrans] << " ";
@@ -612,6 +615,7 @@ int main(int argc,
   int secureUnique;
   double secureFPR;
   double secureArccut;
+  double searchChisq;
   // ??? make unique/FPR pairs
 
   Pset parameters;
@@ -650,6 +654,8 @@ int main(int argc,
 			   "maximum FPR for secure detection", 0.001);
       parameters.addMember("secureArccut",&secureArccut, def | low,
 			   "minimum Arccut for secure detection", 0.7);
+      parameters.addMember("searchChisq",&searchChisq, def | low,
+			   "max 2d chisq for match to orbit", 9., 4.);
       
       parameters.addMember("TDB0",&tdb0, def,
 			   "TDB of reference time (=orbit epoch), yrs since J2000", 16.);
@@ -695,6 +701,8 @@ int main(int argc,
 
     // Set up the definition of secure orbit
     FitResult::setSecure(secureUnique, secureFPR, secureArccut);
+
+    FitResult::setSearchChisq(searchChisq);
 
     // Read the exposure table
     ExposureTable et(exposurePath);
