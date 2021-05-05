@@ -48,7 +48,7 @@ namespace orbits {
     double hMagnitude, ascendingNodeMagnitude; /* magnitude of angular momentum */
     double ascEccDotProduct, argumentOfPerifocus;
     double xBar, yBar;
-    double cosE, sinE, E1, E2, eccentricAnomaly;
+    double cosE, sinE, E1, E2;
     /* E1 and E2 are used to decide the quadrant of Eccentric Anomaly */
     double meanAnomaly, meanMotion, timeOfPerifocalPassage;
 
@@ -92,19 +92,40 @@ namespace orbits {
     xBar = (semiLatusRectum - rMagnitude)/eccentricity;
     yBar = radVelDotProduct*sqrt(semiLatusRectum/mass)/eccentricity;
 
-    /* From here, we assume that the motion is elliptical */
+    if (eccentricity < 1) {
+      /* Elliptical solution*/
 
-    cosE = (xBar/semimajor) + eccentricity;
-    sinE = yBar/(semimajor*sqrt(1-eccentricity*eccentricity));
-    /* where semimajor*sqrt(1-eccentricity*eccentricity) is semiminor */
-    eccentricAnomaly = atan2(sinE,cosE);
+      cosE = (xBar/semimajor) + eccentricity;
+      sinE = yBar/(semimajor*sqrt(1-eccentricity*eccentricity));
+      /* where semimajor*sqrt(1-eccentricity*eccentricity) is semiminor */
+      double eccentricAnomaly = atan2(sinE,cosE);
 
-    meanAnomaly = eccentricAnomaly - eccentricity*sinE; /* radians */
-    meanMotion = sqrt(mass/(pow(semimajor,3.)));
-    timeOfPerifocalPassage = tdb - meanAnomaly/meanMotion;
-    /* This comes from M=n(t-T) where t is epoch time and T is time of perifocal
-       passage, in days */
-				
+      meanAnomaly = eccentricAnomaly - eccentricity*sinE; /* radians */
+      meanMotion = sqrt(mass/(pow(semimajor,3.)));
+      timeOfPerifocalPassage = tdb - meanAnomaly/meanMotion;
+      /* This comes from M=n(t-T) where t is epoch time and T is time of perifocal
+	 passage, in days */
+    } else {
+      /* hyperbolic solution */
+      /* several ways to get the hyperbolic anomaly.  Try this one which has
+	 no sign ambiguity:
+	 tanh(H/2) = sqrt( (e-1)/(e+1))) tan (trueAnomaly/2)
+         where tan(trueAnomaly) = yBar / xBar.
+
+	 Or the much simpler r = a(1 - e*cosh(H)) which has sign ambiguity resolved by
+	 sign of r dot v, but also is nearly degenerate near perihelion.  So maybe the
+	 first one is better since we care more about numerical precision near peri than
+	 when asymptoting.
+
+	 Also have tan(trueAnomaly/2) = yBar / (rMagnitude + xBar)
+      */
+      double tmp = sqrt( (eccentricity-1)/(eccentricity+1) ) * yBar / (rMagnitude+xBar);
+      double hyperbolicAnomaly = 2 * atanh(tmp);
+      meanAnomaly = eccentricity * sinh(hyperbolicAnomaly) - hyperbolicAnomaly;
+      meanMotion = sqrt(mass/(pow(-semimajor,3.)));
+      timeOfPerifocalPassage = tdb - meanAnomaly/meanMotion;     
+    }			
+
     Elements out;
     out[Elements::A] = semimajor;
     out[Elements::E] = eccentricity; 
@@ -121,55 +142,80 @@ namespace orbits {
 	   bool heliocentric=false, const Ephemeris* ephem=nullptr) {
     Vector3  r0, v0, r1, v1, r2, v2;
     double eccentricAnomaly;
-    double meanAnomaly;
+    double meanAnomaly, meanMotion;
     double c, s, dt;
 
     double mass = heliocentric ? GM : SolarSystemGM;
     double e = el[Elements::E];
     double a = el[Elements::A];
+    const double TOLERANCE = 0.001 * TIMESEC; // Tolerance is motion is 1 msec
   
-    if (e >= 1. || el[Elements::A] <=0.)
-      throw std::runtime_error("elements_to_xv only for closed orbits now");
+    if (e == 1.)
+      throw std::runtime_error("elements_to_xv not coded for parabolic orbits");
+    if ( a*(1-e) < 0.)
+      throw std::runtime_error("elements_to_xv obtained negative perihelion");
 
-    /* get the eccentric Anomaly from the mean anomaly */
-    meanAnomaly = (tdb - el[Elements::TOP]) * pow(a,-1.5) * sqrt(mass);
-    /* Put it near 0 */
-    meanAnomaly -= floor(meanAnomaly / TPI) * TPI;
-    /* Use bisection to find solution (adapt Numerical Recipes)*/  
-    {
+    if (e<1) {
+      // Elliptical orbit
+      meanMotion = pow(a,-1.5) * sqrt(mass);
+      const double tol = TOLERANCE * meanMotion;
+      meanAnomaly = (tdb - el[Elements::TOP]) * meanMotion;
+      /* Put mean anomaly near 0 */
+      meanAnomaly -= floor(meanAnomaly / TPI) * TPI;
+      /* get the eccentric Anomaly from the mean anomaly using Newton iterations */
       const int JMAX=40;
-      const double TOLERANCE = 0.01*TIMESEC;
-      double f, fmid, x1, x2, dx, xmid, rtb;
-      int j;
-      x1 = meanAnomaly - e;
-      x2 = meanAnomaly + e;
-      f   = x1 - e * sin(x1) - meanAnomaly;
-      fmid= x2 - e * sin(x2) - meanAnomaly;
-      if (f*fmid > 0.0) 
-	FormatAndThrow<std::runtime_error>() << "Error, eccentricAnomaly root not bracketed; f,fmid = "
-					     << f << " " << fmid;
-
-      rtb = f < 0.0 ? (dx=x2-x1,x1) : (dx=x1-x2,x2);
-      for (j=1;j<=JMAX;j++) {
-	xmid=rtb+(dx *= 0.5);
-	fmid= xmid - e * sin(xmid) - meanAnomaly;
-	if (fmid <= 0.0) rtb=xmid;
-	if (fabs(dx) < TOLERANCE || fmid == 0.0) break;
+      double ea = meanAnomaly; // starting guess for eccentricAnomaly
+      double dea;  // error in ea
+      for (int j=0; j<JMAX+1; j++) {
+	if (j>=JMAX)
+	  throw std::runtime_error("eccentricAnomaly solution took too long");
+	dea = meanAnomaly + e*sin(ea) - ea;
+	if (abs(dea) < tol)
+	  break;  // Converged.
+	ea += dea / (1 - e*cos(ea));  // Newton correction.
       }
-      if (j>=JMAX)
-	throw std::runtime_error("eccentricAnomaly took too long");
-      meanAnomaly = rtb;
-    }
-
-    /*Coordinates and velocity in the system aligned with orbit: */
-    c = cos(meanAnomaly);
-    s = sin(meanAnomaly);
-    r0[0] = a * (c - e);
-    r0[1] = a * s * sqrt(1-e*e);
-    dt = sqrt(pow(a,3.)/mass) * ( 1 - e*c);
-    v0[0] = -a * s / dt;
-    v0[1] = a * c * sqrt(1-e*e) / dt;
-
+	
+      /*Coordinates and velocity in the system aligned with orbit: */
+      c = cos(ea);
+      s = sin(ea);
+      double b = a * sqrt(1-e*e);
+      r0[0] = a * (c - e);
+      r0[1] = b * s;
+      dt = ( 1 - e*c) / meanMotion;  // This is dt/dEccentricAnomaly
+      v0[0] = -a * s / dt;
+      v0[1] = b * c  / dt;
+    } else {
+      // Hyperbolic orbit
+      meanMotion = pow(-a,-1.5) * sqrt(mass);
+      const double tol = TOLERANCE * meanMotion;
+      meanAnomaly = (tdb - el[Elements::TOP]) * meanMotion;
+      // Solve for hyperbolic anomaly with Newton iterations
+      const int JMAX=40;
+      double h = log(1+abs(meanAnomaly)); // starting guess at hyperbolic anom
+      double dh;  // error in hyperbolicAnomaly
+      if (meanAnomaly < 0)
+	h *= -1.;
+      
+      for (int j=0; j<JMAX+1; j++) {
+	if (j>=JMAX)
+	  throw std::runtime_error("hyperbolicAnomaly solution took too long");
+	dh = meanAnomaly - e*sinh(h) + h;
+	if (abs(dh) < tol)
+	  break;  // Converged.
+	h += dh / (e*cosh(h)-1);  // Newton correction.
+      }
+      /*Coordinates and velocity in the system aligned with orbit: */
+      c = cosh(h);
+      s = sinh(h);
+      double b = -a * sqrt(e*e-1);
+      r0[0] = a * (c - e);
+      r0[1] = b * s;
+      dt = (e*c-1) / meanMotion;  // This is dt/dHyperbolicAnomaly
+      v0[0] = a * s / dt;
+      v0[1] = b * c  / dt;
+	  
+    } // End hyperbolic/elliptical split     
+    
     /* Rotate about z to put perihelion at arg of peri */
     c = cos(el[Elements::AOP]);  s = sin(el[Elements::AOP]);
     r1[0] = r0[0]*c - r0[1]*s;
@@ -342,6 +388,11 @@ namespace orbits {
 			     (x.s * y.ds - x.ds * y.s) / (x.s*x.s+y.s*y.s));
   }
   ScalarDerivative
+  atanh(const ScalarDerivative& x) {
+    return ScalarDerivative( std::atanh(x.s),
+			     x.ds / (1-x.s*x.s));
+  }
+  ScalarDerivative
   acos(const ScalarDerivative& x) {
     return ScalarDerivative( std::acos(x.s),
 			     x.ds * (-pow(1-x.s*x.s,-0.5)));
@@ -350,6 +401,11 @@ namespace orbits {
   sin(const ScalarDerivative& x) {
     return ScalarDerivative( std::sin(x.s),
 			     x.ds * std::cos(x.s));
+  }
+  ScalarDerivative
+  sinh(const ScalarDerivative& x) {
+    return ScalarDerivative( std::sinh(x.s),
+			     x.ds * std::cosh(x.s));
   }
   ScalarDerivative
   pow(const ScalarDerivative& x, double p) {
@@ -467,24 +523,34 @@ namespace orbits {
     // Now the manipulations to get mean anomaly
     auto xBar = (p-r)/e;
     auto yBar = x.dot(v) * pow(p/mass,0.5) / e;
-    auto cE = xBar + a*e;
-    auto sE = yBar * pow(-evec.dot(evec)+1.,-0.5);
-    auto eccentricAnomaly = atan2(sE, cE);
-    auto meanAnomaly = eccentricAnomaly - e * sin(eccentricAnomaly);
+    if (e.s < 1.) {
+      // Elliptical solution
+      auto cE = xBar + a*e;
+      auto sE = yBar * pow(-evec.dot(evec)+1.,-0.5);
+      auto eccentricAnomaly = atan2(sE, cE);
+      auto meanAnomaly = eccentricAnomaly - e * sin(eccentricAnomaly);
 
-    // And the final element, time of perhelion passage:
-    auto top = -meanAnomaly * pow(a,1.5) / sqrt(mass) + tdb;
-    out.row(Elements::TOP) = top.ds;
-#ifdef CHECK
-    elements(Elements::TOP) = top.s;
-
-    /**/cerr << "New vs old:" << endl;
-    auto oldel = getElements(s,heliocentric);
-    for (int i=0; i<6; i++)
-      cerr << i << " " << elements[i] << " -- " << oldel[i] << endl;
-#endif
-    
+      // And the final element, time of perhelion passage:
+      auto top = -meanAnomaly * pow(a,1.5) / sqrt(mass) + tdb;
+      out.row(Elements::TOP) = top.ds;
+    } else {
+      // Hyperbolic solution
+      stmp = pow((e-1.) / (e+1.),0.5) * yBar / (x.magnitude()+xBar);
+      auto hyperbolicAnomaly = atanh(stmp) * 2.;
+      auto meanAnomaly = e * sinh(hyperbolicAnomaly) - hyperbolicAnomaly;
+      // And the final element, time of perhelion passage:
+      auto top = -meanAnomaly * pow(-a,1.5) / sqrt(mass) + tdb;
+      out.row(Elements::TOP) = top.ds;
+    }      
     return out;
   }
+#ifdef CHECK
+  elements(Elements::TOP) = top.s;
+
+  /**/cerr << "New vs old:" << endl;
+  auto oldel = getElements(s,heliocentric);
+  for (int i=0; i<6; i++)
+    cerr << i << " " << elements[i] << " -- " << oldel[i] << endl;
+#endif
 
 } // end namespace
