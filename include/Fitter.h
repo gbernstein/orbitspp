@@ -29,6 +29,10 @@ namespace orbits {
     public:
       NonConvergent(string msg=""): std::runtime_error("Fit Non-Convergence: " + msg) {}
     };
+
+    // Save and restore observations & ABG fit to/from a stream.
+    void save(std::ostream& os, string comment="") const;
+    void restore(std::istream& is);
     
     // Give Fitter a previous result (can be used for prediction without Observations)
     void setABG(const ABG& abg_, const ABGCovariance& cov_);

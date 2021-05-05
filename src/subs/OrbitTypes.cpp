@@ -120,6 +120,7 @@ ABG::write(std::ostream& os, int precision) const {
   os << std::fixed << std::showpos << std::setprecision(precision);
   for (int i=0; i<6; i++)
     os << std::setw(precision+3) << (*this)[abgOrder[i]] << " ";
+  os << endl;
   return os;  // Stream state restored on destruction of ss
 }
 
@@ -172,7 +173,8 @@ Elements::write(std::ostream& os, int precision) const {
   // Time of perihelion - in TDB years post J2000.  Since TNO at opposition
   // moves about 1e-6 degrees in 1e-7 years, add 1 digit.
   os << std::setprecision(precision+1) << std::setw(precision+4)
-     << (*this)[Elements::TOP];
+     << (*this)[Elements::TOP]
+     << endl;
   
   return os;  // Stream state restored on destruction of ss
 }

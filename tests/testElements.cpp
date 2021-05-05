@@ -220,6 +220,75 @@ main(int argc,
       s = getState(el0,tdb);
     }      
 
+
+    cout << endl;
+    cout << "------------ 2I/Borisov barycentric elements: " << endl;
+    s.x[0] =-1.559455790055673E+00;
+    s.x[1] =-5.722521242888373E+00;
+    s.x[2] =-9.705441522353214E+00;
+    s.v[0] = 1.029146089807548E-03/DAY;
+    s.v[1] =-1.219399953523879E-02/DAY;
+    s.v[2] =-1.580612645334903E-02/DAY;
+
+    s.tdb = eph.utc2tdb("2021-Jun-01 00:00:00.0000") - 61.185610*TIMESEC;
+
+    cerr << " R, V: " << s.x << " " << s.v << endl;
+    
+    auto borisov = getElements(s, false, &eph);
+    printElements(borisov);
+    {
+      /** Compare to these elements from horizons:
+ EC= 3.359053685457186E+00 QR= 2.011625684333685E+00 IN= 4.406305868489527E+01
+ OM= 3.080975445191861E+02 W = 2.091669644677536E+02 Tp=  2458826.285825815052
+ N = 1.252510091672715E+00 MA= 6.766237048313468E+02 TA= 9.391031865810439E+01
+ A =-8.527256911255184E-01 AD= 9.999999999999998E+99 PR= 9.999999999999998E+99
+      **/
+      double tolerance = 1e-5;
+      peri = 40.87890604759809;
+      orbits::Elements truth;
+      truth[Elements::E] = 3.359053685457186;
+      truth[Elements::I] = 4.406305868489527E+01 * DEGREE;
+      truth[Elements::LAN] = 3.080975445191861E+02 * DEGREE;
+      truth[Elements::AOP] = 2.091669644677536E+02 * DEGREE;
+      truth[Elements::TOP] = (2458826.285825815052 - JD2000) * DAY;
+      truth[Elements::A] = -8.527256911255184E-01;
+      if (abs(borisov[Elements::A]-truth[Elements::A]) > tolerance*peri ||
+	  abs(borisov[Elements::E]-truth[Elements::E]) > tolerance ||
+	  abs(borisov[Elements::I]-truth[Elements::I]) > tolerance ||
+	  abs(borisov[Elements::LAN]-truth[Elements::LAN]) > tolerance ||
+	  abs(borisov[Elements::AOP]-truth[Elements::AOP]) > tolerance ||
+	  abs(borisov[Elements::TOP]-truth[Elements::TOP]) > DAY) {
+	fail = true;
+	cout << "***FAILURE: BORISOV elements mismatch, truth is:" << endl;
+	printElements(truth);
+      }
+    }  
+
+    // Now retrieve XV from elements
+    s2 = getState(borisov, s.tdb);
+    s2.x -= s.x;
+    s2.v -= s.v;
+    cout << "----------- Borisov state vector retrieval:" << endl;
+    cout << "x diff " << s2.x << " v " << s2.v << endl;
+    {
+      double tolerance = 100 * METER;
+      auto vv = s2.x.getVector();
+      if (vv.dot(vv) > tolerance*tolerance) {
+	cout << "***FAILURE: Borisov position not recovered" << endl;
+	fail = true;
+      }
+      tolerance = 100 * METER / YEAR;
+      vv = s2.v.getVector();
+      if (vv.dot(vv) > tolerance*tolerance) {
+	cout << "***FAILURE: Borisov position not recovered" << endl;
+	fail = true;
+      }
+    }
+
+    // And test derivatives of elements
+    cout << "----------- Borisov element derivatives:" << endl;
+    testDerivs(s);
+    
   } catch (std::runtime_error& e) {
     cerr << e.what() << endl;
     exit(1);
@@ -248,3 +317,18 @@ $$SOE
  X = 4.080421182418573E+01 Y = 2.269168822159551E+00 Z = 1.106062792338629E+00
  VX=-1.678826496378512E-04 VY= 2.505310726716511E-03 VZ= 1.201609718550474E-03
 ***/	    
+
+/*** Comet Borisov C/2019 Q4 aka 2I/Borisov
+
+2459366.500000000 = A.D. 2021-Jun-01 00:00:00.0000 TDB 
+ EC= 3.359053685457186E+00 QR= 2.011625684333685E+00 IN= 4.406305868489527E+01
+ OM= 3.080975445191861E+02 W = 2.091669644677536E+02 Tp=  2458826.285825815052
+ N = 1.252510091672715E+00 MA= 6.766237048313468E+02 TA= 9.391031865810439E+01
+ A =-8.527256911255184E-01 AD= 9.999999999999998E+99 PR= 9.999999999999998E+99
+
+2459366.500000000 = A.D. 2021-Jun-01 00:00:00.0000 TDB 
+ X =-1.559455790055673E+00 Y =-5.722521242888373E+00 Z =-9.705441522353214E+00
+ VX= 1.029146089807548E-03 VY=-1.219399953523879E-02 VZ=-1.580612645334903E-02
+ LT= 6.569248993503475E-02 RG= 1.137430203925782E+01 RR= 1.948083924365075E-02
+
+***/
