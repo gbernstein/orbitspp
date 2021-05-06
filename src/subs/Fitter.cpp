@@ -48,7 +48,7 @@ void
 Fitter::addObservation(const Observation& obs) {
   if (frameIsSet)
     throw std::runtime_error("ERROR: Fitter::addObservations called after setFrame");
-      observations.push_back(obs);
+  observations.push_back(obs);
 }
 
 void
@@ -859,6 +859,154 @@ Fitter::augmentObservation(double tObs_,    // TDB since reference time
   out->abgIsFit = true;
 
   return out;
-}  
+}
 
+std::map<Gravity, string> gravityNames {
+  {Gravity::INERTIAL, "INERTIAL"},
+  {Gravity::BARY, "BARYCENTER"},
+  {Gravity:GIANTS, "GIANTS"}
+};
+std::map<string, Gravity> gravityTypes {
+  {"INERTIAL",Gravity::INERTIAL},
+  {"BARYCENTER", Gravity::BARY},
+  {"GIANTS", Gravity:GIANTS}
+};
+
+void
+Fitter::save(std::ostream& os, string comment) const {
+  if (!abgIsFit) {
+    cerr << "WARNING: saving an invalid ABG fit" << endl;
+  }
+  // print comment if there is one
+  if (!comment.empty()) {
+    os << "# " << comment << endl;
+  }
+  // Save config info: gravity type
+  os << "# Gravity type:" << endl;
+  os << gravityNames[grav] << endl;
+
+  // Binding constraint
+  os << "# Binding constraint strength " << endl;
+  os << bindingConstraintFactor << endl;
+
+  // Gamma priors
+  os << "# Gamma prior " << endl;
+  os << gamma0 << " " << gammaPriorSigma << endl;
   
+  // write frame
+  os << "# Coordinate frame " << endl;
+  f.write(os);
+
+  // write ABG
+  ABG::writeHeader(os);
+  getABG().write(os);
+
+  // write covariance
+  ABGCovariance cov(A.inverse());
+  cov.write(os,5);
+
+  // save observations
+  os << "#\n# Observations " << endl;
+  os << "#  TDB  |  ThetaX   |   ThetaY  |  covXX   YY    XY    |  Observatory posn X Y Z" << endl;
+  int n = tObs.size();
+  os << n << " observations" << endl;
+  stringstuff::StreamSaver ss(os);
+  for (int i=0; i<n; i++) {
+    double det = invcovXX[i] * invcovYY[i] - invcovXY[i]*invcovXY[i];
+    os << std::setprecision(9)
+       << tObs[i] << " "
+       << thetaX[i] << " "
+       << thetaY[i] << " "
+       << std::setprecision(4)
+       << invcovYY[i]/det << " "
+       << invcovXX[i]/det << " "
+       << -invcovXY[i]/det << " "
+       << std::setprecision(9)
+       << xE(i,0) << " "
+       << xE(i,1) << " "
+       << xE(i,2)
+       << endl;
+  }
+}
+
+void
+Fitter::restore(std::istream& is) {
+  // Get gravity type
+  string buffer;
+  stringstuff::getlineNoComment(is,buffer);
+  {
+    string g;
+    std::istringstream iss(buffer);
+    iss >> g;
+    try {
+      grav = gravityTypes.at(g);
+    } catch (std::out_of_range& e) {
+      throw std::runtime_error("Unknown Gravity type in Fitter restore: " + g);
+    }
+  }
+  
+  // Get priors for binding and gamma
+  stringstuff::getlineNoComment(is,buffer);
+  {
+    std::istringstream iss(buffer);
+    double d;
+    iss >> d;
+    setBindingConstraint(d);
+  }
+  stringstuff::getlineNoComment(is,buffer);
+  {
+    std::istringstream iss(buffer);
+    double d1,d2;
+    iss >> d1 >> d2;
+    setGammaConstraint(d1,d2);
+  }
+
+  // Get frame
+  stringstuff::getlineNoComment(is,buffer);
+  {
+    std::istringstream iss(buffer);
+    Frame f_;
+    f_.read(iss);
+    setFrame(f_);
+  }
+
+  // Read ABG and covariance
+  ABG abg_;
+  ABGCovariance cov_;
+  stringstuff::getlineNoComment(is,buffer);
+  {
+    std::istringstream iss(buffer);
+    abg_.read(iss);
+  }
+  cov_.read(is);
+
+  // Now read the observation data
+  int nObs;
+  stringstuff::getlineNoComment(is,buffer);
+  {
+    std::istringstream iss(buffer);
+    iss >> nObs;
+  }
+  // Create arrays
+  DVector tObs_(nObs);
+  DVector thetaX_(nObs);
+  DVector thetaY_(nObs);
+  DVector covXX_(nObs);
+  DVector covYY_(nObs);
+  DVector covXY_(nObs);
+  DMatrix xE_(nObs,3);
+  // Read each line
+  for (int i=0; i<nObs; i++) {
+    stringstuff::getlineNoComment(is, buffer);
+    std::istringstream iss(buffer);
+    iss >> tObs_[i]
+	>> thetaX_[i] >> thetaY_[i]
+	>> covXX_[i] >> covYY_[i] >> covXY_[i]
+	>> xE_(i,0) >> xE_(i,1) >> xE_(i,2);
+  }
+  setObservationsInFrame(tObs_, thetaX_, thetaY_, covXX_, covYY_, covXY_, xE_);
+
+  // Save the solution
+  setABG(abg_, cov_);
+  
+}

@@ -1,5 +1,6 @@
 To do on the orbit-fitting software:
 
+* Slight changes in getELements with and without epoch specified in Fitter
 * testSharedLUT and testExposure* failures.
 * Grow crashes - what is overflowing? Add start/end row counts
 * faster compare() orbit pairs in Grow.
