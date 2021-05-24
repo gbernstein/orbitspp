@@ -575,7 +575,7 @@ Fitter::getElements(bool heliocentric) const {
   sRef.tdb = f.tdb0;
   // Convert to ICRS
   State s = f.toICRS(sRef);
-  return heliocentric ? orbits::getElements(s) : orbits::getElements(s, true, &eph);
+  return heliocentric ? orbits::getElements(s, true, &eph) : orbits::getElements(s);
 }
 
 ElementCovariance

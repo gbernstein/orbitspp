@@ -1,3 +1,6 @@
+# Ignore the too-big full DE440 file
+data/de440.bsp
+
 # Prerequisites
 *.d
 

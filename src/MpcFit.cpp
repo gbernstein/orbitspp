@@ -99,7 +99,7 @@ int main(int argc,
       auto el = fit.getElements(helio);
       auto elCov = fit.getElementCovariance(helio);
       /* Print out the results, with comments */
-      writeOldAEI(aeiName, el, elCov, epoch, eph);
+      writeOldAEI(aeiName, el, elCov, fit.getFrame().tdb0, eph);
     } else {
       auto el = fit.getElements(epoch,helio);
       auto elCov = fit.getElementCovariance(epoch,helio);

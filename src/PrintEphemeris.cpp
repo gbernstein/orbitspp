@@ -9,18 +9,20 @@
 #include "Exposures.h"
 
 #include <iostream>
+#include <fstream>
 
 const string usage =
   "PrintEphemeris: produce predictions and uncertainties for previously fitted orbit\n"
-  "at specified time intervals.\n\n"
+  "at specified time intervals, or at times specified in a file.\n\n"
   "Usage:\n"
   "  PrintEphemeris [parameter file...] [-<key> <value>...]\n"
   "  where any parameter file(s) given will be scanned first, then parameter\n"
   "   key/value pairs on cmd line will be read and override file values.\n"
   "  Program options are listed below.\n"
   "\n"
-  "Input orbit fitting results are provided as ASCII abg file.\n"
-  "Starting/ending dates can be given either as TDB or MJD.  Interval is in days.\n"
+  "Input orbit fitting results are provided as ASCII file from fitter.save().\n"
+  "Starting/ending dates, or dates in file can be given either as TDB or MJD.\n"
+  "Interval is in days.\n"
   "Output will be to stdout.";
 
 using namespace std;
@@ -32,6 +34,7 @@ int main(int argc,
   try {
     string ephemerisPath;
     double startDate, endDate, stepDate;
+    string dateFile;
     int obscode;
     Pset parameters;
    
@@ -42,6 +45,8 @@ int main(int argc,
       const int lowopen = low | PsetMember::openLowerBound;
       const int upopen = up | PsetMember::openUpperBound;
 
+      parameters.addMember("dateFile",&dateFile, def,
+			   "File holding TDBs or MJDs", "");
       parameters.addMember("startDate",&startDate, def,
 			   "Start of ephem, TDB or MJD", 2015.0);
       parameters.addMember("endDate",&endDate, def,
@@ -49,12 +54,13 @@ int main(int argc,
       parameters.addMember("stepDate",&stepDate, def,
 			   "Ephem interval (days)", 30.);
       parameters.addMember("ephemerisFile",&ephemerisPath, def,
-			   "SPICE file (null=>environment", "");
+			   "SPICE file (null=>environment)", "");
       parameters.addMember("obscode",&obscode, def | low,
 			   "Observatory code (default: CTIO)", 807, 0);
     }
     parameters.setDefault();
-    if (string(argv[1])=="-h" || string(argv[1])=="--help") {
+    
+    if (argc > 1 && (string(argv[1])=="-h" || string(argv[1])=="--help")) {
       cout << usage << endl;
       cout << "\nParameters:" << endl;
       parameters.dump(cerr);
@@ -65,7 +71,7 @@ int main(int argc,
       // Read any parameter files
       int nPositional=0;
       for (int iarg=1; iarg < argc && argv[iarg][0]!='-'; iarg++) {
-	ifstream ifs(argv[iarg]);
+	std::ifstream ifs(argv[iarg]);
 	if (!ifs) {
 	  cerr << "Can't open parameter file " << argv[iarg] << endl;
 	  cerr << usage << endl;
@@ -90,27 +96,60 @@ int main(int argc,
     Fitter fit(eph);
     fit.restore(std::cin);
 
-    // Parse the start and end dates
-    if (startDate > 3000.) {
-      // It's an MJD, convert to TDB (yrs past 2000)
-      startDate = eph.mjd2tdb(startDate);
+    int nobs=0;
+    std::vector<double> tdb_in;
+    
+    if (dateFile.empty()) {
+      // Parse the start and end dates
+      if (startDate > 3000.) {
+	// It's an MJD, convert to TDB (yrs past 2000)
+	startDate = eph.mjd2tdb(startDate);
+      } else {
+	startDate -= 2000.;
+      }
+      if (endDate > 3000.) {
+	// It's an MJD, convert to TDB (yrs past 2000)
+	endDate = eph.mjd2tdb(endDate);
+      } else {
+	endDate -= 2000.;
+      }
+      nobs = int( floor((endDate-startDate)/(stepDate*DAY))) + 1;
+
+      for (int i=0; i<nobs; i++) {
+	tdb_in.push_back(startDate + i*stepDate*DAY);
+      }
+      
     } else {
-      startDate -= 2000.;
+      // Read MJD's or TDB's from a file
+      std::ifstream ifs(dateFile);
+      string buffer;
+      while (ifs) {
+	stringstuff::getlineNoComment(ifs,buffer);
+	std::istringstream iss(buffer);
+	double d;
+	iss >> d;
+	if (d > 3000.) {
+	  // It's an MJD
+	  tdb_in.push_back(eph.mjd2tdb(d));
+	} else {
+	  // It's a TDB
+	  tdb_in.push_back(d-2000.);
+	}
+      }
+      nobs = tdb_in.size();
     }
-    if (endDate > 3000.) {
-      // It's an MJD, convert to TDB (yrs past 2000)
-      endDate = eph.mjd2tdb(endDate);
-    } else {
-      endDate -= 2000.;
+    if (nobs <= 0) {
+      cerr << "No observing dates." << endl;
+      exit(1);
     }
-    int nobs = int( floor((endDate-startDate)/(stepDate*DAY)));
+    
     cerr << "Calculating " << nobs << " positions" << endl;
       
     DVector tobs(nobs);
     DMatrix earth(nobs,3);
     astrometry::CartesianICRS xyz;
     for (int i=0; i<nobs; i++) {
-      tobs[i] = startDate + i*stepDate*DAY;
+      tobs[i] = tdb_in[i];
       xyz = eph.observatory(obscode, tobs[i]);
       earth.row(i) = xyz.getVector().transpose();
     }
