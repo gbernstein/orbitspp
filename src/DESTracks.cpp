@@ -48,7 +48,7 @@ const string usage =
   "        1.1 degrees of its optic axis.";
 
 int main(int argc,
-	 char *argv[])
+   char *argv[])
 {
   // Controlling parameters / constants
   string positionPath; // output file
@@ -77,23 +77,23 @@ int main(int argc,
       const int upopen = up | PsetMember::openUpperBound;
 
       parameters.addMember("positionFile",&positionPath, def,
-			   "FITS file for output positions of observations (null=>ASCII/stdout)", "");
+         "FITS file for output positions of observations (null=>ASCII/stdout)", "");
       parameters.addMember("ephemerisFile",&ephemerisPath, def,
-			   "SPICE file (null=>environment", "");
+         "SPICE file (null=>environment", "");
       parameters.addMember("exposureFile",&exposurePath, def,
-			   "DECam exposure info file (null=>environment)", "");
+         "DECam exposure info file (null=>environment)", "");
       parameters.addMember("cornerFile",&cornerPath, def,
-			   "CCD corners table file (null=>environment)", "");
+         "CCD corners table file (null=>environment)", "");
       parameters.addMember("ra0",&ra0, def,
-			   "RA of field center (deg)", 10.);
+         "RA of field center (deg)", 10.);
       parameters.addMember("dec0",&dec0, def,
-			   "Dec of field center (deg)", -20.);
+         "Dec of field center (deg)", -20.);
       parameters.addMember("radius",&searchRadius, def || lowopen || up,
-			   "Radius of search area (deg)", 85.,0.,85.);
+         "Radius of search area (deg)", 85.,0.,85.);
       parameters.addMember("TDB0",&tdb0, def,
-			   "TDB of reference time (=orbit epoch), yrs since J2000", 0.);
+         "TDB of reference time (=orbit epoch), yrs since J2000", 0.);
       parameters.addMember("readState",&readState, def,
-			   "Input is ICRS state vector (T, default) or elements (F)", true);
+         "Input is ICRS state vector (T, default) or elements (F)", true);
     }
     parameters.setDefault();
 
@@ -107,19 +107,19 @@ int main(int argc,
       // Read any parameter files
       int nPositional=0;
       for (int iarg=1; iarg < argc && argv[iarg][0]!='-'; iarg++) {
-	ifstream ifs(argv[iarg]);
-	if (!ifs) {
-	  cerr << "Can't open parameter file " << argv[iarg] << endl;
-	  cerr << usage << endl;
-	  exit(1);
-	}
-	try {
-	  parameters.setStream(ifs);
-	} catch (std::runtime_error &m) {
-	  cerr << "In file " << argv[iarg] << ":" << endl;
-	  quit(m,1);
-	}
-	nPositional++;
+  ifstream ifs(argv[iarg]);
+  if (!ifs) {
+    cerr << "Can't open parameter file " << argv[iarg] << endl;
+    cerr << usage << endl;
+    exit(1);
+  }
+  try {
+    parameters.setStream(ifs);
+  } catch (std::runtime_error &m) {
+    cerr << "In file " << argv[iarg] << ":" << endl;
+    quit(m,1);
+  }
+  nPositional++;
       }
       // And read arguments from the remaining command line entries
       parameters.setFromArguments(argc, argv);
@@ -162,7 +162,7 @@ int main(int argc,
     {
       CornerTable tt(cornerPath);
       for (auto& eptr : exposures)
-	tt.fillExposure(eptr);
+  tt.fillExposure(eptr);
     }
 
     cerr << "# Loaded corners" << endl;
@@ -188,72 +188,48 @@ int main(int argc,
       xv.tdb = tdb0;
       istringstream iss(buffer);
       if (readState) {
-	// Read state and orbitID
-	iss >> orbitID
-	    >> xv.x[0] >> xv.x[1] >> xv.x[2]
-	    >> xv.v[0] >> xv.v[1] >> xv.v[2];
+  // Read state and orbitID
+  iss >> orbitID
+      >> xv.x[0] >> xv.x[1] >> xv.x[2]
+      >> xv.v[0] >> xv.v[1] >> xv.v[2];
       } else {
-	// Read elements and orbitID
-	Elements el;
-	iss >> orbitID >> el;
-	// convert to state
-	xv = getState(el, tdb0);
+  // Read elements and orbitID
+  Elements el;
+  iss >> orbitID >> el;
+  // convert to state
+  xv = getState(el, tdb0);
       }
 
       // Predict for all relevant exposures - get ICRS direction cosines
       Trajectory orbit(ephem, xv, Gravity::GIANTS);
-      /**/cerr << "position 2016: " << orbit.observe(16.,astrometry::CartesianICRS(earth.row(0))) << endl;
       DMatrix target = orbit.observe(tdb, earth);
       // Find those within radius
       BVector hits = (target - axis).rowwise().squaredNorm().array() < maxChordSq;
       
-      /**/ {
-	DVector rr = (target - axis).rowwise().squaredNorm().array();
-	/**/cerr << "TDB0: " << tdb0 << endl;
-	for (int i=0; i<rr.size(); i++) {
-	  if (i%10==0 || sqrt(rr[i])/DEGREE < 5.) {
-	    astrometry::SphericalICRS tt;
-	    tt.setUnitVector(target.row(i));
-	    double tx,ty;
-	    tt.getLonLat(tx,ty);
-	    tt.setUnitVector(axis.row(i));
-	    double ax,ay;
-	    tt.getLonLat(ax,ay);
-	    cout << i << " " << tdb[i]
-		 << " Target: " << target(i,0) << " " << target(i,1) << " " << target(i,2)
-		 << " radius " << sqrt(rr[i])*180. / 3.14159
-		 << endl;
-	    cerr << "   tt: " << tx/DEGREE << " " << ty/DEGREE << endl;
-	    cerr << "   aa: " << ax/DEGREE << " " << ay/DEGREE << endl;
-	  }
-	}
-      }
       for (int i=0; i<nExposures; i++) {
-	if (!hits[i]) continue;
+  if (!hits[i]) continue;
 
-	/**/cerr << "Hit at " << i << endl;
-	
-	astrometry::SphericalICRS radec;
-	radec.setUnitVector(target.row(i).transpose());
-	double ra,dec;
-	radec.getLonLat(ra,dec);
+  astrometry::SphericalICRS radec;
+  radec.setUnitVector(target.row(i).transpose());
+  double ra,dec;
+  radec.getLonLat(ra,dec);
 
-	if (useStdout) {
-	  cout << setw(8) << orbitID
-	       << " " << setw(6) << exposures[i]->expnum
-	       << " " << fixed << setprecision(8) << setw(11) << exposures[i]->tdb
-	       << " " << setprecision(7) << setw(11) << ra/DEGREE
-	       << " " << showpos << setprecision(7) << setw(11) << dec/DEGREE
-	       << " " << noshowpos << setw(2) << exposures[i]->whichCCD(radec)
-	       << endl;
-	} else {
-	  idOut.push_back(orbitID);
-	  expnumOut.push_back(exposures[i]->expnum);
-	  ccdnumOut.push_back(exposures[i]->whichCCD(radec));
-	  tdbOut.push_back(exposures[i]->tdb);
-	  raOut.push_back(ra/DEGREE);
-	  decOut.push_back(dec/DEGREE);
-	}
+  if (useStdout) {
+    cout << setw(8) << orbitID
+         << " " << setw(6) << exposures[i]->expnum
+         << " " << fixed << setprecision(8) << setw(11) << exposures[i]->tdb
+         << " " << setprecision(7) << setw(11) << ra/DEGREE
+         << " " << showpos << setprecision(7) << setw(11) << dec/DEGREE
+         << " " << noshowpos << setw(2) << exposures[i]->whichCCD(radec)
+         << endl;
+  } else {
+    idOut.push_back(orbitID);
+    expnumOut.push_back(exposures[i]->expnum);
+    ccdnumOut.push_back(exposures[i]->whichCCD(radec));
+    tdbOut.push_back(exposures[i]->tdb);
+    raOut.push_back(ra/DEGREE);
+    decOut.push_back(dec/DEGREE);
+  }
       }
     } // End the input reading loop.
 
@@ -275,4 +251,3 @@ int main(int argc,
 }
 
     
-
