@@ -21,15 +21,15 @@ orbits::writeOldAEI(string filename, const Elements& elements,
 
   fprintf(fptr,"# Osculating elements at epoch %.1f:\n",
 	  eph.tdb2jd(tdb0));
-  fprintf(fptr,"#    a            e       i      Node   Arg of Peri   Time of Peri\n");
-  fprintf(fptr,"%12.6f  %9.6f  %8.3f %8.3f  %8.3f %11.3f\n",
+  fprintf(fptr,"#    a            e       i       Node    Arg of Peri   Time of Peri\n");
+  fprintf(fptr,"%12.6f  %9.6f  %9.4f %9.4f  %9.4f %11.3f\n",
 	  elements[Elements::A],
 	  elements[Elements::E],
 	  elements[Elements::I]/DEGREE,
 	  elements[Elements::LAN]/DEGREE,
 	  elements[Elements::AOP]/DEGREE,
 	  eph.tdb2jd(elements[Elements::TOP]));
-  fprintf(fptr,"+-%10.6f  %9.6f  %8.3f %8.3f  %8.3f %11.3f\n",
+  fprintf(fptr,"+-%10.6f  %9.6f  %9.4f %9.4f  %9.4f %11.3f\n",
 	  sqrt(cov(Elements::A,Elements::A)),
 	  sqrt(cov(Elements::E,Elements::E)),
 	  sqrt(cov(Elements::I,Elements::I))/DEGREE,

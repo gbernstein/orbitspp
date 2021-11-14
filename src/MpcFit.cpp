@@ -77,7 +77,10 @@ int main(int argc,
       epoch = eph.jd2tdb(epoch);
     }
 
-    Fitter fit(eph);
+    //**Fitter fit(eph);
+    Fitter fit(eph, Gravity::GIANTS);
+    fit.setBindingConstraint(0.);
+    
     fit.readMPCObservations(std::cin);
 
     fit.chooseFrame(-1);
@@ -89,6 +92,7 @@ int main(int argc,
 
     string aeiName = outFileName + ".aei";
     string abgName = outFileName + ".abg";
+    string xvName = outFileName + ".xv";
     
     // Open and write ABG file - do this using same C I/O as in the orbits software
     writeOldABG(abgName, fit.getABG(), fit.getInvCovarABG().inverse(), fit.getFrame(), eph);
@@ -106,12 +110,17 @@ int main(int argc,
       /* Print out the results, with comments */
       writeOldAEI(aeiName, el, elCov, epoch, eph);      
     }
-    /**
-    Matrix66 sCov;
-    State s = fit.predictState(epoch - fit.getFrame().tdb0, &sCov);
-    cout << s << endl;
-    cout << sCov << endl;
-    **/
+    
+    // Save phase space solution
+    {
+      std::ofstream ofs(xvName, std::ofstream::trunc);
+      Matrix66 sCov;
+      ofs << "#    x            y          z           vx          vy          vz        TDB" << endl;
+      State s = fit.predictState(epoch - fit.getFrame().tdb0, &sCov);
+      ofs << std::fixed << std::setprecision(8) << s << endl;
+      ofs << "#  Covariance matrix" << endl;
+      ofs << std::scientific << std::setprecision(6) << sCov << endl;
+    }
     fit.save(std::cout);
   } catch (std::runtime_error& e) {
     quit(e);

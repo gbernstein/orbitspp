@@ -22,6 +22,7 @@ const string usage =
   "\n"
   "Input orbit fitting results are provided as ASCII file from fitter.save().\n"
   "Starting/ending dates, or dates in file can be given either as TDB or MJD.\n"
+  "Dates in file can also be yyyy-mm-dd.dddd format.\n"
   "Interval is in days.\n"
   "Output will be to stdout.";
 
@@ -123,17 +124,31 @@ int main(int argc,
       // Read MJD's or TDB's from a file
       std::ifstream ifs(dateFile);
       string buffer;
-      while (ifs) {
-	stringstuff::getlineNoComment(ifs,buffer);
-	std::istringstream iss(buffer);
-	double d;
-	iss >> d;
-	if (d > 3000.) {
-	  // It's an MJD
-	  tdb_in.push_back(eph.mjd2tdb(d));
+      while (stringstuff::getlineNoComment(ifs,buffer)) {
+	string word = stringstuff::split(buffer).front();
+	auto loc = word.find('-');
+	if (loc==std::string::npos || loc==0) {
+	  // Input is a number (potentially starting with negative sign)
+	  std::istringstream iss(word);
+	  double d;
+	  iss >> d;
+	  if (d > 3000.) {
+	    // It's an MJD
+	    tdb_in.push_back(eph.mjd2tdb(d));
+	  } else {
+	    // It's a TDB
+	    tdb_in.push_back(d-2000.);
+	  }
 	} else {
-	  // It's a TDB
-	  tdb_in.push_back(d-2000.);
+	  // Input should be YMD
+	  auto ymd = stringstuff::split(word,'-');
+	  int y = atoi(ymd.front().c_str());
+	  ymd.pop_front();
+	  int m = atoi(ymd.front().c_str());
+	  ymd.pop_front();
+	  double d = atof(ymd.front().c_str());
+	  astrometry::UT t(y,m,d);
+	  tdb_in.push_back(eph.mjd2tdb(t.getMJD()));
 	}
       }
       nobs = tdb_in.size();
@@ -150,6 +165,7 @@ int main(int argc,
     astrometry::CartesianICRS xyz;
     for (int i=0; i<nobs; i++) {
       tobs[i] = tdb_in[i];
+      /**/cerr << tobs[i] << endl;
       xyz = eph.observatory(obscode, tobs[i]);
       earth.row(i) = xyz.getVector().transpose();
     }

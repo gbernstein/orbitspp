@@ -33,7 +33,7 @@ main(int argc, char *argv[]) {
     double d;
     table.readCells(v,dataColumn);
     table.readCells(id,"ORBITID");
-    cout.precision(5);
+    cout.precision(6);
     cout.fill('0');
     cout.setf( std::ios::fixed, std:: ios::floatfield );
     for (int i=0; i<v.size(); i++) {

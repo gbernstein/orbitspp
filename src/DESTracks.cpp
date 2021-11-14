@@ -207,7 +207,7 @@ int main(int argc,
       // Find those within radius
       BVector hits = (target - axis).rowwise().squaredNorm().array() < maxChordSq;
       
-      /**/ {
+      /**/ if (false) {
 	DVector rr = (target - axis).rowwise().squaredNorm().array();
 	/**/cerr << "TDB0: " << tdb0 << endl;
 	for (int i=0; i<rr.size(); i++) {
