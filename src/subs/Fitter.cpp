@@ -861,15 +861,15 @@ Fitter::augmentObservation(double tObs_,    // TDB since reference time
   return out;
 }
 
-std::map<Gravity, string> gravityNames {
+std::map<Gravity, string> gravityNames = {
   {Gravity::INERTIAL, "INERTIAL"},
   {Gravity::BARY, "BARYCENTER"},
-  {Gravity:GIANTS, "GIANTS"}
-};
-std::map<string, Gravity> gravityTypes {
+  {Gravity::GIANTS, "GIANTS"}
+  };
+std::map<string, Gravity> gravityTypes = {
   {"INERTIAL",Gravity::INERTIAL},
   {"BARYCENTER", Gravity::BARY},
-  {"GIANTS", Gravity:GIANTS}
+  {"GIANTS", Gravity::GIANTS}
 };
 
 void
