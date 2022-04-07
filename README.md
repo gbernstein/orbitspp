@@ -88,8 +88,43 @@ variable points to it.
 
 ## Usage
 
-Apologies that documentation is currently minimal.  Once you've built the
-executables, 
+Apologies that documentation is currently minimal.  Most of the 
+executables will give you brief help if called with no arguments or
+with `-h` as an argument. 
+
+Once you've built the
+executables, some simple tests/demos can be done as follows:
+
+`% bin/MpcFit junk < testdata/pluto14yr.ast > junk.fit`
+
+will run the `MpcFit` program on the fictitious observations of Pluto
+stored in the specified `.ast` file. The stderr output will be various
+diagnostics of the fit, including the residual errors.  Two new files
+named `junk.aei` and `junk.abg` will be created with ASCII renditions'
+of the results of the fit, in element space and in the BK 
+sort-of-cartesian system.  The elements in `junk.aei` should make
+sense for Pluto and be close (but not exactly match) the elements in the 
+saved file `testdata/pluto14yr.aei`.  The `testdata/pluto14yr.ast` is
+an example of the MPC-like format that can be used as input to this 
+program to fit a single object's observations.  There are also 
+some example files for 1992 QB1 = Albion and for some fictitious
+Planet 9 observations.
+
+With the `junk.fit` program that results from std output of 
+`MpcFit`, one can predict future positions (or past) with 
+a command such as
+
+`% bin/PrintEphemeris -startdate 2022.0 -enddate 2023.0 -stepdate 30 < junk.fit`
+
+The various `bin/Bulk*` executables are written to process larger
+amounts of data for multiple objects, using input and output in
+FITS tables.  Their help messages give some details about formats.
+
+### Some gotchas
+
+The code only knows about observatories whose MPC codes appear
+in the file `data/observatories.dat`.  You'll need to add the
+relevant info about new sites to that file.
 
 The CFITSIO software is a bit picky about data types, so beware of
 these details:  in the input FITS files to the _Bulk*cpp_ programs,
