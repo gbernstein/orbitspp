@@ -12,6 +12,13 @@ using namespace orbits;
 int main(int argc,
 	 char *argv[])
 {
+  if (argc>1) {
+    cerr << "Fit an orbit to observation data given at stdin as " << endl;
+    cerr << " MJD  ra  dec err" << endl;
+    cerr << "on each line.  RA and Dec in degrees, observational err per" << endl;
+    cerr << "axis is given in arcsec, and CTIO is assumed as observatory." << endl;
+    exit(1);
+  }
   try {
     Ephemeris eph;
 

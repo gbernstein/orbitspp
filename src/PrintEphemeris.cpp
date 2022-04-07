@@ -165,7 +165,6 @@ int main(int argc,
     astrometry::CartesianICRS xyz;
     for (int i=0; i<nobs; i++) {
       tobs[i] = tdb_in[i];
-      /**/cerr << tobs[i] << endl;
       xyz = eph.observatory(obscode, tobs[i]);
       earth.row(i) = xyz.getVector().transpose();
     }
