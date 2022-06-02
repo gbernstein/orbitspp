@@ -138,11 +138,15 @@ int main(int argc,
     bool useExpnum; // Set true if input will have expnum instead of MJD.
     Frame frame;
     vector<LONGLONG> idIn;
-    vector<int> expnum;
-    vector<double> mjd;
-    vector<double> ra;
-    vector<double> dec;
-    vector<double> sigma;
+    vector<int> expnum1;
+    vector<int> expnum2;
+    vector<double> mjd1;
+    vector<double> mjd2;
+    vector<double> ra1;
+    vector<double> ra2;
+    vector<double> dec1;
+    vector<double> dec2;
+    vector<Matrix44> sigma;
     
     if (observationsFromFile) {
       FITS::FitsTable ft(observationPath,FITS::ReadOnly, 1);
@@ -172,18 +176,26 @@ int main(int argc,
       obsTable.readCells(idIn, "ORBITID");
       // Are we using expnum or MJD?
       auto colnames = obsTable.listColumns();
-      useExpnum = (std::find(colnames.begin(),colnames.end(),"EXPNUM")!=colnames.end());
+      useExpnum = (std::find(colnames.begin(),colnames.end(),"EXPNUM1")!=colnames.end());
       if (useExpnum) {
-	obsTable.readCells(expnum, "EXPNUM");
+	obsTable.readCells(expnum1, "EXPNUM1");
+	obsTable.readCells(expnum2, "EXPNUM2");
+
 	// Read the exposure table later.
       } else {
 	// We'll use MJD's
-	obsTable.readCells(mjd,"MJD");
+	obsTable.readCells(mjd1,"MJD1");
+	obsTable.readCells(mjd2,"MJD2");
+	
       }
 
-      obsTable.readCells(ra, "RA");
-      obsTable.readCells(dec,"DEC");
+      obsTable.readCells(ra1, "RA1");
+      obsTable.readCells(ra2, "RA2");
+      obsTable.readCells(dec1,"DEC1");
+      obsTable.readCells(dec2,"DEC2");
+
       obsTable.readCells(sigma,"SIGMA"); 
+
     } else {
 
       // Info will come from stdin.  Read the reference frame from first
@@ -250,9 +262,9 @@ int main(int argc,
       bool isFirst = true;
       LONGLONG idThis;
       while (true) {
-	double raThis, decThis, sigmaThis;
-	int expnumThis;
-	double mjdThis;
+	double raThis1, raThis2, decThis1, decThis2, sigmaThis;
+	int expnumThis1, expnumThis2;
+	double mjdThis1, mjdThis2;
 	if (observationsFromFile) {
 	  // Read new data from table
 	  if (isFirst) {
@@ -262,13 +274,17 @@ int main(int argc,
 	    if (idIn[inputRow]!=idThis)
 	      break; // Done getting data for this orbit
 	  }
-	  raThis = ra[inputRow];
-	  decThis = dec[inputRow];
+	  raThis1 = ra1[inputRow];
+	  raThis2 = ra2[inputRow];
+	  decThis1 = dec1[inputRow];
+	  decThis2 = dec2[inputRow];
 	  sigmaThis = sigma[inputRow];
 	  if (useExpnum) {
-	    expnumThis = expnum[inputRow];
+	    expnumThis1 = expnum1[inputRow];
+	    expnumThis2 = expnum2[inputRow];
 	  } else {
-	    mjdThis = mjd[inputRow];
+	    mjdThis1 = mjd1[inputRow];
+	    mjdThis2 = mjd2[inputRow];
 	  }
 	  ++inputRow;
 	  if (inputRow >= idIn.size())
@@ -286,19 +302,21 @@ int main(int argc,
 	      break; // Done getting data for this orbit
 	  }
 	  // Is input expnum or MJD?
-	  useExpnum = mjdThis > 100000.; // Expnums are >100,000, MJD's are ~50,000
+	  useExpnum = mjdThis1 > 100000.; // Expnums are >100,000, MJD's are ~50,000
 	  if (useExpnum) {
-	    expnumThis = static_cast<int> (round(mjdThis));
+	    expnumThis1 = static_cast<int> (round(mjdThis1));
+	    expnumThis2 = static_cast<int> (round(mjdThis2));
 	  }
 	  // Read next input line (if any)
 	  done = !getlineNoComment(cin, inputLine);
 	}
 
 	// Build Observation
-	Observation obs;
-	obs.radec = astrometry::SphericalICRS(raThis*DEGREE, decThis*DEGREE);
-	obs.cov(1,1) = obs.cov(0,0) = sigmaThis * ARCSEC * sigmaThis * ARCSEC;
-	obs.cov(1,0) = obs.cov(0,1) = 0.;
+	Tracklet track;
+	track.radec1 = astrometry::SphericalICRS(raThis1*DEGREE, decThis1*DEGREE);
+	track.radec2 = astrometry::SphericalICRS(raThis2*DEGREE, decThis2*DEGREE);
+	
+	track.cov = sigmaThis * ARCSEC * ARCSEC;
       
 	if (useExpnum) {
 	  // Read exposure table if needed and not here
@@ -306,29 +324,55 @@ int main(int argc,
 	    exposureTable = new ExposureTable(exposurePath);
 	  }
 
-	  double mjdThis;
-	  astrometry::CartesianICRS xyzThis;
-	  astrometry::SphericalICRS radecThis;
+	  double mjdThis1, mjdThis2;
+	  astrometry::CartesianICRS xyzThis1, xyzThis2;
+	  astrometry::SphericalICRS radecThis1, radecThis2;
 	  // Get xE and mjd from the DECam table
-	  if (!exposureTable->observingInfo(expnumThis, mjdThis, xyzThis, radecThis)) {
-	    /**/cerr << "Missing exposure info for " << expnumThis << endl;
+	  if (!exposureTable->observingInfo(expnumThis1, mjdThis1, xyzThis1, radecThis1)) {
+	    /**/cerr << "Missing exposure info for " << expnumThis1 << endl;
 	    continue;
 	  }
-	    
-	  for (int i=0; i<3; i++) obs.observer[i] = xyzThis[i];
-	  obs.tdb = eph.mjd2tdb(mjdThis);
+	  if (!exposureTable->observingInfo(expnumThis2, mjdThis2, xyzThis2, radecThis2)) {
+	    /**/cerr << "Missing exposure info for " << expnumThis2 << endl;
+	    continue;
+	  }
 
-	  if (exposureTable->isAstrometric(expnumThis)) {
-	    obs.cov += exposureTable->atmosphereCov(expnumThis);
+	    
+	  for (int i=0; i<3; i++){
+	  	track.observer1[i] = xyzThis1[i];
+	  	track.observer2[i] = xyzThis2[i];
+	  }
+
+	  track.tdb1 = eph.mjd2tdb(mjdThis1);
+		track.tdb2 = eph.mjd2tdb(mjdThis2);
+
+	  if (exposureTable->isAstrometric(expnumThis1)) {
+	  	Matrix44 atm;
+	  	for (int i = 0; i < 4, i++){
+	  		for (int j = 0; i < 4, i++){
+	  			atm(i,j) = 0;
+	  		}
+	  	}
+	  	atm(0,0) = exposureTable->atmosphereCov(expnumThis1)(0,0);
+	  	atm(1,1) = exposureTable->atmosphereCov(expnumThis1)(1,1);
+	  	atm(0,1) = atm(1,0) = exposureTable->atmosphereCov(expnumThis1)(1,0);
+	  	atm(2,2) = exposureTable->atmosphereCov(expnumThis2)(0,0);
+	  	atm(3,3) = exposureTable->atmosphereCov(expnumThis2)(1,1);
+	  	atm(2,3) = atm(3,2) = exposureTable->atmosphereCov(expnumThis2)(1,0);
+
+	    track.cov += atm;
 	  }
 	} else {
 	  // Input data is an MJD.  Use ephemeris to get observatory posn.
-	  obs.tdb = eph.mjd2tdb(mjdThis);
-	  obs.observer = eph.observatory(obscode, obs.tdb);
+	  track.tdb1 = eph.mjd2tdb(mjdThis1);
+	  track.tdb2 = eph.mjd2tdb(mjdThis2);
+	  track.observer1 = eph.observatory(obscode, track.tdb1);
+	  track.observer2 = eph.observatory(obscode, track.tdb2);
+	  
 	  // Note no atmospheric term added to covariance here.
 	}
 
-	fit.addObservation(obs);
+	fit.addObservation(track);
       } // end collecting observations for this orbit
 
 

@@ -15,6 +15,7 @@ namespace orbits {
   typedef linalg::SVector<double,6> Vector6;
   typedef linalg::SMatrix<double,2,2> Matrix22;
   typedef linalg::SMatrix<double,3,3> Matrix33;
+  typedef linalg::SMatrix<double,4,4,> Matrix44;
   typedef linalg::SMatrix<double,6,6> Matrix66;
   typedef linalg::Vector<double> DVector;
   typedef linalg::Vector<bool> BVector;
@@ -135,6 +136,20 @@ namespace orbits {
     double tdb;  //  TDB of observation, referenced to J2000
     Matrix22 cov; // RA/Dec error covariance matrix, radians
     astrometry::CartesianICRS observer;  // ICRS barycentric position of observer
+  };
+
+  class Tracklet {
+    // General observer-frame information about a detection
+  public:
+    EIGEN_NEW
+    Tracklet() {}
+    astrometry::SphericalICRS radec1;
+    astrometry::SphericalICRS radec2;
+    double tdb1, tdb2;  //  TDB of observation, referenced to J2000
+    Matrix44 cov; // RA/Dec error covariance matrix, radians
+    astrometry::CartesianICRS observer1;  // ICRS barycentric position of observer
+    astrometry::CartesianICRS observer2;  // ICRS barycentric position of observer
+    
   };
     
   class MPCObservation {

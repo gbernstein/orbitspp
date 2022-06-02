@@ -20,7 +20,7 @@ write6(const T& v, std::ostream& os, int precision=6) {
   return;  // Stream state restored on destruction of ss
 };
   
-Fitter::Fitter(const Ephemeris& eph_,
+FitterTracklet::FitterTracklet(const Ephemeris& eph_,
 	       Gravity grav_): eph(eph_),
 			       fullTrajectory(nullptr),
 			       grav(grav_),
@@ -34,7 +34,7 @@ Fitter::Fitter(const Ephemeris& eph_,
 			       chisqDerivsAreValid(false) {} 
 
 void
-Fitter::setABG(const ABG& abg_, const ABGCovariance& cov_) {
+FitterTracklet::setABG(const ABG& abg_, const ABGCovariance& cov_) {
   if (!frameIsSet)
     throw std::runtime_error("ERROR: Fitter::setABG called before setFrame");
   abg = abg_;
@@ -45,14 +45,14 @@ Fitter::setABG(const ABG& abg_, const ABGCovariance& cov_) {
 }
 
 void
-Fitter::addObservation(const Observation& obs) {
+FitterTracklet::addObservation(const Observation& obs) {
   if (frameIsSet)
     throw std::runtime_error("ERROR: Fitter::addObservations called after setFrame");
   observations.push_back(obs);
 }
 
 void
-Fitter::readMPCObservations(istream& is) {
+FitterTracklet::readMPCObservations(istream& is) {
   if (frameIsSet)
     throw std::runtime_error("ERROR: Fitter::readMPCObservations called after setFrame");
   string line;
@@ -89,18 +89,59 @@ Fitter::setFrame(const Frame& f_) {
   newData(); // Reset results flags
 
   // Recalculate all coordinates in this frame;
-  int n = observations.size();
+  int n = track.size();
   resizeArrays(n);
 
   astrometry::Gnomonic projection(f.orient);  
   for (int i=0; i<n; i++) {
-    const Observation& obs = observations[i];
+    const Tracklet& tr = track[i];
     // Set up time variables.  Set light travel time to zero
-    tObs[i] = obs.tdb - f.tdb0;
-    tEmit[i] = tObs[i];
-    tdbEmit[i] = obs.tdb;
+    tObs1[i] = tr.tdb1 - f.tdb0;
+    tObs2[i] = tr.tdb2 - f.tdb0;
+    tEmit1[i] = tObs1[i];
+    tEmit2[i] = tObs2[i];
+
+    tdbEmit1[i] = tr.tdb1;
+    tdbEmit2[i] = tr.tdb2;
+
     
     // Convert angles to our frame and get local partials for covariance
+    Matrix22 partials1(0.);
+    projection.convertFrom(tr.radec1, partials1);
+    double x1,y1;
+    projection.getLonLat(x1,y1);
+    thetaX1[i] = x1;
+    thetaY1[i] = y1;
+    // Alter the partials for the cos(dec) factor in derivatives
+    tr.radec1.getLonLat(x1,y1);
+    partials1(0,0) /= cos(y1);
+    partials1(1,0) /= cos(y1);
+
+    Matrix22 partials2(0.);
+    projection.convertFrom(tr.radec2, partials2);
+    double x2,y2;
+    projection.getLonLat(x2,y2);
+    thetaX2[i] = x2;
+    thetaY2[i] = y2;
+    // Alter the partials for the cos(dec) factor in derivatives
+    tr.radec2.getLonLat(x2,y2);
+    partials2(0,0) /= cos(y2);
+    partials2(1,0) /= cos(y2);
+
+    Matrix44 fullpartials(0.);
+    fullpartials(0,0) = partials1(0,0);
+    fullpartials(1,1) = partials1(1,1);
+    fullpartials(0,1) = fullpartials(1,0) = partials1(0,1);
+    fullpartials(2,2) = partials2(0,0);
+    fullpartials(3,3) = partials2(1,1);
+    fullpartials(2,3) = fullpartials(2,3) = partials2(0,1);
+
+
+
+
+    // Get inverse covariance
+    Matrix22 cov = partials * obs.cov * partials.transpose();
+
     Matrix22 partials(0.);
     projection.convertFrom(obs.radec, partials);
     double x,y;
@@ -111,12 +152,14 @@ Fitter::setFrame(const Frame& f_) {
     obs.radec.getLonLat(x,y);
     partials(0,0) /= cos(y);
     partials(1,0) /= cos(y);
-    // Get inverse covariance
-    Matrix22 cov = partials * obs.cov * partials.transpose();
+
     double det = cov(0,0)*cov(1,1) - cov(0,1)*cov(1,0);
     invcovXX[i] = cov(1,1)/det;
     invcovXY[i] = -cov(1,0)/det;
     invcovYY[i] = cov(0,0)/det;
+
+    // Get observatory position in our frame.
+    xE.row(i) = f.fromICRS(obs.observer.getVector());
 
     // Get observatory position in our frame.
     xE.row(i) = f.fromICRS(obs.observer.getVector());
@@ -166,10 +209,12 @@ Fitter::setObservationsInFrame(const DVector& tObs_,    // TDB since reference t
   tdbEmit = tEmit.array() + f.tdb0;
   thetaX = thetaX_;
   thetaY = thetaY_;
-  DVector det = covXX_.array()*covYY_.array() - covXY_.array()*covXY_.array();
-  invcovXX = covYY_.array() / det.array();
-  invcovYY = covXX_.array() / det.array();
-  invcovXY = -covXY_.array() / det.array();
+
+  //DVector det = covXX_.array()*covYY_.array() - covXY_.array()*covXY_.array();
+  //invcovXX = covYY_.array() / det.array();
+  //invcovYY = covXX_.array() / det.array();
+  //invcovXY = -covXY_.array() / det.array();
+
   xE = xE_;
   xGrav.setZero();
 }

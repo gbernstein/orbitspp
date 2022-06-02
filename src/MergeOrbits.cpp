@@ -19,7 +19,7 @@ using namespace std;
 using namespace orbits;
 
 const int DEBUGLEVEL= 0;
-const int MIN_UNIQUE_FIT=4; // min number of independent detections to fit
+const int MIN_UNIQUE_FIT=3; // min number of independent detections to fit
 const double FIELD_RADIUS = 1.15*DEGREE; // A bit larger to be complete
 
 // Time that must pass between exposures to be considered independent detections
@@ -806,13 +806,13 @@ int main(int argc,
 	      cerr << "# WARNING: Not converging at " << orb->inputID << endl;
 	  }
 	} catch (Fitter::NonConvergent& e) {
-#pragma omp critical(io)
-	  {
-	    cerr << "# Fitting failure " << orb->inputFile << "/" << orb->inputID
-		 << " nUnique " << orb->nUnique << " arc " << orb->arc << endl;
-	    cerr << e.what() << endl;
-	  }
-	}
+//#pragma omp critical(io)
+//	  {
+//	    cerr << "# Fitting failure " << orb->inputFile << "/" << orb->inputID
+//		 //<< " nUnique " << orb->nUnique << " arc " << orb->arc << endl;
+//	    cerr << e.what() << endl;
+//	  }
+}
 	if (success)
 #pragma omp critical(orbitpush)
 	  {
@@ -1254,7 +1254,7 @@ int main(int argc,
       table.addColumn(tdb,"TDB");
       table.addColumn(expnum,"EXPNUM");
       table.addColumn(ccdnum,"CCDNUM");
-      table.addColumn(band,"BAND",1,1);
+      table.addColumn(band,"BAND",2,2);
       table.addColumn(prediction,"PREDICT",2);
       table.addColumn(predCov,"PREDCOV",3);
       table.addColumn(detection,"DETECT",2);

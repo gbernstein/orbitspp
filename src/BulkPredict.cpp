@@ -50,6 +50,7 @@ int main(int argc,
     double gamma0;
     double dGamma;
     int obscode;
+    bool fixOrient;
     Pset parameters;
    
     {
@@ -71,6 +72,9 @@ int main(int argc,
 			   "FITS file holding DECam exposure info", "");
       parameters.addMember("obscode",&obscode, def | low,
 			   "Observatory code (default: CTIO)", 807, 0);
+      parameters.addMember("fixOrient",&fixOrient, def,
+         "Apply fix for MergeOrbits FRAME bug", false);
+
     }
     parameters.setDefault();
     if (argc<2 || string(argv[1])=="-h" || string(argv[1])=="--help") {
