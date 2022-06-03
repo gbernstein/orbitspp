@@ -28,7 +28,7 @@ namespace orbits {
 				const DVector& thetaY1_,
         const DVector& thetaX2_,  // Observed positions
         const DVector& thetaY2_,
-				const vector<Matrix44>& cov,   // Covariance of observed posns
+				const DMatrix& covFull,   // Covariance of observed posns
 				const DMatrix& xE1_,     // Observatory posn at observations
         const DMatrix& xE2_);     // Observatory posn at observations
 

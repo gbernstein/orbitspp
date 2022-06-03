@@ -64,20 +64,25 @@ FitterTracklet::readMPCObservations(istream& is) {
 
 void
 Fitter::resizeArrays(int n) {
-  tObs.resize(n);
-  tEmit.resize(n);
-  tdbEmit.resize(n);
-  thetaX.resize(n);
-  thetaY.resize(n);
-  thetaXModel.resize(n);
-  thetaYModel.resize(n);
-  invcovXX.resize(n);
-  invcovXY.resize(n);
-  invcovYY.resize(n);
-  xE.resize(n,3);
-  xGrav.resize(n,3);
-  dThetaXdABG.resize(n,6);
-  dThetaYdABG.resize(n,6);
+  tObs1.resize(n);
+  tEmit1.resize(n);
+  tdbEmit1.resize(n);
+  thetaX1.resize(n);
+  thetaY1.resize(n);
+  invCovArr.resize(n,10)
+  xE1.resize(n,3);
+  xGrav1.resize(n,3);
+  dThetaXdABG1.resize(n,6);
+  dThetaYdABG1.resize(n,6);
+  tEmit2.resize(n);
+  tdbEmit2.resize(n);
+  thetaX2.resize(n);
+  thetaY2.resize(n);
+  xE2.resize(n,3);
+  xGrav2.resize(n,3);
+  dThetaXdABG2.resize(n,6);
+  dThetaYdABG2.resize(n,6);
+
 }
 
 void
@@ -140,33 +145,30 @@ Fitter::setFrame(const Frame& f_) {
 
 
     // Get inverse covariance
-    Matrix22 cov = partials * obs.cov * partials.transpose();
+    Matrix44 cov = fullpartials * tr.cov * fullpartials.transpose();
 
-    Matrix22 partials(0.);
-    projection.convertFrom(obs.radec, partials);
-    double x,y;
-    projection.getLonLat(x,y);
-    thetaX[i] = x;
-    thetaY[i] = y;
-    // Alter the partials for the cos(dec) factor in derivatives
-    obs.radec.getLonLat(x,y);
-    partials(0,0) /= cos(y);
-    partials(1,0) /= cos(y);
+    Matrix44 invcov = cov.inverse();
 
-    double det = cov(0,0)*cov(1,1) - cov(0,1)*cov(1,0);
-    invcovXX[i] = cov(1,1)/det;
-    invcovXY[i] = -cov(1,0)/det;
-    invcovYY[i] = cov(0,0)/det;
+    invCovArr(0,i) = invcov(0,0);
+    invCovArr(1,i) = invcov(1,1);
+    invCovArr(2,i) = invcov(2,2);
+    invCovArr(3,i) = invcov(3,3);
+    invCovArr(4,i) = invcov(0,1);
+    invCovArr(5,i) = invcov(0,2);
+    invCovArr(6,i) = invcov(0,3);
+    invCovArr(7,i) = invcov(1,2);
+    invCovArr(8,i) = invcov(1,3);
+    invCovArr(9,i) = invcov(2,3);
+
 
     // Get observatory position in our frame.
-    xE.row(i) = f.fromICRS(obs.observer.getVector());
-
-    // Get observatory position in our frame.
-    xE.row(i) = f.fromICRS(obs.observer.getVector());
+    xE1.row(i) = f.fromICRS(tr.observer1.getVector());
+    xE2.row(i) = f.fromICRS(tr.observer2.getVector());
 
     // Initialize gravitational effect to zero
-    xGrav.setZero();
-    
+    xGrav1.setZero();
+    xGrav2.setZero();
+
     /**cerr << i << " " << std::fixed << setprecision(4) << dt[i]
 	     << " " << setprecision(4) << xE(0,i) 
 	     << " " << setprecision(4) << xE(1,i) 
@@ -180,13 +182,15 @@ Fitter::setFrame(const Frame& f_) {
 
 // Replace observations with data that is already in desired Frame
 void
-Fitter::setObservationsInFrame(const DVector& tObs_,    // TDB since reference time
-			       const DVector& thetaX_,  // Observed positions
-			       const DVector& thetaY_,
-			       const DVector& covXX_,   // Covariance of observed posns
-			       const DVector& covYY_,
-			       const DVector& covXY_,
-			       const DMatrix& xE_) {    // Observatory posn at observations
+Fitter::setObservationsInFrame(const DVector& tObs1_,    // TDB since reference time
+             const DVector& tObs2,
+			       const DVector& thetaX1_,  // Observed positions
+			       const DVector& thetaY1_,
+             const DVector& thetaX2_,  // Observed positions
+             const DVector& thetaY2_,
+			       const DMatrix& covFull_,   // Covariance of observed posns
+			       const DMatrix& xE1_,
+             const DMatrix& xE2_) {    // Observatory posn at observations
   if (!frameIsSet)
     throw std::runtime_error("ERROR: Fitter::setObservationsInFrame() was "
 			     "called before setFrame()");
@@ -204,19 +208,53 @@ Fitter::setObservationsInFrame(const DVector& tObs_,    // TDB since reference t
   resizeArrays(n);
   newData(); // Reset results flags
 
-  tObs = tObs_;
-  tEmit = tObs_; // No light-travel correction to start
-  tdbEmit = tEmit.array() + f.tdb0;
-  thetaX = thetaX_;
-  thetaY = thetaY_;
+  tObs1 = tObs1_;
+  tEmit1 = tObs1_; // No light-travel correction to start
+  tdbEmit1 = tEmit1.array() + f.tdb0;
+  tObs2 = tObs2_;
+  tEmit2 = tObs2_; // No light-travel correction to start
+  tdbEmit2 = tEmit2.array() + f.tdb0;
 
-  //DVector det = covXX_.array()*covYY_.array() - covXY_.array()*covXY_.array();
-  //invcovXX = covYY_.array() / det.array();
-  //invcovYY = covXX_.array() / det.array();
-  //invcovXY = -covXY_.array() / det.array();
+  thetaX1 = thetaX1_;
+  thetaY1 = thetaY1_;
 
-  xE = xE_;
-  xGrav.setZero();
+  thetaX2 = thetaX2_;
+  thetaY2 = thetaY2_;
+
+  Matrix44 covar; 
+  Matrix44 invcov;
+  for (int i, i < n, i++){
+    covar(0,0) = covFull_(0,i);
+    covar(1,1) = covFull_(1,i);
+    covar(2,2) = covFull_(2,i);
+    covar(3,3) = covFull_(3,i);
+    covar(0,1) = covar(1,0) = covFull_(4,i);
+    covar(0,2) = covar(2,0) = covFull_(5,i);
+    covar(0,3) = covar(3,0) = covFull_(6,i);
+    covar(1,2) = covar(2,1) = covFull_(7,i);
+    covar(1,3) = covar(3,1) = covFull_(8,i);
+    covar(2,3) = covar(3,2) = covFull_(9,i);
+    invcov = cov.inverse();
+
+    invCovArr(0,i) = invcov(0,0);
+    invCovArr(1,i) = invcov(1,1);
+    invCovArr(2,i) = invcov(2,2);
+    invCovArr(3,i) = invcov(3,3);
+    invCovArr(4,i) = invcov(0,1);
+    invCovArr(5,i) = invcov(0,2);
+    invCovArr(6,i) = invcov(0,3);
+    invCovArr(7,i) = invcov(1,2);
+    invCovArr(8,i) = invcov(1,3);
+    invCovArr(9,i) = invcov(2,3);
+
+  }
+
+
+  xE1 = xE1_;
+  xGrav1.setZero();
+  xE2 = xE2_;
+  xGrav2.setZero();
+
 }
 
 void
@@ -894,27 +932,39 @@ Fitter::predictState(const double tdb,    // Dynamical time, relative to tdb0
   return out ;
 }
 
-Fitter*
-Fitter::augmentObservation(double tObs_,    // TDB since reference time
-			   double thetaX_,  // Observed positions
-			   double thetaY_,
-			   double covXX_,   // Covariance of observed posns
-			   double covYY_,
-			   double covXY_,
-			   const Vector3& xE_,     // Observatory posn at observations
+FitterTracklet*
+FitterTracklet::augmentObservation(double tObs1_,    // TDB since reference time
+         double tObs2_,
+			   double thetaX1_,  // Observed positions
+			   double thetaY1_,
+         double thetaX2_,  // Observed positions
+         double thetaY2_,
+			   double cov_,   // Covariance of observed posns
+			   const Vector3& xE1_,     // Observatory posn at observations,
+         const Vector3& xE2_,     // Observatory posn at observations
 			   bool newGravity) const {
 
   // Create new Fitter with room for one more data point
-  auto out = new Fitter(eph, grav);
+  auto out = new FitterTracklet(eph, grav);
   out->setFrame(f);
-  int oldN = tObs.size();
+  int oldN = tObs1.size();
   out->resizeArrays(oldN + 1);
-  out->tObs.subVector(0,oldN) = tObs;
-  out->tObs[oldN] = tObs_;
-  out->thetaX.subVector(0,oldN) = thetaX;
-  out->thetaX[oldN] = thetaX_;
-  out->thetaY.subVector(0,oldN) = thetaY;
-  out->thetaY[oldN] = thetaY_;
+  out->tObs1.subVector(0,oldN) = tObs1;
+  out->tObs1[oldN] = tObs1_;
+  out->tObs2.subVector(0,oldN) = tObs2;
+  out->tObs2[oldN] = tObs2_;
+
+  out->thetaX1.subVector(0,oldN) = thetaX1;
+  out->thetaX1[oldN] = thetaX1_;
+  out->thetaY1.subVector(0,oldN) = thetaY1;
+  out->thetaY1[oldN] = thetaY1_;
+
+  out->thetaX2.subVector(0,oldN) = thetaX2;
+  out->thetaX2[oldN] = thetaX2_;
+  out->thetaY2.subVector(0,oldN) = thetaY2;
+  out->thetaY2[oldN] = thetaY2_;
+
+
   out->invcovXX.subVector(0,oldN) = invcovXX;
   out->invcovYY.subVector(0,oldN) = invcovYY;
   out->invcovXY.subVector(0,oldN) = invcovXY;
@@ -994,7 +1044,7 @@ std::map<string, Gravity> gravityTypes = {
 };
 
 void
-Fitter::save(std::ostream& os, string comment) const {
+FitterTracklet::save(std::ostream& os, string comment) const {
   if (!abgIsFit) {
     cerr << "WARNING: saving an invalid ABG fit" << endl;
   }
@@ -1028,30 +1078,50 @@ Fitter::save(std::ostream& os, string comment) const {
 
   // save observations
   os << "#\n# Observations " << endl;
-  os << "#  TDB  |  ThetaX   |   ThetaY  |  covXX   YY    XY    |  Observatory posn X Y Z" << endl;
+  os << "#  TDB1  |  ThetaX1   |   ThetaY1  |  TDB2  |  ThetaX2   |   ThetaY2  |  covX1X1 Y1Y1 X2X2 Y2Y2 X1Y1 X1X2 X1Y2 Y1X2 Y1Y2 X2Y2 |  Observatory posn X1 Y1 Z1 |  Observatory posn X2 Y2 Z2" << endl;
   int n = tObs.size();
   os << n << " observations" << endl;
   stringstuff::StreamSaver ss(os);
+  Matrix44 covar;
+  Matrix44 invcov;
   for (int i=0; i<n; i++) {
-    double det = invcovXX[i] * invcovYY[i] - invcovXY[i]*invcovXY[i];
+    invcov(0,0) = invCovArr(0,i);
+    invcov(1,1) = invCovArr(1,i);
+    invcov(2,2) = invCovArr(2,i);
+    invcov(3,3) = invCovArr(3,i);
+    invcov(0,1) = invcov(1,0) = invCovArr(4,i);
+    invcov(0,2) = invcov(2,0) = invCovArr(5,i);
+    invcov(0,3) = invcov(3,0) = invCovArr(6,i);
+    invcov(1,2) = invcov(2,1) = invCovArr(7,i);
+    invcov(1,3) = invcov(3,1) = invCovArr(8,i);
+    invcov(2,3) = invcov(3,2) = invCovArr(9,i);
+    cov = invcov.inverse();
+
     os << std::setprecision(9)
-       << tObs[i] << " "
-       << thetaX[i] << " "
-       << thetaY[i] << " "
+       << tObs1[i] << " "
+       << thetaX1[i] << " "
+       << thetaY1[i] << " "
+       << tObs2[i] << " "
+       << thetaX2[i] << " "
+       << thetaY2[i] << " "
        << std::setprecision(4)
-       << invcovYY[i]/det << " "
-       << invcovXX[i]/det << " "
-       << -invcovXY[i]/det << " "
+       << cov(0,0) << " " << cov(1,1) << " " << cov(2,2) << " " << cov(3,3) << " "
+       << cov(0,1) << " " << cov(0,2) << " " << cov(0,3) << " "
+       << cov(1,2) << " " << cov(1,3) << " " << cov(2,3) << " "
        << std::setprecision(9)
-       << xE(i,0) << " "
-       << xE(i,1) << " "
-       << xE(i,2)
+       << xE1(i,0) << " "
+       << xE1(i,1) << " "
+       << xE1(i,2)
+       << xE2(i,0) << " "
+       << xE2(i,1) << " "
+       << xE2(i,2)
+
        << endl;
   }
 }
 
 void
-Fitter::restore(std::istream& is) {
+FitterTracklet::restore(std::istream& is) {
   // Get gravity type
   string buffer;
   stringstuff::getlineNoComment(is,buffer);
@@ -1109,23 +1179,34 @@ Fitter::restore(std::istream& is) {
     iss >> nObs;
   }
   // Create arrays
-  DVector tObs_(nObs);
-  DVector thetaX_(nObs);
-  DVector thetaY_(nObs);
-  DVector covXX_(nObs);
-  DVector covYY_(nObs);
-  DVector covXY_(nObs);
-  DMatrix xE_(nObs,3);
+  DVector tObs1_(nObs);
+  DVector thetaX1_(nObs);
+  DVector thetaY1_(nObs);
+  DMatrix xE1_(nObs,3);
+  DVector tObs2_(nObs);
+  DVector thetaX2_(nObs);
+  DVector thetaY2_(nObs);
+  DMatrix xE2_(nObs,3);
+  DMatrix covFull_(nobs, 10);
+
+
   // Read each line
   for (int i=0; i<nObs; i++) {
     stringstuff::getlineNoComment(is, buffer);
     std::istringstream iss(buffer);
-    iss >> tObs_[i]
-	>> thetaX_[i] >> thetaY_[i]
-	>> covXX_[i] >> covYY_[i] >> covXY_[i]
-	>> xE_(i,0) >> xE_(i,1) >> xE_(i,2);
+    iss >> tObs1_[i]
+	>> thetaX1_[i] >> thetaY1_[i]
+  >> tObs2_[i]
+  >> thetaX2_[i] >> thetaY2_[i] 
+	>> covFull_(i,0) >> covFull_(i,1) >> covFull_(i,2)
+  >> covFull_(i,3) >> covFull_(i,4) >> covFull_(i,5)
+  >> covFull_(i,6) >> covFull_(i,7) >> covFull_(i,8)
+  >> covFull_(i,9) 
+	>> xE1_(i,0) >> xE1_(i,1) >> xE1_(i,2)
+  >> xE2_(i,0) >> xE2_(i,1) >> xE2_(i,2);
+
   }
-  setObservationsInFrame(tObs_, thetaX_, thetaY_, covXX_, covYY_, covXY_, xE_);
+  setObservationsInFrame(tObs1_, tObs2_, thetaX1_, thetaY1_, thetaX2_, thetaY2_, covFull_, xE1_, xE2_);
 
   // Save the solution
   setABG(abg_, cov_);
