@@ -1,6 +1,8 @@
 // Pieces of fitting routines
 
-#include "Fitter.h"
+//#include "Fitter.h"
+#include "FitterTracklet.h"
+
 #include "StringStuff.h"
 #include "AstronomicalConstants.h"
 #include "Elements.h"
@@ -36,7 +38,7 @@ FitterTracklet::FitterTracklet(const Ephemeris& eph_,
 void
 FitterTracklet::setABG(const ABG& abg_, const ABGCovariance& cov_) {
   if (!frameIsSet)
-    throw std::runtime_error("ERROR: Fitter::setABG called before setFrame");
+    throw std::runtime_error("ERROR: FitterTracklet::setABG called before setFrame");
   abg = abg_;
   A = cov_.inverse();
   newABG(); // update status flags
@@ -45,61 +47,52 @@ FitterTracklet::setABG(const ABG& abg_, const ABGCovariance& cov_) {
 }
 
 void
-FitterTracklet::addObservation(const Observation& obs) {
+FitterTracklet::addTracklet(const Tracklet& track) {
   if (frameIsSet)
-    throw std::runtime_error("ERROR: Fitter::addObservations called after setFrame");
-  observations.push_back(obs);
+    throw std::runtime_error("ERROR: FitterTracklet::addObservations called after setFrame");
+  tracks.push_back(track);
 }
 
-void
-FitterTracklet::readMPCObservations(istream& is) {
-  if (frameIsSet)
-    throw std::runtime_error("ERROR: Fitter::readMPCObservations called after setFrame");
-  string line;
-  while (stringstuff::getlineNoComment(is, line)) {
-    auto obs = mpc2Observation(MPCObservation(line),eph);
-    observations.push_back(obs);
-  };
-}
+
 
 void
-Fitter::resizeArrays(int n) {
+FitterTracklet::resizeArrays(int n) {
   tObs1.resize(n);
   tEmit1.resize(n);
   tdbEmit1.resize(n);
   thetaX1.resize(n);
   thetaY1.resize(n);
-  invCovArr.resize(n,10)
+  invCovArr.resize(n,10);
   xE1.resize(n,3);
   xGrav1.resize(n,3);
-  dThetaXdABG1.resize(n,6);
-  dThetaYdABG1.resize(n,6);
+  dThetaX1dABG.resize(n,6);
+  dThetaY1dABG.resize(n,6);
   tEmit2.resize(n);
   tdbEmit2.resize(n);
   thetaX2.resize(n);
   thetaY2.resize(n);
   xE2.resize(n,3);
   xGrav2.resize(n,3);
-  dThetaXdABG2.resize(n,6);
-  dThetaYdABG2.resize(n,6);
+  dThetaX2dABG.resize(n,6);
+  dThetaY2dABG.resize(n,6);
 
 }
 
 void
-Fitter::setFrame(const Frame& f_) {
+FitterTracklet::setFrame(const Frame& f_) {
   if (frameIsSet)
-    throw std::runtime_error("ERROR: Fitter::setFrame called after already set");
+    throw std::runtime_error("ERROR: FitterTracklet::setFrame called after already set");
   f = f_;
   frameIsSet = true;
   newData(); // Reset results flags
 
   // Recalculate all coordinates in this frame;
-  int n = track.size();
+  int n = tracks.size();
   resizeArrays(n);
 
   astrometry::Gnomonic projection(f.orient);  
   for (int i=0; i<n; i++) {
-    const Tracklet& tr = track[i];
+    const Tracklet& tr = tracks[i];
     // Set up time variables.  Set light travel time to zero
     tObs1[i] = tr.tdb1 - f.tdb0;
     tObs2[i] = tr.tdb2 - f.tdb0;
@@ -182,8 +175,8 @@ Fitter::setFrame(const Frame& f_) {
 
 // Replace observations with data that is already in desired Frame
 void
-Fitter::setObservationsInFrame(const DVector& tObs1_,    // TDB since reference time
-             const DVector& tObs2,
+FitterTracklet::setObservationsInFrame(const DVector& tObs1_,    // TDB since reference time
+             const DVector& tObs2_,
 			       const DVector& thetaX1_,  // Observed positions
 			       const DVector& thetaY1_,
              const DVector& thetaX2_,  // Observed positions
@@ -192,18 +185,15 @@ Fitter::setObservationsInFrame(const DVector& tObs1_,    // TDB since reference 
 			       const DMatrix& xE1_,
              const DMatrix& xE2_) {    // Observatory posn at observations
   if (!frameIsSet)
-    throw std::runtime_error("ERROR: Fitter::setObservationsInFrame() was "
+    throw std::runtime_error("ERROR: FitterTracklet::setObservationsInFrame() was "
 			     "called before setFrame()");
-  int n = tObs_.size();
-  if (thetaX_.size()!=n ||
-      thetaY_.size()!=n ||
-      covXX_.size()!=n ||
-      covYY_.size()!=n ||
-      covXY_.size()!=n ||
-      xE_.rows() !=n ||
-      xE_.cols() !=3)
+  int n = tObs1_.size();
+  if (thetaX1_.size()!=n ||
+      thetaY1_.size()!=n ||
+      xE1_.rows() !=n ||
+      xE1_.cols() !=3)
     throw std::runtime_error("ERROR: Mismatched array sizes in "
-			     "Fitter::setObservationsInFrame()");
+			     "FitterTracklet::setObservationsInFrame()");
 
   resizeArrays(n);
   newData(); // Reset results flags
@@ -223,7 +213,7 @@ Fitter::setObservationsInFrame(const DVector& tObs1_,    // TDB since reference 
 
   Matrix44 covar; 
   Matrix44 invcov;
-  for (int i, i < n, i++){
+  for (int i; i < n; i++){
     covar(0,0) = covFull_(0,i);
     covar(1,1) = covFull_(1,i);
     covar(2,2) = covFull_(2,i);
@@ -234,7 +224,7 @@ Fitter::setObservationsInFrame(const DVector& tObs1_,    // TDB since reference 
     covar(1,2) = covar(2,1) = covFull_(7,i);
     covar(1,3) = covar(3,1) = covFull_(8,i);
     covar(2,3) = covar(3,2) = covFull_(9,i);
-    invcov = cov.inverse();
+    invcov = covar.inverse();
 
     invCovArr(0,i) = invcov(0,0);
     invCovArr(1,i) = invcov(1,1);
@@ -258,75 +248,108 @@ Fitter::setObservationsInFrame(const DVector& tObs1_,    // TDB since reference 
 }
 
 void
-Fitter::chooseFrame(int obsNumber) {
-  if (obsNumber >= static_cast<int> (observations.size())) 
-    throw runtime_error("Request for nonexistent obsNumber in Fitter::chooseFrame()");
-  if (observations.empty())
-    throw runtime_error("Must have observations to call Fitter::chooseFrame()");
+FitterTracklet::chooseFrame(int obsNumber) {
+  if (obsNumber >= static_cast<int> (tracks.size())) 
+    throw runtime_error("Request for nonexistent obsNumber in FitterTracklet::chooseFrame()");
+  if (tracks.empty())
+    throw runtime_error("Must have tracks to call FitterTracklet::chooseFrame()");
   if (obsNumber < 0) {
-    double tdb0 = observations.front().tdb;
+    double tdb0 = tracks.front().tdb1;
     double tsum=0;
-    for (auto& obs : observations)
-      tsum += obs.tdb - tdb0;
-    double target = tdb0 + tsum / observations.size();
+    for (auto& tr : tracks)
+      tsum += tr.tdb1 - tdb0;
+    double target = tdb0 + tsum / tracks.size();
     double minDT = 1e9;
-    for (int i=0; i<observations.size(); i++) {
-      if (abs(observations[i].tdb-target)<minDT) {
+    for (int i=0; i<tracks.size(); i++) {
+      if (abs(tracks[i].tdb1-target)<minDT) {
 	obsNumber = i;
-	minDT = abs(observations[i].tdb-target);
+	minDT = abs(tracks[i].tdb1-target);
       }
     }
   }
   
   // Now construct ecliptic-aligned frame and set up all observations
-  const Observation& obs = observations[obsNumber];
-  astrometry::Orientation orient(obs.radec);
+  const Tracklet& tr = tracks[obsNumber];
+  astrometry::Orientation orient(tr.radec1);
   orient.alignToEcliptic();
-  double tdb0 = obs.tdb;
-  astrometry::CartesianICRS origin = obs.observer;
+  double tdb0 = tr.tdb1;
+  astrometry::CartesianICRS origin = tr.observer1;
   setFrame(Frame(origin, orient, tdb0));
 }
 
 void
-Fitter::calculateOrbit(bool doDerivatives) {
-  int nobs = tEmit.size();
+FitterTracklet::calculateOrbit(bool doDerivatives) {
+  int nobs = tEmit1.size();
 
   // Is is already done?
   if (doDerivatives && positionsAreValid && positionDerivsAreValid) return;
   if (!doDerivatives && positionsAreValid) return;
   
   // Calculate positions
-  DVector denom = DVector(nobs,1.) + abg[ABG::GDOT]*tEmit
-    + abg[ABG::G]*(xGrav.col(2) - xE.col(2));
+  DVector denom1 = DVector(nobs,1.) + abg[ABG::GDOT]*tEmit1
+    + abg[ABG::G]*(xGrav1.col(2) - xE1.col(2));
 
-  denom = denom.cwiseInverse();  // Denom is now 1/(z*gamma)
-  thetaXModel = abg[ABG::ADOT]*tEmit
-    + abg[ABG::G]*(xGrav.col(0) - xE.col(0));
-  thetaXModel.array() += abg[ABG::A];
-  thetaYModel = abg[ABG::BDOT]*tEmit
-    + abg[ABG::G]*(xGrav.col(1) - xE.col(1));
-  thetaYModel.array() += abg[ABG::B];
-  thetaXModel.array() *= denom.array();
-  thetaYModel.array() *= denom.array();
+  DVector denom2 = DVector(nobs,1.) + abg[ABG::GDOT]*tEmit2
+    + abg[ABG::G]*(xGrav2.col(2) - xE2.col(2));
+
+  denom1 = denom1.cwiseInverse();  // Denom is now 1/(z*gamma)
+  thetaXModel1 = abg[ABG::ADOT]*tEmit1
+    + abg[ABG::G]*(xGrav1.col(0) - xE1.col(0));
+  thetaXModel1.array() += abg[ABG::A];
+  thetaYModel1 = abg[ABG::BDOT]*tEmit1
+    + abg[ABG::G]*(xGrav1.col(1) - xE1.col(1));
+  thetaYModel1.array() += abg[ABG::B];
+  thetaXModel1.array() *= denom1.array();
+  thetaYModel1.array() *= denom1.array();
+
+
+  denom2 = denom2.cwiseInverse();  // Denom is now 1/(z*gamma)
+  thetaXModel2 = abg[ABG::ADOT]*tEmit2
+    + abg[ABG::G]*(xGrav2.col(0) - xE2.col(0));
+  thetaXModel2.array() += abg[ABG::A];
+  thetaYModel2 = abg[ABG::BDOT]*tEmit2
+    + abg[ABG::G]*(xGrav2.col(1) - xE2.col(1));
+  thetaYModel2.array() += abg[ABG::B];
+  thetaXModel2.array() *= denom2.array();
+  thetaYModel2.array() *= denom2.array();
+
+
   positionsAreValid = true;
 
   if (doDerivatives) {
     // Calculate derivatives
-    dThetaXdABG.setZero();
-    dThetaYdABG.setZero();
-    dThetaXdABG.col(ABG::A).setOnes();
-    dThetaYdABG.col(ABG::B).setOnes();
-    dThetaXdABG.col(ABG::ADOT) = tEmit;
-    dThetaYdABG.col(ABG::BDOT) = tEmit;
-    dThetaXdABG.col(ABG::G) = xGrav.col(0) - xE.col(0)
-      + thetaXModel.cwiseProduct(xE.col(2)-xGrav.col(2));
-    dThetaYdABG.col(ABG::G) = xGrav.col(1) - xE.col(1)
-      + thetaYModel.cwiseProduct(xE.col(2)-xGrav.col(2));
-    dThetaXdABG.col(ABG::GDOT) -= thetaXModel.cwiseProduct(tEmit);
-    dThetaYdABG.col(ABG::GDOT) -= thetaYModel.cwiseProduct(tEmit);
+    dThetaX1dABG.setZero();
+    dThetaY1dABG.setZero();
+    dThetaX1dABG.col(ABG::A).setOnes();
+    dThetaY1dABG.col(ABG::B).setOnes();
+    dThetaX1dABG.col(ABG::ADOT) = tEmit1;
+    dThetaY1dABG.col(ABG::BDOT) = tEmit1;
+    dThetaX1dABG.col(ABG::G) = xGrav1.col(0) - xE1.col(0)
+      + thetaXModel1.cwiseProduct(xE1.col(2)-xGrav1.col(2));
+    dThetaY1dABG.col(ABG::G) = xGrav1.col(1) - xE1.col(1)
+      + thetaYModel1.cwiseProduct(xE1.col(2)-xGrav1.col(2));
+    dThetaX1dABG.col(ABG::GDOT) -= thetaXModel1.cwiseProduct(tEmit1);
+    dThetaY1dABG.col(ABG::GDOT) -= thetaYModel1.cwiseProduct(tEmit1);
 
-    dThetaXdABG.applyOnTheLeft(denom.asDiagonal());
-    dThetaYdABG.applyOnTheLeft(denom.asDiagonal());
+    dThetaX1dABG.applyOnTheLeft(denom1.asDiagonal());
+    dThetaY1dABG.applyOnTheLeft(denom1.asDiagonal());
+
+    dThetaX2dABG.setZero();
+    dThetaY2dABG.setZero();
+    dThetaX2dABG.col(ABG::A).setOnes();
+    dThetaY2dABG.col(ABG::B).setOnes();
+    dThetaX2dABG.col(ABG::ADOT) = tEmit2;
+    dThetaY2dABG.col(ABG::BDOT) = tEmit2;
+    dThetaX2dABG.col(ABG::G) = xGrav2.col(0) - xE2.col(0)
+      + thetaXModel2.cwiseProduct(xE2.col(2)-xGrav2.col(2));
+    dThetaY2dABG.col(ABG::G) = xGrav2.col(1) - xE2.col(1)
+      + thetaYModel2.cwiseProduct(xE2.col(2)-xGrav2.col(2));
+    dThetaX2dABG.col(ABG::GDOT) -= thetaXModel2.cwiseProduct(tEmit2);
+    dThetaY2dABG.col(ABG::GDOT) -= thetaYModel2.cwiseProduct(tEmit2);
+
+    dThetaX2dABG.applyOnTheLeft(denom2.asDiagonal());
+    dThetaY2dABG.applyOnTheLeft(denom2.asDiagonal());
+
     positionDerivsAreValid = true;
   }
   
@@ -336,18 +359,27 @@ Fitter::calculateOrbit(bool doDerivatives) {
 }
 
 void
-Fitter::iterateTimeDelay() {
+FitterTracklet::iterateTimeDelay() {
   // Use current orbit to update light-travel time
-  int nobs = tObs.size();
+  int nobs = tObs1.size();
   // Light-travel time is distance/(speed of light)
 
-  DMatrix xyz = abg.getXYZ(tEmit) + xGrav - xE;
+  DMatrix xyz1 = abg.getXYZ(tEmit1) + xGrav1 - xE1;
   // Get sqrt(xyz.xyz):
-  DVector dist = xyz.cwiseProduct(xyz).rowwise().sum().cwiseSqrt();
-  if ( (dist.array()>1e4).any())
-    throw NonConvergent("distance >10,000 AU in Fitter::iterateTimeDelay()");
-  tEmit = tObs - dist/SpeedOfLightAU;
-  tdbEmit.array() = tEmit.array() + f.tdb0;
+  DVector dist1 = xyz1.cwiseProduct(xyz1).rowwise().sum().cwiseSqrt();
+  if ( (dist1.array()>1e4).any())
+    throw NonConvergent("distance >10,000 AU in FitterTracklet::iterateTimeDelay()");
+  tEmit1 = tObs1 - dist1/SpeedOfLightAU;
+  tdbEmit1.array() = tEmit1.array() + f.tdb0;
+
+  DMatrix xyz2 = abg.getXYZ(tEmit2) + xGrav2 - xE2;
+  // Get sqrt(xyz.xyz):
+  DVector dist2 = xyz2.cwiseProduct(xyz2).rowwise().sum().cwiseSqrt();
+  if ( (dist2.array()>1e4).any())
+    throw NonConvergent("distance >10,000 AU in FitterTracklet::iterateTimeDelay()");
+  tEmit2 = tObs2 - dist2/SpeedOfLightAU;
+  tdbEmit2.array() = tEmit2.array() + f.tdb0;
+
 
   // This invalidates the solution
   // Solutions no longer match gravity
@@ -358,7 +390,7 @@ Fitter::iterateTimeDelay() {
 }
 
 void
-Fitter::createTrajectory() {
+FitterTracklet::createTrajectory() {
   // Make a new Trajectory integrator
   // based on current ABG.
 
@@ -382,33 +414,25 @@ Fitter::createTrajectory() {
 }
 
 void
-Fitter::calculateGravity() {
+FitterTracklet::calculateGravity() {
   // Calculate the non-inertial terms in trajectory of object
   // using current ABG and gravity settings
   if (grav==Gravity::INERTIAL) {
-    xGrav.setZero();
+    xGrav1.setZero();
+    xGrav2.setZero();
     return;
   }
 
   createTrajectory();
   
-  DMatrix xyz = fullTrajectory->position(tdbEmit);
+  DMatrix xyz1 = fullTrajectory->position(tdbEmit1);
+  DMatrix xyz2 = fullTrajectory->position(tdbEmit2);
 
   // Convert back to Fitter reference frame and subtract inertial motion
   // Note Frame and Trajectory use 3 x n, we are using n x 3 here.
-  xGrav = f.fromICRS(xyz) - abg.getXYZ(tEmit);
-  if (false) /**/{
-    DMatrix x1 = f.fromICRS(xyz);
-    DMatrix x2 = abg.getXYZ(tEmit);
-    stringstuff::StreamSaver ss(cerr);
-    cerr << std::fixed << std::showpos << std::setprecision(4);
-    for (int i=0; i<xGrav.rows(); i++) {
-      cerr << i << ": " << tEmit[i] << endl;
-      cerr << " " << x1(i,0) << " " << x1(i,1) << " " << x1(i,2) << endl;
-      cerr << " " << x2(i,0) << " " << x2(i,1) << " " << x2(i,2) << endl;
-      cerr << " " << xGrav(i,0) << " " << xGrav(i,1) << " " << xGrav(i,2) << endl;
-    } /**/
-  }
+  xGrav1 = f.fromICRS(xyz1) - abg.getXYZ(tEmit1);
+  xGrav2 = f.fromICRS(xyz2) - abg.getXYZ(tEmit2);
+
 
   // Solutions no longer match gravity
   newABG();
@@ -416,85 +440,16 @@ Fitter::calculateGravity() {
   return;
 }
 
-void
-Fitter::calculateChisq(bool doDerivatives) {
-  if (tObs.size() < 2)
-    throw std::runtime_error("ERROR: Fitter::calculateChisq called with <2 observations");
-
-  // Is it already done?
-  if (doDerivatives && chisqIsValid && chisqDerivsAreValid) return;
-  if (!doDerivatives && chisqIsValid) return;
-  
-  // Make sure that model positions are current (and derivatives, if needed)
-  calculateOrbit(doDerivatives);
-    
-  DVector dx = thetaX - thetaXModel;
-  DVector dy = thetaY - thetaYModel;
-  chisq = dx.transpose() * (invcovXX.asDiagonal() * dx);
-  chisq += 2.* dx.transpose() * (invcovXY.asDiagonal() * dy);
-  chisq += dy.transpose() * (invcovYY.asDiagonal() * dy);
-
-  if (doDerivatives) {
-    DMatrix tmp = invcovXX.asDiagonal() * dThetaXdABG;
-    b = tmp.transpose() * dx;
-    A = dThetaXdABG.transpose() * tmp;
-    tmp = invcovXY.asDiagonal() * dThetaXdABG;
-    b += tmp.transpose() * dy;
-    A += dThetaYdABG.transpose() * tmp;
-    tmp = invcovXY.asDiagonal() * dThetaYdABG;
-    b += tmp.transpose() * dx;
-    A += dThetaXdABG.transpose() * tmp;
-    tmp = invcovYY.asDiagonal() * dThetaYdABG;
-    b += tmp.transpose() * dy;
-    A += dThetaYdABG.transpose() * tmp;
-  }
-  
-  // Add gamma constraint, if any
-  if (gammaPriorSigma > 0.) {
-    double w = pow(gammaPriorSigma, -2);
-    double dg = (gamma0-abg[ABG::G]);
-    chisq += dg * w * dg;
-    if (doDerivatives) {
-      b[ABG::G] += w * dg;
-      A(ABG::G,ABG::G) += w;
-    }
-  }
-
-  // Add derivatives from binding prior - crude one
-  // which pushes to v=0, plunging perihelion.
-  if (bindingConstraintFactor > 0.) {
-    // Do not allow negative chisq:
-    double w = bindingConstraintFactor / (2. * GM * pow(abs(abg[ABG::G]),3.));
-    chisq += w * (abg[ABG::ADOT] * abg[ABG::ADOT]
-		  + abg[ABG::BDOT] * abg[ABG::BDOT]
-		  + abg[ABG::GDOT] * abg[ABG::GDOT]);
-
-    if (doDerivatives) {
-      double dampFactor = 0.5; // This adjustment prevents the solution from oscillating
-      // due to the energy constraint.
-      b[ABG::ADOT] += -w * abg[ABG::ADOT] * dampFactor;
-      b[ABG::BDOT] += -w * abg[ABG::BDOT] * dampFactor;
-      b[ABG::GDOT] += -w * abg[ABG::GDOT] * dampFactor;
-      A(ABG::ADOT,ABG::ADOT) += w;
-      A(ABG::BDOT,ABG::BDOT) += w;
-      A(ABG::GDOT,ABG::GDOT) += w;
-    }
-  }
-
-  chisqIsValid = true;
-  chisqDerivsAreValid = doDerivatives;
-}
-
 double
-Fitter::getChisq() {
+FitterTracklet::getChisq() {
   calculateChisq(false);
   return chisq;
 }
 
 void
-Fitter::calculateChisqTracklet(bool doDerivatives) {
-  if (tObs.size() < 2)
-    throw std::runtime_error("ERROR: Fitter::calculateChisqTracklet called with <2 observations");
+FitterTracklet::calculateChisq(bool doDerivatives) {
+  if (tObs1.size() < 2)
+    throw std::runtime_error("ERROR: FitterTracklet::calculateChisqTracklet called with <2 observations");
 
   // Is it already done?
   if (doDerivatives && chisqIsValid && chisqDerivsAreValid) return;
@@ -503,25 +458,95 @@ Fitter::calculateChisqTracklet(bool doDerivatives) {
   // Make sure that model positions are current (and derivatives, if needed)
   calculateOrbit(doDerivatives);
     
-  DVector dx = thetaX - thetaXModel;
-  DVector dy = thetaY - thetaYModel;
-  chisq = dx.transpose() * (invcovXX.asDiagonal() * dx);
-  chisq += 2.* dx.transpose() * (invcovXY.asDiagonal() * dy);
-  chisq += dy.transpose() * (invcovYY.asDiagonal() * dy);
+  DVector dx1 = thetaX1 - thetaXModel1;
+  DVector dy1 = thetaY1 - thetaYModel1;
+  DVector dx2 = thetaX2 - thetaXModel2;
+  DVector dy2 = thetaY2 - thetaYModel2;
+
+  DVector invCovX1X1 = invCovArr.row(0);
+  DVector invCovY1Y1 = invCovArr.row(1);
+  DVector invCovX2X2 = invCovArr.row(2);
+  DVector invCovY2Y2 = invCovArr.row(3);
+  DVector invCovX1Y1 = invCovArr.row(4);
+  DVector invCovX1X2 = invCovArr.row(5);
+  DVector invCovX1Y2 = invCovArr.row(6);
+  DVector invCovY1X2 = invCovArr.row(7);
+  DVector invCovY1Y2 = invCovArr.row(8);
+  DVector invCovX2Y2 = invCovArr.row(9);
+
+    
+
+  chisq = dx1.transpose() * (invCovX1X1.asDiagonal() * dx1);
+  chisq += 2.* dx1.transpose() * (invCovX1Y1.asDiagonal() * dy1);
+  chisq += dy1.transpose() * (invCovY1Y1.asDiagonal() * dy1);
+  chisq += dx2.transpose() * (invCovX2X2.asDiagonal() * dx2);
+  chisq += 2.* dx2.transpose() * (invCovX2Y2.asDiagonal() * dy2);
+  chisq += dy2.transpose() * (invCovY2Y2.asDiagonal() * dy2);
+  chisq += 2.* dx1.transpose() * (invCovX1X2.asDiagonal() * dx2);
+  chisq += 2.* dx1.transpose() * (invCovX1Y2.asDiagonal() * dy2);
+  chisq += 2.* dy1.transpose() * (invCovY1X2.asDiagonal() * dx2);
+  chisq += 2.* dy1.transpose() * (invCovY1Y2.asDiagonal() * dy2);
+
+
+
 
   if (doDerivatives) {
-    DMatrix tmp = invcovXX.asDiagonal() * dThetaXdABG;
-    b = tmp.transpose() * dx;
-    A = dThetaXdABG.transpose() * tmp;
-    tmp = invcovXY.asDiagonal() * dThetaXdABG;
-    b += tmp.transpose() * dy;
-    A += dThetaYdABG.transpose() * tmp;
-    tmp = invcovXY.asDiagonal() * dThetaYdABG;
-    b += tmp.transpose() * dx;
-    A += dThetaXdABG.transpose() * tmp;
-    tmp = invcovYY.asDiagonal() * dThetaYdABG;
-    b += tmp.transpose() * dy;
-    A += dThetaYdABG.transpose() * tmp;
+    DMatrix tmp = invCovX1X1.asDiagonal() * dThetaX1dABG;
+    b = tmp.transpose() * dx1;
+    A = dThetaX1dABG.transpose() * tmp;
+    tmp = invCovX1Y1.asDiagonal() * dThetaX1dABG;
+    b += tmp.transpose() * dy1;
+    A += dThetaY1dABG.transpose() * tmp;
+    tmp = invCovX1Y1.asDiagonal() * dThetaY1dABG;
+    b += tmp.transpose() * dx1;
+    A += dThetaX1dABG.transpose() * tmp;
+    tmp = invCovY1Y1.asDiagonal() * dThetaY1dABG;
+    b += tmp.transpose() * dy1;
+    A += dThetaY1dABG.transpose() * tmp;
+
+    tmp = invCovX2X2.asDiagonal() * dThetaX2dABG;
+    b += tmp.transpose() * dx2;
+    A += dThetaX2dABG.transpose() * tmp;
+    tmp = invCovX2Y2.asDiagonal() * dThetaX2dABG;
+    b += tmp.transpose() * dy2;
+    A += dThetaY2dABG.transpose() * tmp;
+    tmp = invCovX2Y2.asDiagonal() * dThetaY2dABG;
+    b += tmp.transpose() * dx1;
+    A += dThetaX2dABG.transpose() * tmp;
+    tmp = invCovY2Y2.asDiagonal() * dThetaY2dABG;
+    b += tmp.transpose() * dy2;
+    A += dThetaY2dABG.transpose() * tmp;
+
+    tmp = invCovX1X2.asDiagonal() * dThetaX1dABG;
+    b += tmp.transpose() * dx2;
+    A += dThetaX2dABG.transpose() * tmp;
+    tmp = invCovX1X2.asDiagonal() * dThetaX2dABG;
+    b += tmp.transpose() * dx1;
+    A += dThetaX1dABG.transpose() * tmp;
+
+    tmp = invCovX1Y2.asDiagonal() * dThetaX1dABG;
+    b += tmp.transpose() * dy2;
+    A += dThetaY2dABG.transpose() * tmp;
+    tmp = invCovX1Y2.asDiagonal() * dThetaY2dABG;
+    b += tmp.transpose() * dx1;
+    A += dThetaX1dABG.transpose() * tmp;
+
+    tmp = invCovY1X2.asDiagonal() * dThetaY1dABG;
+    b += tmp.transpose() * dx2;
+    A += dThetaX2dABG.transpose() * tmp;
+    tmp = invCovY1X2.asDiagonal() * dThetaX2dABG;
+    b += tmp.transpose() * dy1;
+    A += dThetaY1dABG.transpose() * tmp;
+
+    tmp = invCovY1Y2.asDiagonal() * dThetaY1dABG;
+    b += tmp.transpose() * dy2;
+    A += dThetaY2dABG.transpose() * tmp;
+    tmp = invCovY1Y2.asDiagonal() * dThetaY2dABG;
+    b += tmp.transpose() * dy1;
+    A += dThetaY1dABG.transpose() * tmp;
+
+
+
   }
   
   // Add gamma constraint, if any
@@ -560,15 +585,9 @@ Fitter::calculateChisqTracklet(bool doDerivatives) {
   chisqDerivsAreValid = doDerivatives;
 }
 
-double
-Fitter::getChisq() {
-  calculateChisq(false);
-  return chisq;
-}
-
 
 void
-Fitter::setLinearOrbit() {
+FitterTracklet::setLinearOrbit() {
 
   // Get positions/derivatives for current ABG
   calculateChisq(true);
@@ -594,7 +613,7 @@ Fitter::setLinearOrbit() {
 }
 
 void
-Fitter::abgSanityCheck() const {
+FitterTracklet::abgSanityCheck() const {
   const double MAX_GAMMA = 1.; // Any closer than this is failure
   const double MAX_KE = 10.; // Failure when crude |KE/PE| exceeds this
 
@@ -612,7 +631,7 @@ Fitter::abgSanityCheck() const {
 }
 
 void
-Fitter::newtonFit(double chisqTolerance, bool dump) {
+FitterTracklet::newtonFit(double chisqTolerance, bool dump) {
   // Assuming that we are coming into this with a good starting point
   iterateTimeDelay();
   calculateGravity();
@@ -692,7 +711,7 @@ Fitter::newtonFit(double chisqTolerance, bool dump) {
 }
 
 void
-Fitter::printResiduals(std::ostream& os) {
+FitterTracklet::printResiduals(std::ostream& os) {
   // Update residuals and chisq to current ABG if needed
   calculateChisq(false);
 
@@ -700,18 +719,44 @@ Fitter::printResiduals(std::ostream& os) {
   os << "# Residuals: " << endl << std::fixed << std::setprecision(2);
   double chitot = 0;
   double chi;
-  DVector dx = thetaX - thetaXModel;
-  DVector dy = thetaY - thetaYModel;
+  DVector dx1 = thetaX1 - thetaXModel1;
+  DVector dy1 = thetaY1 - thetaYModel1;
+  DVector dx2 = thetaX2 - thetaXModel2;
+  DVector dy2 = thetaY2 - thetaYModel2;
+  
   os << "# N    T        dx      dy  chisq" << endl;
   os << "#    (days)        (mas)   " << endl;
-  for (int i=0; i<dx.size(); i++) {
-    chi = dx[i]*dx[i]*invcovXX[i] + 2.*dx[i]*dy[i]*invcovXY[i] + dy[i]*dy[i]*invcovYY[i];
+  for (int i=0; i<dx1.size(); i++) {
+    Matrix44 covar, invcov; 
+
+      covar(0,0) = invCovArr(0,i);
+      covar(1,1) = invCovArr(1,i);
+      covar(2,2) = invCovArr(2,i);
+      covar(3,3) = invCovArr(3,i);
+      covar(0,1) = covar(1,0) = invCovArr(4,i);
+      covar(0,2) = covar(2,0) = invCovArr(5,i);
+      covar(0,3) = covar(3,0) = invCovArr(6,i);
+      covar(1,2) = covar(2,1) = invCovArr(7,i);
+      covar(1,3) = covar(3,1) = invCovArr(8,i);
+      covar(2,3) = covar(3,2) = invCovArr(9,i);
+
+      invcov = covar.inverse();
+
+      chi = dx1[i] * dx1[i] * invcov(0,0) + dy1[i] * dy1[i] * invcov(1,1) + 2 * dx1[i] * dy1[i] * invcov(0,1);
+      chi += dx2[i] * dx2[i] * invcov(2,2) + dy2[i] * dy2[i] * invcov(3,3) + 2 * dx2[i] * dy2[i] * invcov(2,3);
+      chi += 2*dx1[i] * dx2[i] * invcov(0,2) + 2*dx1[i] * dy2[i] * invcov(0,3);
+      chi += 2 * dy1[i] * dx2[i] * invcov(1,2) + 2 * dy1[i] * dy2[i] * invcov(1,3);
+
+
     os << std::setw(3) << i << "  "
        << std::setprecision(2)
-       << std::setw(7) << std::showpos << tObs[i]/DAY << " "
+       << std::setw(7) << std::showpos << tObs1[i]/DAY << " "
+       << std::setw(7) << std::showpos << tObs2[i]/DAY << " "
        << std::setprecision(2)
-       << std::setw(7) << 1000.*dx[i]/ARCSEC << " "
-       << std::setw(7) << 1000.*dy[i]/ARCSEC << " "
+       << std::setw(7) << 1000.*dx1[i]/ARCSEC << " "
+       << std::setw(7) << 1000.*dy1[i]/ARCSEC << " "
+       << std::setw(7) << 1000.*dx2[i]/ARCSEC << " "
+       << std::setw(7) << 1000.*dy2[i]/ARCSEC << " "
        << std::noshowpos << std::setprecision(2) << chi
        << endl;
     chitot += chi;
@@ -723,7 +768,7 @@ Fitter::printResiduals(std::ostream& os) {
 }
 
 Elements
-Fitter::getElements(bool heliocentric) const {
+FitterTracklet::getElements(bool heliocentric) const {
   Vector3 x0;
   Vector3 v0;
   // Get state in our Frame:
@@ -738,7 +783,7 @@ Fitter::getElements(bool heliocentric) const {
 }
 
 ElementCovariance
-Fitter::getElementCovariance(bool heliocentric) const {
+FitterTracklet::getElementCovariance(bool heliocentric) const {
   // Derivative of state vector in reference frame:
   Matrix66 dSdABG_frame = abg.getStateDerivatives();
 
@@ -767,13 +812,13 @@ Fitter::getElementCovariance(bool heliocentric) const {
 }
 
 Elements
-Fitter::getElements(double tdb, bool heliocentric) const {
+FitterTracklet::getElements(double tdb, bool heliocentric) const {
   State s = predictState(tdb - f.tdb0);
   return heliocentric ? orbits::getElements(s, heliocentric, &eph) : orbits::getElements(s) ;
 }
 
 ElementCovariance
-Fitter::getElementCovariance(double tdb, bool heliocentric) const {
+FitterTracklet::getElementCovariance(double tdb, bool heliocentric) const {
   // Derivative of state vector in reference frame:
   Matrix66 covS;
   State s = predictState(tdb-f.tdb0, &covS);
@@ -784,7 +829,7 @@ Fitter::getElementCovariance(double tdb, bool heliocentric) const {
 
 // Forecast position using current fit.  Cov matrix elements given if filled:
 void
-Fitter::predict(const DVector& t_obs,    // Time of observations, relative to tdb0
+FitterTracklet::predict(const DVector& t_obs,    // Time of observations, relative to tdb0
 		const DMatrix& earth,  // Observation coordinates, in our frame, Nx3
 		DVector* xOut,         // Angular coordinates, in our frame
 		DVector* yOut,
@@ -795,13 +840,13 @@ Fitter::predict(const DVector& t_obs,    // Time of observations, relative to td
   // Resize arrays if necessary
   int nobs = t_obs.rows();
   if (earth.cols()!=3 || earth.rows()!=nobs)
-    throw std::runtime_error("Wrong dimensions for earth positions in Fitter::predict");
+    throw std::runtime_error("Wrong dimensions for earth positions in FitterTracklet::predict");
   if (!xOut || !yOut)
-    throw std::runtime_error("Must provide output xOut and yOut arrays for Fitter::predict");
+    throw std::runtime_error("Must provide output xOut and yOut arrays for FitterTracklet::predict");
 
   bool doDerivs = covXX || covXY || covYY;
   if (doDerivs && (!covXX || !covXY || !covYY))
-    throw std::runtime_error("Fitter::predict did not get arrays for all three covariance elements");
+    throw std::runtime_error("FitterTracklet::predict did not get arrays for all three covariance elements");
 
   // Iterate 3d position determination and time delay.
   // Use inertial orbit if there is no trajectory.
@@ -892,7 +937,7 @@ Fitter::predict(const DVector& t_obs,    // Time of observations, relative to td
 // Forecast position using current fit.  Cov matrix elements given if filled.
 // Position uses full orbit but the covariance will be propagated with inertial approx
 State
-Fitter::predictState(const double tdb,    // Dynamical time, relative to tdb0
+FitterTracklet::predictState(const double tdb,    // Dynamical time, relative to tdb0
 		     Matrix66* stateCov) const {
 
   State out;
@@ -939,7 +984,7 @@ FitterTracklet::augmentObservation(double tObs1_,    // TDB since reference time
 			   double thetaY1_,
          double thetaX2_,  // Observed positions
          double thetaY2_,
-			   double cov_,   // Covariance of observed posns
+			   DVector& cov_,   // Covariance of observed posns
 			   const Vector3& xE1_,     // Observatory posn at observations,
          const Vector3& xE2_,     // Observatory posn at observations
 			   bool newGravity) const {
@@ -965,33 +1010,75 @@ FitterTracklet::augmentObservation(double tObs1_,    // TDB since reference time
   out->thetaY2[oldN] = thetaY2_;
 
 
-  out->invcovXX.subVector(0,oldN) = invcovXX;
-  out->invcovYY.subVector(0,oldN) = invcovYY;
-  out->invcovXY.subVector(0,oldN) = invcovXY;
-  double det = covXX_*covYY_ - covXY_*covXY_;
-  out->invcovXX[oldN] = covYY_/det;
-  out->invcovYY[oldN] = covXX_/det;
-  out->invcovXY[oldN] = -covXY_/det;
-  out->xE.subMatrix(0,oldN,0,3) = xE;
-  out->xE.row(oldN) = xE_.transpose();
+  out->invCovArr.subMatrix(0,oldN, 0, 9) = invCovArr;
+
+  Matrix44 covar, invcov;
+
+  covar(0,0) = cov_(0);
+  covar(1,1) = cov_(1);
+  covar(2,2) = cov_(2);
+  covar(3,3) = cov_(3);
+  covar(0,1) = covar(1,0) = cov_(4);
+  covar(0,2) = covar(2,0) = cov_(5);
+  covar(0,3) = covar(3,0) = cov_(6);
+  covar(1,2) = covar(2,1) = cov_(7);
+  covar(1,3) = covar(3,1) = cov_(8);
+  covar(2,3) = covar(3,2) = cov_(9);
+  invcov = covar.inverse();
+
+
+
+  out->invCovArr(0,oldN) = invcov(0,0);
+  out->invCovArr(1,oldN) = invcov(1,1);
+  out->invCovArr(2,oldN) = invcov(2,2);
+  out->invCovArr(3,oldN) = invcov(3,3);
+  out->invCovArr(4,oldN) = invcov(0,1);
+  out->invCovArr(5,oldN) = invcov(0,2);
+  out->invCovArr(6,oldN) = invcov(0,3);
+  out->invCovArr(7,oldN) = invcov(1,2);
+  out->invCovArr(8,oldN) = invcov(1,3);
+  out->invCovArr(9,oldN) = invcov(2,3);
+
+
+
+  out->xE1.subMatrix(0,oldN,0,3) = xE1;
+  out->xE1.row(oldN) = xE1_.transpose();
   
-  out->xGrav.subMatrix(0,oldN,0,3) = xGrav;
-  out->tEmit.subVector(0,oldN) = tEmit;
-  out->tdbEmit.subVector(0,oldN) = tdbEmit;
+  out->xE2.subMatrix(0,oldN,0,3) = xE2;
+  out->xE2.row(oldN) = xE2_.transpose();
+  
+  out->xGrav1.subMatrix(0,oldN,0,3) = xGrav1;
+  out->tEmit1.subVector(0,oldN) = tEmit1;
+  out->tdbEmit1.subVector(0,oldN) = tdbEmit1;
+  out->xGrav2.subMatrix(0,oldN,0,3) = xGrav2;
+  out->tEmit2.subVector(0,oldN) = tEmit2;
+  out->tdbEmit2.subVector(0,oldN) = tdbEmit2;
+  
   // Get gravity position and time delay for new point from current fit
   {
     if (!fullTrajectory)
-      throw std::runtime_error("ERROR: Fitter::augmentObservation called without "
+      throw std::runtime_error("ERROR: FitterTracklet::augmentObservation called without "
 			       "a valid Trajectory");
-    Vector3 xFull = f.fromICRS(fullTrajectory->position(tObs_+f.tdb0).getVector());
+    Vector3 xFull = f.fromICRS(fullTrajectory->position(tObs1_+f.tdb0).getVector());
     Vector3 xInertial,v;
-    abg.getState(tObs_,xInertial,v);
+    abg.getState(tObs1_,xInertial,v);
     Vector3 g = xFull-xInertial;
-    out->xGrav.row(oldN) = g.transpose();
+    out->xGrav1.row(oldN) = g.transpose();
 
-    Vector3 dx = (xFull-xE_);
-    out->tEmit[oldN] = tObs_ - sqrt(dx.dot(dx))/SpeedOfLightAU; 
-    out->tdbEmit[oldN] = out->tEmit[oldN] + f.tdb0;
+    Vector3 dx = (xFull-xE1_);
+    out->tEmit1[oldN] = tObs1_ - sqrt(dx.dot(dx))/SpeedOfLightAU; 
+    out->tdbEmit1[oldN] = out->tEmit1[oldN] + f.tdb0;
+
+    xFull = f.fromICRS(fullTrajectory->position(tObs2_+f.tdb0).getVector());
+    xInertial,v;
+    abg.getState(tObs2_,xInertial,v);
+    g = xFull-xInertial;
+    out->xGrav2.row(oldN) = g.transpose();
+
+    dx = (xFull-xE2_);
+    out->tEmit2[oldN] = tObs2_ - sqrt(dx.dot(dx))/SpeedOfLightAU; 
+    out->tdbEmit2[oldN] = out->tEmit2[oldN] + f.tdb0;
+
   }
 
   out->newData(); // Invalidate state of new Fitter
@@ -1032,16 +1119,18 @@ FitterTracklet::augmentObservation(double tObs1_,    // TDB since reference time
   return out;
 }
 
-std::map<Gravity, string> gravityNames = {
+
+std::map<Gravity, string> gravityNamesTracklet = {
   {Gravity::INERTIAL, "INERTIAL"},
   {Gravity::BARY, "BARYCENTER"},
   {Gravity::GIANTS, "GIANTS"}
   };
-std::map<string, Gravity> gravityTypes = {
+std::map<string, Gravity> gravityTypesTracklet = {
   {"INERTIAL",Gravity::INERTIAL},
   {"BARYCENTER", Gravity::BARY},
   {"GIANTS", Gravity::GIANTS}
 };
+
 
 void
 FitterTracklet::save(std::ostream& os, string comment) const {
@@ -1054,7 +1143,7 @@ FitterTracklet::save(std::ostream& os, string comment) const {
   }
   // Save config info: gravity type
   os << "# Gravity type:" << endl;
-  os << gravityNames[grav] << endl;
+  os << gravityNamesTracklet[grav] << endl;
 
   // Binding constraint
   os << "# Binding constraint strength " << endl;
@@ -1079,7 +1168,7 @@ FitterTracklet::save(std::ostream& os, string comment) const {
   // save observations
   os << "#\n# Observations " << endl;
   os << "#  TDB1  |  ThetaX1   |   ThetaY1  |  TDB2  |  ThetaX2   |   ThetaY2  |  covX1X1 Y1Y1 X2X2 Y2Y2 X1Y1 X1X2 X1Y2 Y1X2 Y1Y2 X2Y2 |  Observatory posn X1 Y1 Z1 |  Observatory posn X2 Y2 Z2" << endl;
-  int n = tObs.size();
+  int n = tObs1.size();
   os << n << " observations" << endl;
   stringstuff::StreamSaver ss(os);
   Matrix44 covar;
@@ -1095,7 +1184,7 @@ FitterTracklet::save(std::ostream& os, string comment) const {
     invcov(1,2) = invcov(2,1) = invCovArr(7,i);
     invcov(1,3) = invcov(3,1) = invCovArr(8,i);
     invcov(2,3) = invcov(3,2) = invCovArr(9,i);
-    cov = invcov.inverse();
+    covar = invcov.inverse();
 
     os << std::setprecision(9)
        << tObs1[i] << " "
@@ -1130,7 +1219,7 @@ FitterTracklet::restore(std::istream& is) {
     std::istringstream iss(buffer);
     iss >> g;
     try {
-      grav = gravityTypes.at(g);
+      grav = gravityTypesTracklet.at(g);
     } catch (std::out_of_range& e) {
       throw std::runtime_error("Unknown Gravity type in Fitter restore: " + g);
     }
@@ -1187,7 +1276,7 @@ FitterTracklet::restore(std::istream& is) {
   DVector thetaX2_(nObs);
   DVector thetaY2_(nObs);
   DMatrix xE2_(nObs,3);
-  DMatrix covFull_(nobs, 10);
+  DMatrix covFull_(nObs, 10);
 
 
   // Read each line

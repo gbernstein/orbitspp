@@ -1,6 +1,6 @@
 // Class that manages orbit fitting
-#ifndef FITTER_H
-#define FITTER_H
+#ifndef FITTERTRACKLET_H
+#define FITTERTRACKLET_H
 
 #include "Astrometry.h"
 #include "OrbitTypes.h"
@@ -15,8 +15,33 @@
 
 namespace orbits {
 
-  class FitterTracklet : public Fitter{
+  class FitterTracklet{
   public:
+    FitterTracklet(const Ephemeris& eph_, Gravity grav_=Gravity::GIANTS);
+
+    ~FitterTracklet() {
+      if (fullTrajectory) delete fullTrajectory;
+    }
+    
+    // Define an exception class for non-convergence of fits
+    class NonConvergent: public std::runtime_error {
+    public:
+      NonConvergent(string msg=""): std::runtime_error("Fit Non-Convergence: " + msg) {}
+    };
+
+    // Save and restore observations & ABG fit to/from a stream.
+    void save(std::ostream& os, string comment="") const;
+    void restore(std::istream& is);
+    
+    // Give Fitter a previous result (can be used for prediction without Observations)
+    void setABG(const ABG& abg_, const ABGCovariance& cov_);
+    
+    // Add an Observation
+    void addObservation(const Observation& obs);
+
+    // Ingest a sequence of MPC-style observations from stream
+    void readMPCObservations(istream& is);
+
     // Add an Observation
     void addTracklet(const Tracklet& track);
 
@@ -28,16 +53,16 @@ namespace orbits {
 				const DVector& thetaY1_,
         const DVector& thetaX2_,  // Observed positions
         const DVector& thetaY2_,
-				const DMatrix& covFull,   // Covariance of observed posns
+				const DMatrix& covFull_,   // Covariance of observed posns
 				const DMatrix& xE1_,     // Observatory posn at observations
         const DMatrix& xE2_);     // Observatory posn at observations
 
 
     // Number of observations
-    int nObservations() const {return frameIsSet ? tObs1.size() : track.size();}
+    int nObservations() const {return frameIsSet ? tObs1.size() : tracks.size();}
 
     // Set reference frame to the one given, put observations into this frame
-    void setFrameTracklet(const Frame& f_);
+    void setFrame(const Frame& f_);
     const Frame& getFrame() const {return f;}
 
     // Choose a reference frame as the location and direction of
@@ -74,7 +99,7 @@ namespace orbits {
       return abg;
     }
     double getChisq(); // Chisq at current abg
-    int getDOF() const {return 2*tObs.size() - 6;}  // DOF does not count priors
+    int getDOF() const {return 2*2*tObs1.size() - 6;}  // DOF does not count priors
     ABGCovariance getInvCovarABG() const {
       // Inverse covariance of ABG from last fit
       if (!abgIsFit) throw std::runtime_error("ERROR: Fitter::getInvCovarABG is not getting converged result");
@@ -105,20 +130,24 @@ namespace orbits {
     // The additional data is assumed already in desired Frame.
     // Use updated orbit to recalculate non-inertial motion if newGravity=true,
     // otherwise keep trajectory from previous fit.
-    Fitter* augmentObservation(double tObs_,    // TDB since reference time
-			       double thetaX_,  // Observed position
-			       double thetaY_,
-			       double covXX_,   // Covariance of observed posn
-			       double covYY_,
-			       double covXY_,
-			       const Vector3& xE_,     // Observatory posn at observation
+    FitterTracklet* augmentObservation(double tObs1_,    // TDB since reference time
+             double tObs2_,
+			       double thetaX1_,  // Observed position
+			       double thetaY1_,
+             double thetaX2_,
+             double thetaY2_,
+             DVector& cov_,
+			       const Vector3& xE1_,     // Observatory posn at observation
+             const Vector3& xE2_,     // Observatory posn at observation
+
 			       bool newGravity=false) const; 
     EIGEN_NEW
+
 
   private:
     const Ephemeris& eph; // Solar system Ephemeris
 
-    vector<Observation, Eigen::aligned_allocator<Observation> > observations;
+    vector<Tracklet, Eigen::aligned_allocator<Tracklet> > tracks;
     
     void iterateTimeDelay(); // Update tEmit based on light-travel time in current orbit
     void calculateGravity(); // Calculate non-inertial terms from current ABG
@@ -139,23 +168,37 @@ namespace orbits {
     Frame f;   // Reference frame for our coordinates
 
     // Observational information:
-    DVector tObs;  // Times of observations, in Julian years since reference time
-    DVector tEmit; // Times of light emission, in Julian years since reference time
-    DVector tdbEmit; // TDB at time of light emission per observation, years since J2000 TDB 
-    DVector thetaX; // Observed angles in our frame
-    DVector thetaY; // Observed angles in our frame
-    DVector invcovXX; // Inverse cov matrix of observations
-    DVector invcovXY; 
-    DVector invcovYY;
-    DMatrix xE;    // Earth positions in our ref frame
+    DVector tObs1;  // Times of observations, in Julian years since reference time
+    DVector tEmit1; // Times of light emission, in Julian years since reference time
+    DVector tdbEmit1; // TDB at time of light emission per observation, years since J2000 TDB 
+    DVector thetaX1; // Observed angles in our frame
+    DVector thetaY1; // Observed angles in our frame
+    DMatrix xE1;    // Earth positions in our ref frame
+    
+    DVector tObs2;  // Times of observations, in Julian years since reference time
+    DVector tEmit2; // Times of light emission, in Julian years since reference time
+    DVector tdbEmit2; // TDB at time of light emission per observation, years since J2000 TDB 
+    DVector thetaX2; // Observed angles in our frame
+    DVector thetaY2; // Observed angles in our frame
+    DMatrix xE2;    // Earth positions in our ref frame
+
+    DMatrix invCovArr;
+
 
     // Model/fitting information:
     Trajectory* fullTrajectory;
-    DVector thetaXModel;  // Positions predicted by current ABG
-    DVector thetaYModel;  // Positions predicted by current ABG
-    DMatrix xGrav; // Gravitational component of motion in our frame
-    DMatrix dThetaXdABG;  // Derivatives of x position wrt abg
-    DMatrix dThetaYdABG;  // Derivatives of y position wrt abg
+    DVector thetaXModel1;  // Positions predicted by current ABG
+    DVector thetaYModel1;  // Positions predicted by current ABG
+    DMatrix xGrav1; // Gravitational component of motion in our frame
+    DMatrix dThetaX1dABG;  // Derivatives of x position wrt abg
+    DMatrix dThetaY1dABG;  // Derivatives of y position wrt abg
+
+    DVector thetaXModel2;  // Positions predicted by current ABG
+    DVector thetaYModel2;  // Positions predicted by current ABG
+    DMatrix xGrav2; // Gravitational component of motion in our frame
+    DMatrix dThetaX2dABG;  // Derivatives of x position wrt abg
+    DMatrix dThetaY2dABG;  // Derivatives of y position wrt abg
+
 
     // Fitting results
     ABG abg;         // Orbit in abg basis

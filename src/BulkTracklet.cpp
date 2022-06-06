@@ -1,6 +1,6 @@
 // Run orbit fits given sets of observations stored in FITS tables
 #include "Pset.h"
-#include "Fitter.h"
+#include "FitterTracklet.h"
 #include "Elements.h"
 #include "StringStuff.h"
 #include "FTable.h"
@@ -146,9 +146,13 @@ int main(int argc,
     vector<double> ra2;
     vector<double> dec1;
     vector<double> dec2;
-    vector<Matrix44> sigma;
+    vector<double> sigmax1x1, sigmay1y1, sigmax2x2, sigmay2y2;
+    vector<double> sigmax1y1, sigmax2y2;
+    vector<double> sigmax1x2, sigmax1y2, sigmay1x2, sigmay1y2;
+
+
     
-    if (observationsFromFile) {
+    
       FITS::FitsTable ft(observationPath,FITS::ReadOnly, 1);
       img::FTable obsTable = ft.extract();
 
@@ -194,26 +198,19 @@ int main(int argc,
       obsTable.readCells(dec1,"DEC1");
       obsTable.readCells(dec2,"DEC2");
 
-      obsTable.readCells(sigma,"SIGMA"); 
+      obsTable.readCells(sigmax1x1,"SIGMAX1X1");
+      obsTable.readCells(sigmay1y1,"SIGMAY1Y1");
+      obsTable.readCells(sigmax1y1,"SIGMAX1Y1");
+      obsTable.readCells(sigmax2x2,"SIGMAX2X2");
+      obsTable.readCells(sigmay2y2,"SIGMAY2Y2");
+      obsTable.readCells(sigmax2y2,"SIGMAX2Y2");
 
-    } else {
+      obsTable.readCells(sigmax1x2,"SIGMAX1X2");
+      obsTable.readCells(sigmax1y2,"SIGMAX1Y2");
+      obsTable.readCells(sigmay1x2,"SIGMAY1X2");
+      obsTable.readCells(sigmay1y2,"SIGMAY1Y1");
 
-      // Info will come from stdin.  Read the reference frame from first
-      // non-comment line.
-      string buffer;
-      stringstuff::getlineNoComment(cin, buffer);
-      std::istringstream iss(buffer);
-      double ra0, dec0, mjd0;
-      iss >> ra0 >> dec0 >> mjd0;
-      frame.orient.setPole(astrometry::SphericalICRS(ra0*DEGREE,dec0*DEGREE));
-      // Align the frame to ecliptic
-      frame.orient.alignToEcliptic();
-      frame.tdb0 = eph.mjd2tdb(mjd0);
-      // Put origin at position of observatory at MJD0
-      frame.origin = eph.observatory(obscode, frame.tdb0);
-      // Expnum vs MJD will be determined line by line.
-      useExpnum = false;
-    }
+
 
     // Create vectors to hold output if we are writing FITS
     vector<LONGLONG> idOut;
@@ -252,7 +249,7 @@ int main(int argc,
 
     while (!done) {
       // Set up a new fitter
-      Fitter fit(eph, Gravity::GIANTS);
+      FitterTracklet fit(eph, Gravity::GIANTS);
       if (bindingFactor > 0.)
 	fit.setBindingConstraint(bindingFactor);
       if (gamma0 > 0.)
@@ -262,54 +259,45 @@ int main(int argc,
       bool isFirst = true;
       LONGLONG idThis;
       while (true) {
-	double raThis1, raThis2, decThis1, decThis2, sigmaThis;
+	double raThis1, raThis2, decThis1, decThis2;
+	Matrix44 sigmaThis;
 	int expnumThis1, expnumThis2;
 	double mjdThis1, mjdThis2;
-	if (observationsFromFile) {
-	  // Read new data from table
-	  if (isFirst) {
-	    idThis = idIn[inputRow];
-	    isFirst = false;
-	  } else {
-	    if (idIn[inputRow]!=idThis)
-	      break; // Done getting data for this orbit
-	  }
-	  raThis1 = ra1[inputRow];
-	  raThis2 = ra2[inputRow];
-	  decThis1 = dec1[inputRow];
-	  decThis2 = dec2[inputRow];
-	  sigmaThis = sigma[inputRow];
-	  if (useExpnum) {
-	    expnumThis1 = expnum1[inputRow];
-	    expnumThis2 = expnum2[inputRow];
-	  } else {
-	    mjdThis1 = mjd1[inputRow];
-	    mjdThis2 = mjd2[inputRow];
-	  }
-	  ++inputRow;
-	  if (inputRow >= idIn.size())
-	    done = true; // This is last input observation.
-	} else {
-	  // Read data from input line.
-	  std::istringstream iss(inputLine);
-	  LONGLONG idTest;
-	  iss >> idTest >> mjdThis >> raThis >> decThis >> sigmaThis;
-	  if (isFirst) {
-	    idThis = idTest;
-	    isFirst = false;
-	  } else {
-	    if (idTest!=idThis)
-	      break; // Done getting data for this orbit
-	  }
-	  // Is input expnum or MJD?
-	  useExpnum = mjdThis1 > 100000.; // Expnums are >100,000, MJD's are ~50,000
-	  if (useExpnum) {
-	    expnumThis1 = static_cast<int> (round(mjdThis1));
-	    expnumThis2 = static_cast<int> (round(mjdThis2));
-	  }
-	  // Read next input line (if any)
-	  done = !getlineNoComment(cin, inputLine);
-	}
+	// Read new data from table
+  if (isFirst) {
+    idThis = idIn[inputRow];
+    isFirst = false;
+  } else {
+    if (idIn[inputRow]!=idThis)
+      break; // Done getting data for this orbit
+  }
+  raThis1 = ra1[inputRow];
+  raThis2 = ra2[inputRow];
+  decThis1 = dec1[inputRow];
+  decThis2 = dec2[inputRow];
+  sigmaThis(0,0) = sigmax1x1[inputRow];
+  sigmaThis(1,1) = sigmay1y1[inputRow];
+  sigmaThis(2,2) = sigmax2x2[inputRow];
+  sigmaThis(3,3) = sigmay2y2[inputRow];
+
+  sigmaThis(0,1) = sigmaThis(1,0) = sigmax1y1[inputRow];
+  sigmaThis(0,2) = sigmaThis(2,0) = sigmax1x2[inputRow];
+  sigmaThis(0,3) = sigmaThis(3,0) = sigmax1y2[inputRow];
+  sigmaThis(1,2) = sigmaThis(2,1) = sigmay1x2[inputRow];
+  sigmaThis(1,3) = sigmaThis(3,1) = sigmay1y2[inputRow];
+  sigmaThis(2,3) = sigmaThis(3,2) = sigmax2y2[inputRow];
+
+
+  if (useExpnum) {
+    expnumThis1 = expnum1[inputRow];
+    expnumThis2 = expnum2[inputRow];
+  } else {
+    mjdThis1 = mjd1[inputRow];
+    mjdThis2 = mjd2[inputRow];
+  }
+  ++inputRow;
+  if (inputRow >= idIn.size())
+    done = true; // This is last input observation.
 
 	// Build Observation
 	Tracklet track;
@@ -348,8 +336,8 @@ int main(int argc,
 
 	  if (exposureTable->isAstrometric(expnumThis1)) {
 	  	Matrix44 atm;
-	  	for (int i = 0; i < 4, i++){
-	  		for (int j = 0; i < 4, i++){
+	  	for (int i = 0; i < 4; i++){
+	  		for (int j = 0; i < 4; i++){
 	  			atm(i,j) = 0;
 	  		}
 	  	}
@@ -372,7 +360,7 @@ int main(int argc,
 	  // Note no atmospheric term added to covariance here.
 	}
 
-	fit.addObservation(track);
+	fit.addTracklet(track);
       } // end collecting observations for this orbit
 
 

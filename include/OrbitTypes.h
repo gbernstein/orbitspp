@@ -15,7 +15,7 @@ namespace orbits {
   typedef linalg::SVector<double,6> Vector6;
   typedef linalg::SMatrix<double,2,2> Matrix22;
   typedef linalg::SMatrix<double,3,3> Matrix33;
-  typedef linalg::SMatrix<double,4,4,> Matrix44;
+  typedef linalg::SMatrix<double,4,4> Matrix44;
   typedef linalg::SMatrix<double,6,6> Matrix66;
   typedef linalg::Vector<double> DVector;
   typedef linalg::Vector<bool> BVector;
