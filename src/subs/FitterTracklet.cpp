@@ -62,11 +62,12 @@ FitterTracklet::resizeArrays(int n) {
   tdbEmit1.resize(n);
   thetaX1.resize(n);
   thetaY1.resize(n);
-  invCovArr.resize(n,10);
+  invCovArr.resize(10,n);
   xE1.resize(n,3);
   xGrav1.resize(n,3);
   dThetaX1dABG.resize(n,6);
   dThetaY1dABG.resize(n,6);
+  tObs2.resize(n);
   tEmit2.resize(n);
   tdbEmit2.resize(n);
   thetaX2.resize(n);
@@ -92,7 +93,9 @@ FitterTracklet::setFrame(const Frame& f_) {
 
   astrometry::Gnomonic projection(f.orient);  
   for (int i=0; i<n; i++) {
+
     const Tracklet& tr = tracks[i];
+
     // Set up time variables.  Set light travel time to zero
     tObs1[i] = tr.tdb1 - f.tdb0;
     tObs2[i] = tr.tdb2 - f.tdb0;
@@ -101,6 +104,7 @@ FitterTracklet::setFrame(const Frame& f_) {
 
     tdbEmit1[i] = tr.tdb1;
     tdbEmit2[i] = tr.tdb2;
+
 
     
     // Convert angles to our frame and get local partials for covariance
@@ -141,15 +145,16 @@ FitterTracklet::setFrame(const Frame& f_) {
     Matrix44 cov = fullpartials * tr.cov * fullpartials.transpose();
 
     Matrix44 invcov = cov.inverse();
-
     invCovArr(0,i) = invcov(0,0);
     invCovArr(1,i) = invcov(1,1);
     invCovArr(2,i) = invcov(2,2);
+
     invCovArr(3,i) = invcov(3,3);
     invCovArr(4,i) = invcov(0,1);
     invCovArr(5,i) = invcov(0,2);
     invCovArr(6,i) = invcov(0,3);
     invCovArr(7,i) = invcov(1,2);
+
     invCovArr(8,i) = invcov(1,3);
     invCovArr(9,i) = invcov(2,3);
 
@@ -161,6 +166,7 @@ FitterTracklet::setFrame(const Frame& f_) {
     // Initialize gravitational effect to zero
     xGrav1.setZero();
     xGrav2.setZero();
+
 
     /**cerr << i << " " << std::fixed << setprecision(4) << dt[i]
 	     << " " << setprecision(4) << xE(0,i) 
@@ -449,7 +455,7 @@ FitterTracklet::getChisq() {
 void
 FitterTracklet::calculateChisq(bool doDerivatives) {
   if (tObs1.size() < 2)
-    throw std::runtime_error("ERROR: FitterTracklet::calculateChisqTracklet called with <2 observations");
+    throw std::runtime_error("ERROR: FitterTracklet::calculateChisq called with <2 observations");
 
   // Is it already done?
   if (doDerivatives && chisqIsValid && chisqDerivsAreValid) return;
@@ -473,7 +479,6 @@ FitterTracklet::calculateChisq(bool doDerivatives) {
   DVector invCovY1X2 = invCovArr.row(7);
   DVector invCovY1Y2 = invCovArr.row(8);
   DVector invCovX2Y2 = invCovArr.row(9);
-
     
 
   chisq = dx1.transpose() * (invCovX1X1.asDiagonal() * dx1);
@@ -636,7 +641,7 @@ FitterTracklet::newtonFit(double chisqTolerance, bool dump) {
   iterateTimeDelay();
   calculateGravity();
   calculateChisq(true);
-  const int MAX_ITERATIONS = 20;
+  const int MAX_ITERATIONS = 50;
 
   // cancel validity of results until re-converged
   abgIsFit = false;

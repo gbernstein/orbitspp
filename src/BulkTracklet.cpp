@@ -303,7 +303,6 @@ int main(int argc,
 	Tracklet track;
 	track.radec1 = astrometry::SphericalICRS(raThis1*DEGREE, decThis1*DEGREE);
 	track.radec2 = astrometry::SphericalICRS(raThis2*DEGREE, decThis2*DEGREE);
-	
 	track.cov = sigmaThis * ARCSEC * ARCSEC;
       
 	if (useExpnum) {
@@ -367,6 +366,7 @@ int main(int argc,
       // Set up Fitter and do fit
       int errorCode = 0;
       if (fit.nObservations() < 3) {
+
 	// Do not attempt to fit this orbit
 	errorCode = INSUFFICIENT_OBSERVATIONS;
 	if (orbitsToFile) {
@@ -387,12 +387,14 @@ int main(int argc,
 	}
 	continue;
       }
+
       fit.setFrame(frame);
+
       try {
 	fit.setLinearOrbit();
 	fit.setLinearOrbit(); // Another iteration
 	auto abg = fit.getABG(true);
-	if (fit.getChisq() / (2*fit.nObservations()) > MAX_LINEAR_CHISQ_PER_PT) {
+	if (fit.getChisq() / (2*2*fit.nObservations()) > MAX_LINEAR_CHISQ_PER_PT) {
 	  errorCode = LINEAR_CHISQ_TOO_HIGH;
 	} else if (abg[ABG::G] > MAX_LINEAR_GAMMA) {
 	  errorCode = LINEAR_GAMMA_TOO_HIGH;
