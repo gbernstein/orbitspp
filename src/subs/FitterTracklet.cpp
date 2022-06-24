@@ -106,7 +106,6 @@ FitterTracklet::setFrame(const Frame& f_) {
     tdbEmit2[i] = tr.tdb2;
 
 
-    
     // Convert angles to our frame and get local partials for covariance
     Matrix22 partials1(0.);
     projection.convertFrom(tr.radec1, partials1);
@@ -136,8 +135,11 @@ FitterTracklet::setFrame(const Frame& f_) {
     fullpartials(0,1) = fullpartials(1,0) = partials1(0,1);
     fullpartials(2,2) = partials2(0,0);
     fullpartials(3,3) = partials2(1,1);
-    fullpartials(2,3) = fullpartials(2,3) = partials2(0,1);
-
+    fullpartials(2,3) = fullpartials(3,2) = partials2(0,1);
+    fullpartials(0,2) = fullpartials(2,0) = 0;
+    fullpartials(0,3) = fullpartials(3,0) = 0;
+    fullpartials(1,2) = fullpartials(2,1) = 0;
+    fullpartials(1,3) = fullpartials(3,1) = 0;
 
 
 
@@ -162,6 +164,7 @@ FitterTracklet::setFrame(const Frame& f_) {
     // Get observatory position in our frame.
     xE1.row(i) = f.fromICRS(tr.observer1.getVector());
     xE2.row(i) = f.fromICRS(tr.observer2.getVector());
+
 
     // Initialize gravitational effect to zero
     xGrav1.setZero();
@@ -287,6 +290,8 @@ void
 FitterTracklet::calculateOrbit(bool doDerivatives) {
   int nobs = tEmit1.size();
 
+
+
   // Is is already done?
   if (doDerivatives && positionsAreValid && positionDerivsAreValid) return;
   if (!doDerivatives && positionsAreValid) return;
@@ -318,7 +323,6 @@ FitterTracklet::calculateOrbit(bool doDerivatives) {
   thetaYModel2.array() += abg[ABG::B];
   thetaXModel2.array() *= denom2.array();
   thetaYModel2.array() *= denom2.array();
-
 
   positionsAreValid = true;
 
@@ -433,11 +437,18 @@ FitterTracklet::calculateGravity() {
   
   DMatrix xyz1 = fullTrajectory->position(tdbEmit1);
   DMatrix xyz2 = fullTrajectory->position(tdbEmit2);
+  //cerr << xyz1 << endl;
+  //cerr << xyz2 << endl;
 
   // Convert back to Fitter reference frame and subtract inertial motion
   // Note Frame and Trajectory use 3 x n, we are using n x 3 here.
   xGrav1 = f.fromICRS(xyz1) - abg.getXYZ(tEmit1);
   xGrav2 = f.fromICRS(xyz2) - abg.getXYZ(tEmit2);
+  //cerr << "xgrav1" << endl;
+  //cerr << xGrav1 << endl;
+  //cerr << "xgrav2" << endl;
+
+  //cerr << xGrav1 << endl;
 
 
   // Solutions no longer match gravity
@@ -453,13 +464,13 @@ FitterTracklet::getChisq() {
 }
 
 void
-FitterTracklet::calculateChisq(bool doDerivatives) {
+FitterTracklet::calculateChisq(bool doDerivatives, bool doCovariances) {
   if (tObs1.size() < 2)
     throw std::runtime_error("ERROR: FitterTracklet::calculateChisq called with <2 observations");
 
   // Is it already done?
-  if (doDerivatives && chisqIsValid && chisqDerivsAreValid) return;
-  if (!doDerivatives && chisqIsValid) return;
+  //if (doDerivatives && chisqIsValid && chisqDerivsAreValid) return;
+  //if (!doDerivatives && chisqIsValid) return;
   
   // Make sure that model positions are current (and derivatives, if needed)
   calculateOrbit(doDerivatives);
@@ -484,14 +495,18 @@ FitterTracklet::calculateChisq(bool doDerivatives) {
   chisq = dx1.transpose() * (invCovX1X1.asDiagonal() * dx1);
   chisq += 2.* dx1.transpose() * (invCovX1Y1.asDiagonal() * dy1);
   chisq += dy1.transpose() * (invCovY1Y1.asDiagonal() * dy1);
+
   chisq += dx2.transpose() * (invCovX2X2.asDiagonal() * dx2);
   chisq += 2.* dx2.transpose() * (invCovX2Y2.asDiagonal() * dy2);
   chisq += dy2.transpose() * (invCovY2Y2.asDiagonal() * dy2);
+
+  if (doCovariances){
   chisq += 2.* dx1.transpose() * (invCovX1X2.asDiagonal() * dx2);
   chisq += 2.* dx1.transpose() * (invCovX1Y2.asDiagonal() * dy2);
+
   chisq += 2.* dy1.transpose() * (invCovY1X2.asDiagonal() * dx2);
   chisq += 2.* dy1.transpose() * (invCovY1Y2.asDiagonal() * dy2);
-
+  }
 
 
 
@@ -499,12 +514,15 @@ FitterTracklet::calculateChisq(bool doDerivatives) {
     DMatrix tmp = invCovX1X1.asDiagonal() * dThetaX1dABG;
     b = tmp.transpose() * dx1;
     A = dThetaX1dABG.transpose() * tmp;
+
     tmp = invCovX1Y1.asDiagonal() * dThetaX1dABG;
     b += tmp.transpose() * dy1;
     A += dThetaY1dABG.transpose() * tmp;
+
     tmp = invCovX1Y1.asDiagonal() * dThetaY1dABG;
     b += tmp.transpose() * dx1;
     A += dThetaX1dABG.transpose() * tmp;
+
     tmp = invCovY1Y1.asDiagonal() * dThetaY1dABG;
     b += tmp.transpose() * dy1;
     A += dThetaY1dABG.transpose() * tmp;
@@ -512,19 +530,24 @@ FitterTracklet::calculateChisq(bool doDerivatives) {
     tmp = invCovX2X2.asDiagonal() * dThetaX2dABG;
     b += tmp.transpose() * dx2;
     A += dThetaX2dABG.transpose() * tmp;
+
     tmp = invCovX2Y2.asDiagonal() * dThetaX2dABG;
     b += tmp.transpose() * dy2;
     A += dThetaY2dABG.transpose() * tmp;
+
     tmp = invCovX2Y2.asDiagonal() * dThetaY2dABG;
-    b += tmp.transpose() * dx1;
+    b += tmp.transpose() * dx2;
     A += dThetaX2dABG.transpose() * tmp;
+
     tmp = invCovY2Y2.asDiagonal() * dThetaY2dABG;
     b += tmp.transpose() * dy2;
     A += dThetaY2dABG.transpose() * tmp;
 
+    if (doCovariances) {
     tmp = invCovX1X2.asDiagonal() * dThetaX1dABG;
     b += tmp.transpose() * dx2;
     A += dThetaX2dABG.transpose() * tmp;
+
     tmp = invCovX1X2.asDiagonal() * dThetaX2dABG;
     b += tmp.transpose() * dx1;
     A += dThetaX1dABG.transpose() * tmp;
@@ -532,6 +555,7 @@ FitterTracklet::calculateChisq(bool doDerivatives) {
     tmp = invCovX1Y2.asDiagonal() * dThetaX1dABG;
     b += tmp.transpose() * dy2;
     A += dThetaY2dABG.transpose() * tmp;
+
     tmp = invCovX1Y2.asDiagonal() * dThetaY2dABG;
     b += tmp.transpose() * dx1;
     A += dThetaX1dABG.transpose() * tmp;
@@ -539,6 +563,7 @@ FitterTracklet::calculateChisq(bool doDerivatives) {
     tmp = invCovY1X2.asDiagonal() * dThetaY1dABG;
     b += tmp.transpose() * dx2;
     A += dThetaX2dABG.transpose() * tmp;
+
     tmp = invCovY1X2.asDiagonal() * dThetaX2dABG;
     b += tmp.transpose() * dy1;
     A += dThetaY1dABG.transpose() * tmp;
@@ -546,10 +571,12 @@ FitterTracklet::calculateChisq(bool doDerivatives) {
     tmp = invCovY1Y2.asDiagonal() * dThetaY1dABG;
     b += tmp.transpose() * dy2;
     A += dThetaY2dABG.transpose() * tmp;
+
     tmp = invCovY1Y2.asDiagonal() * dThetaY2dABG;
     b += tmp.transpose() * dy1;
     A += dThetaY1dABG.transpose() * tmp;
 
+  }
 
 
   }
@@ -591,11 +618,135 @@ FitterTracklet::calculateChisq(bool doDerivatives) {
 }
 
 
+void FitterTracklet::setSingleOrbit() {
+  const int MAX_ITERATIONS=50;
+  double lambda = 0.01;
+  double olda, oldb, oldg, oldadot, oldbdot, oldgdot;
+  int iterations = 0;
+  double oldChisq = 0;
+  DVector invCovX1X1 = invCovArr.row(0);
+  DVector invCovY1Y1 = invCovArr.row(1);
+  DVector invCovX2X2 = invCovArr.row(2);
+  DVector invCovY2Y2 = invCovArr.row(3);
+  DVector invCovMean1 = (invCovY1Y1 + invCovX1X1)/2;
+  DVector invCovMean2 = (invCovY2Y2 + invCovX2X2)/2;
+
+  do{
+    olda = abg[ABG::A];
+    oldb = abg[ABG::B];
+    oldg = abg[ABG::G];
+    oldadot = abg[ABG::ADOT];
+    oldbdot = abg[ABG::BDOT];
+    oldgdot = abg[ABG::GDOT];
+
+  calculateOrbit(true);
+
+
+  DVector dx1 = thetaX1 - thetaXModel1;
+  DVector dy1 = thetaY1 - thetaYModel1;
+  DVector dx2 = thetaX1 - thetaXModel1;
+  DVector dy2 = thetaY1 - thetaYModel1;
+
+
+
+  chisq = dx1.transpose() * (invCovMean1.asDiagonal() * dx1);
+  chisq += dy1.transpose() * (invCovMean1.asDiagonal() * dy1);
+  chisq += dx2.transpose() * (invCovMean2.asDiagonal() * dx2);
+  chisq += dy2.transpose() * (invCovMean2.asDiagonal() * dy2);
+
+    DMatrix tmp = invCovMean1.asDiagonal() * dThetaX1dABG;
+    b = tmp.transpose() * dx1 ;
+    A = dThetaX1dABG.transpose() * tmp;
+
+    tmp = invCovMean1.asDiagonal() * dThetaY1dABG;
+    b += tmp.transpose() * dy1;
+    A += dThetaY1dABG.transpose() * tmp;
+
+    tmp = invCovMean2.asDiagonal() * dThetaY2dABG;
+    b += tmp.transpose() * dy2;
+    A += dThetaY2dABG.transpose() * tmp;
+
+    tmp = invCovMean2.asDiagonal()  * dThetaX2dABG;
+    b += tmp.transpose() * dx2;
+    A += dThetaX2dABG.transpose() * tmp;
+
+
+
+  if (gammaPriorSigma > 0.) {
+    double w = pow(gammaPriorSigma, -2);
+    double dg = (gamma0-abg[ABG::G]);
+    chisq += dg * w * dg;
+    
+      b[ABG::G] += w * dg;
+      A(ABG::G,ABG::G) += w;
+    
+  }
+  // Extract parameters other than GDOT, which we assume is last
+  DVector blin = b.subVector(0, ABG::GDOT);
+  DMatrix Alin = A.subMatrix(0, ABG::GDOT, 0, ABG::GDOT);
+
+    
+    Alin(ABG::A, ABG::A) *= (1.+lambda);
+    Alin(ABG::B, ABG::B) *= (1.+lambda);
+    Alin(ABG::G, ABG::G) *= (1.+lambda);
+    Alin(ABG::ADOT, ABG::ADOT) *= (1.+lambda);
+    Alin(ABG::BDOT, ABG::BDOT) *= (1.+lambda);
+    //A(ABG::GDOT, ABG::GDOT) *= (1+lambda);
+  
+  // Solve (check degeneracies??)
+  auto llt = Alin.llt();
+  DVector answer = llt.solve(blin);
+
+
+  // Transfer answer to instance members
+  abg.subVector(0,ABG::GDOT) += answer;
+  //if (abg[ABG::G] < 0) abg[ABG::G] *= -1;
+  abg[ABG::GDOT] = 0.;
+
+  oldChisq = chisq;
+
+  calculateChisq(false);
+  /*
+  if (chisq > oldChisq && iterations > 0){
+      lambda *= 10;
+
+    abg[ABG::A] = olda;
+    abg[ABG::B] = oldb;
+    abg[ABG::G] = oldg;
+    abg[ABG::ADOT] = oldadot;
+    abg[ABG::BDOT] = oldbdot;
+    abg[ABG::GDOT] = oldgdot;
+      //cerr << "Updated" << endl;
+
+      //cerr << abg << endl;
+
+    }
+    else if (iterations > 0)
+    {
+      lambda /= 10;
+    }
+  */
+    positionsAreValid = false;
+    positionDerivsAreValid = false;
+    //newABG();
+    iterations++;
+    //cerr << chisq << " " << oldChisq << endl;
+  } while (iterations<MAX_ITERATIONS && abs(chisq-oldChisq) > 0.01);
+
+  newABG(); // Reset results flags
+  // But don't consider linear solution to be valid
+  abgIsFit = false;
+
+  // Update positions, chisq - no derivatives
+  calculateChisq(false, true);
+
+}
+
 void
 FitterTracklet::setLinearOrbit() {
 
   // Get positions/derivatives for current ABG
-  calculateChisq(true);
+  calculateChisq(true, false);
 
   // Extract parameters other than GDOT, which we assume is last
   DVector blin = b.subVector(0, ABG::GDOT);
@@ -614,7 +765,7 @@ FitterTracklet::setLinearOrbit() {
   abgIsFit = false;
 
   // Update positions, chisq - no derivatives
-  calculateChisq(false);
+  calculateChisq(false, false);
 }
 
 void
@@ -636,23 +787,36 @@ FitterTracklet::abgSanityCheck() const {
 }
 
 void
-FitterTracklet::newtonFit(double chisqTolerance, bool dump) {
+FitterTracklet::newtonFit(double chisqTolerance, bool dump, bool doCovariances) {
   // Assuming that we are coming into this with a good starting point
   iterateTimeDelay();
   calculateGravity();
-  calculateChisq(true);
-  const int MAX_ITERATIONS = 50;
+  calculateChisq(true, doCovariances);
+  const int MAX_ITERATIONS = 1000000;
+
+  double lambda = 0.01;
+  ABG oldabg;
 
   // cancel validity of results until re-converged
   abgIsFit = false;
   
   // Do a series of iterations with time delay and gravity fixed
   int iterations = 0;
-  double oldChisq;
+  double oldChisq, prevchisq;
   do {
-    oldChisq = chisq;
+    prevchisq = chisq;
+    calculateChisq(true, doCovariances);
     // Solve (check degeneracies??)
+    // LM change
+    A(ABG::A, ABG::A) *= (1.+lambda);
+    A(ABG::B, ABG::B) *= (1.+lambda);
+    A(ABG::G, ABG::G) *= (1.+lambda);
+    A(ABG::ADOT, ABG::ADOT) *= (1.+lambda);
+    A(ABG::BDOT, ABG::BDOT) *= (1.+lambda);
+    A(ABG::GDOT, ABG::GDOT) *= (1.+lambda);
+     
     auto llt = A.llt();
+    oldabg = abg;
     abg += llt.solve(b);
 
     if (dump) {
@@ -662,32 +826,59 @@ FitterTracklet::newtonFit(double chisqTolerance, bool dump) {
       write6(dd,cerr);
       cerr << endl << " abg:    ";
       write6(abg,cerr);
+      cerr << endl << "old:     ";
+      write6(oldabg,cerr);
     }
 
     // Quit if iterations have gone completely awry
-    abgSanityCheck();
+    //abgSanityCheck();
 
     // Recalculate with new ABG
-    calculateChisq(true);
-    if (dump) cerr << endl << " New chisq: " << chisq << endl;
+    oldChisq = chisq;
+    calculateChisq(false, doCovariances);
+    if (chisq >= oldChisq){
+      cerr << "changing lambda " << lambda << endl;
+      lambda *= 10.;
+      abg = oldabg;
+      //calculateChisq(true);
+
+    }
+    else{
+      lambda /= 10.;
+    }
+    
+    cerr << endl << " New chisq: " << chisq << endl;
+    cerr << "Delta chisq " << abs(chisq - prevchisq) <<  endl;
     iterations++;
-  } while (iterations < MAX_ITERATIONS && abs(chisq-oldChisq) > chisqTolerance);
+    positionsAreValid = false;
+    positionDerivsAreValid = false;
+
+  } while (iterations < MAX_ITERATIONS && abs(chisq-prevchisq) > chisqTolerance);
   /**
 #pragma omp critical (io)
   cerr << "--NewtonFit done at iteration " << iterations << endl; 
   ***/
-  if (iterations >= MAX_ITERATIONS)
-    throw NonConvergent("newtonFit exceeded max iterations");
+  //if (iterations >= MAX_ITERATIONS)
+  //  throw NonConvergent("newtonFit exceeded max iterations");
    
   // Then converge with time delay and gravity recalculated
   iterateTimeDelay();
   calculateGravity();
-  calculateChisq(true);
+  calculateChisq(true, doCovariances);
   iterations = 0;
+  lambda = 0.01;
   do {
-    oldChisq = chisq;
     // Solve (check degeneracies??)
+
+    oldabg = abg;
+    A(ABG::A, ABG::A) *= (1.+lambda);
+    A(ABG::B, ABG::B) *= (1.+lambda);
+    A(ABG::G, ABG::G) *= (1.+lambda);
+    A(ABG::ADOT, ABG::ADOT) *= (1.+lambda);
+    A(ABG::BDOT, ABG::BDOT) *= (1.+lambda);
+    A(ABG::GDOT, ABG::GDOT) *= (1.+lambda);
     auto llt = A.llt();
+
     abg += llt.solve(b);
     if (dump) {
       cerr << "Gravity iteration " << iterations <<endl;
@@ -700,12 +891,28 @@ FitterTracklet::newtonFit(double chisqTolerance, bool dump) {
     }
 
     // Quit if iterations have gone completely awry
-    abgSanityCheck();
+    //abgSanityCheck();
 
     // Update with new ABG
     iterateTimeDelay();
     calculateGravity();
-    calculateChisq(true);
+    positionsAreValid = false;
+    oldChisq = chisq;
+    calculateChisq(false);
+
+    
+    if (chisq > oldChisq){
+      lambda *= 10.;
+      //cerr << "changing lambda " << lambda << endl;
+
+      abg = oldabg;
+      //calculateChisq(true);
+
+    }
+    else{
+      lambda /= 10.;
+    }
+    
     if (dump) cerr << endl << " New chisq: " << chisq << endl;
     iterations++;
   } while (iterations < MAX_ITERATIONS && abs(chisq-oldChisq) > chisqTolerance);
@@ -745,7 +952,7 @@ FitterTracklet::printResiduals(std::ostream& os) {
       covar(1,3) = covar(3,1) = invCovArr(8,i);
       covar(2,3) = covar(3,2) = invCovArr(9,i);
 
-      invcov = covar.inverse();
+      invcov = covar;
 
       chi = dx1[i] * dx1[i] * invcov(0,0) + dy1[i] * dy1[i] * invcov(1,1) + 2 * dx1[i] * dy1[i] * invcov(0,1);
       chi += dx2[i] * dx2[i] * invcov(2,2) + dy2[i] * dy2[i] * invcov(3,3) + 2 * dx2[i] * dy2[i] * invcov(2,3);
@@ -762,7 +969,7 @@ FitterTracklet::printResiduals(std::ostream& os) {
        << std::setw(7) << 1000.*dy1[i]/ARCSEC << " "
        << std::setw(7) << 1000.*dx2[i]/ARCSEC << " "
        << std::setw(7) << 1000.*dy2[i]/ARCSEC << " "
-       << std::noshowpos << std::setprecision(2) << chi
+       << std::noshowpos << std::setprecision(2) << chi 
        << endl;
     chitot += chi;
   }

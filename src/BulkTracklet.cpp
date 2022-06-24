@@ -50,7 +50,7 @@ using namespace std;
 using namespace orbits;
 
 // Some possible fitting failure modes
-const double MAX_LINEAR_CHISQ_PER_PT = 5e5; //**100.;
+const double MAX_LINEAR_CHISQ_PER_PT = 5e20; //**100.;
 const int LINEAR_CHISQ_TOO_HIGH = 1;
 const double MAX_LINEAR_ORBIT_KE = 10.;  // Max ratio of |KE/PE| before quitting
 const int LINEAR_KE_TOO_HIGH = 2;
@@ -184,6 +184,7 @@ int main(int argc,
       if (useExpnum) {
 	obsTable.readCells(expnum1, "EXPNUM1");
 	obsTable.readCells(expnum2, "EXPNUM2");
+	cerr << "Exposures were used" << endl;
 
 	// Read the exposure table later.
       } else {
@@ -304,7 +305,7 @@ int main(int argc,
 	track.radec1 = astrometry::SphericalICRS(raThis1*DEGREE, decThis1*DEGREE);
 	track.radec2 = astrometry::SphericalICRS(raThis2*DEGREE, decThis2*DEGREE);
 	track.cov = sigmaThis * ARCSEC * ARCSEC;
-      
+
 	if (useExpnum) {
 	  // Read exposure table if needed and not here
 	  if (!exposureTable) {
@@ -324,7 +325,7 @@ int main(int argc,
 	    continue;
 	  }
 
-	    
+
 	  for (int i=0; i<3; i++){
 	  	track.observer1[i] = xyzThis1[i];
 	  	track.observer2[i] = xyzThis2[i];
@@ -332,12 +333,11 @@ int main(int argc,
 
 	  track.tdb1 = eph.mjd2tdb(mjdThis1);
 		track.tdb2 = eph.mjd2tdb(mjdThis2);
-
 	  if (exposureTable->isAstrometric(expnumThis1)) {
 	  	Matrix44 atm;
 	  	for (int i = 0; i < 4; i++){
 	  		for (int j = 0; i < 4; i++){
-	  			atm(i,j) = 0;
+	  			atm(i,j) = 0.0;
 	  		}
 	  	}
 	  	atm(0,0) = exposureTable->atmosphereCov(expnumThis1)(0,0);
@@ -348,6 +348,7 @@ int main(int argc,
 	  	atm(2,3) = atm(3,2) = exposureTable->atmosphereCov(expnumThis2)(1,0);
 
 	    track.cov += atm;
+
 	  }
 	} else {
 	  // Input data is an MJD.  Use ephemeris to get observatory posn.
@@ -391,9 +392,22 @@ int main(int argc,
       fit.setFrame(frame);
 
       try {
-	fit.setLinearOrbit();
-	fit.setLinearOrbit(); // Another iteration
+  fit.setSingleOrbit();
+  //cerr << fit.getABG(true) << endl;
+  fit.setSingleOrbit();
+  cerr << fit.getABG(true) << endl;
+  //fit.setSingleOrbit();
+  //  cerr << fit.getABG(true) << endl;
+
+  //fit.setLinearOrbit();
+  //cerr << fit.getABG(true) << endl;
+  //fit.setLinearOrbit();
+  //cerr << fit.getABG(true) << endl;
+
+	fit.newtonFit(0.01, true, true);
+
 	auto abg = fit.getABG(true);
+	cerr << abg << endl;
 	if (fit.getChisq() / (2*2*fit.nObservations()) > MAX_LINEAR_CHISQ_PER_PT) {
 	  errorCode = LINEAR_CHISQ_TOO_HIGH;
 	} else if (abg[ABG::G] > MAX_LINEAR_GAMMA) {

@@ -73,6 +73,8 @@ namespace orbits {
     // Set abg with simple linear fit: inertial orbit, gdot=0, 1 Newton iteration
     // from current starting point.
     void setLinearOrbit();
+    void setSingleOrbit();
+
 
     // Place a Gaussian prior on gamma with the given mean and sigma.
     // sigg<=0 will disable prior.
@@ -87,7 +89,7 @@ namespace orbits {
       bindingConstraintFactor = f;
     }
 
-    void newtonFit(double chisqTolerance=0.01, bool dump=false);
+    void newtonFit(double chisqTolerance=0.01, bool dump=false, bool doCovariances=true);
 
     // Print residuals (in arcsec) and chisq contributions per point
     void printResiduals(std::ostream& os);
@@ -158,7 +160,8 @@ namespace orbits {
 
     // Calculate chisq (and derivatives) at current abg.
     // (Calls calculateOrbit if needed)
-    void calculateChisq(bool doDerivatives=true); 
+    void calculateChisq(bool doDerivatives=true, bool doCovariances=true); 
+
 
     // Throw an exception if we have a clearly invalid ABG
     void abgSanityCheck() const;
