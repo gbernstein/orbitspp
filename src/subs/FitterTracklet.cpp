@@ -136,17 +136,25 @@ FitterTracklet::setFrame(const Frame& f_) {
     fullpartials(2,2) = partials2(0,0);
     fullpartials(3,3) = partials2(1,1);
     fullpartials(2,3) = fullpartials(3,2) = partials2(0,1);
-    fullpartials(0,2) = fullpartials(2,0) = 0;
-    fullpartials(0,3) = fullpartials(3,0) = 0;
-    fullpartials(1,2) = fullpartials(2,1) = 0;
-    fullpartials(1,3) = fullpartials(3,1) = 0;
+    fullpartials(0,2) = fullpartials(2,0) = 0.;
+    fullpartials(0,3) = fullpartials(3,0) = 0.;
+    fullpartials(1,2) = fullpartials(2,1) = 0.;
+    fullpartials(1,3) = fullpartials(3,1) = 0.;
 
+    //cerr << "partials" << endl;
+    //cerr << fullpartials << endl;
 
 
     // Get inverse covariance
     Matrix44 cov = fullpartials * tr.cov * fullpartials.transpose();
 
     Matrix44 invcov = cov.inverse();
+    
+    //cerr << "Covariance for " <<  i << endl;
+   // cerr << cov << endl;
+
+    //cerr << "Inverse Covariance for " <<  i << endl;
+   // cerr << invcov << endl;
     invCovArr(0,i) = invcov(0,0);
     invCovArr(1,i) = invcov(1,1);
     invCovArr(2,i) = invcov(2,2);
@@ -164,7 +172,6 @@ FitterTracklet::setFrame(const Frame& f_) {
     // Get observatory position in our frame.
     xE1.row(i) = f.fromICRS(tr.observer1.getVector());
     xE2.row(i) = f.fromICRS(tr.observer2.getVector());
-
 
     // Initialize gravitational effect to zero
     xGrav1.setZero();
@@ -490,6 +497,31 @@ FitterTracklet::calculateChisq(bool doDerivatives, bool doCovariances) {
   DVector invCovY1X2 = invCovArr.row(7);
   DVector invCovY1Y2 = invCovArr.row(8);
   DVector invCovX2Y2 = invCovArr.row(9);
+
+  /*cerr << "X1X1" << endl;
+  cerr << invCovX1X1 << endl;
+  cerr << "Y1Y1" << endl;
+  cerr << invCovY1Y1 << endl;
+  cerr << "X2X2" << endl;
+  cerr << invCovX2X2 << endl;
+  cerr << "Y2Y2" << endl;
+  cerr << invCovY2Y2 << endl;
+
+  cerr << "X1X2" << endl;
+  cerr << invCovX1X2 << endl;
+  cerr << "X1Y1" << endl;
+  cerr << invCovX1Y1 << endl;
+  cerr << "X1Y2" << endl;
+  cerr << invCovX1Y2 << endl;
+  cerr << "X2Y1" << endl;
+  cerr << invCovY1X2 << endl;
+
+  cerr << "Y1Y2" << endl;
+  cerr << invCovY1Y2 << endl;
+
+  cerr << "X2Y2" << endl;
+  cerr << invCovX2Y2 << endl;*/
+
     
 
   chisq = dx1.transpose() * (invCovX1X1.asDiagonal() * dx1);
@@ -617,28 +649,8 @@ FitterTracklet::calculateChisq(bool doDerivatives, bool doCovariances) {
   chisqDerivsAreValid = doDerivatives;
 }
 
-
-void FitterTracklet::setSingleOrbit() {
-  const int MAX_ITERATIONS=50;
-  double lambda = 0.01;
-  double olda, oldb, oldg, oldadot, oldbdot, oldgdot;
-  int iterations = 0;
-  double oldChisq = 0;
-  DVector invCovX1X1 = invCovArr.row(0);
-  DVector invCovY1Y1 = invCovArr.row(1);
-  DVector invCovX2X2 = invCovArr.row(2);
-  DVector invCovY2Y2 = invCovArr.row(3);
-  DVector invCovMean1 = (invCovY1Y1 + invCovX1X1)/2;
-  DVector invCovMean2 = (invCovY2Y2 + invCovX2X2)/2;
-
-  do{
-    olda = abg[ABG::A];
-    oldb = abg[ABG::B];
-    oldg = abg[ABG::G];
-    oldadot = abg[ABG::ADOT];
-    oldbdot = abg[ABG::BDOT];
-    oldgdot = abg[ABG::GDOT];
-
+void 
+FitterTracklet::chiSqNoCovariance(){
   calculateOrbit(true);
 
 
@@ -647,8 +659,14 @@ void FitterTracklet::setSingleOrbit() {
   DVector dx2 = thetaX1 - thetaXModel1;
   DVector dy2 = thetaY1 - thetaYModel1;
 
+  DVector invCovX1X1 = invCovArr.row(0);
+  DVector invCovY1Y1 = invCovArr.row(1);
+  DVector invCovX2X2 = invCovArr.row(2);
+  DVector invCovY2Y2 = invCovArr.row(3);
 
-
+  DVector invCovMean1 = (invCovX1X1 + invCovY1Y1)/2;
+  DVector invCovMean2 = (invCovX2X2 + invCovY2Y2)/2;
+  
   chisq = dx1.transpose() * (invCovMean1.asDiagonal() * dx1);
   chisq += dy1.transpose() * (invCovMean1.asDiagonal() * dy1);
   chisq += dx2.transpose() * (invCovMean2.asDiagonal() * dx2);
@@ -670,8 +688,6 @@ void FitterTracklet::setSingleOrbit() {
     b += tmp.transpose() * dx2;
     A += dThetaX2dABG.transpose() * tmp;
 
-
-
   if (gammaPriorSigma > 0.) {
     double w = pow(gammaPriorSigma, -2);
     double dg = (gamma0-abg[ABG::G]);
@@ -681,64 +697,111 @@ void FitterTracklet::setSingleOrbit() {
       A(ABG::G,ABG::G) += w;
     
   }
-  // Extract parameters other than GDOT, which we assume is last
-  DVector blin = b.subVector(0, ABG::GDOT);
-  DMatrix Alin = A.subMatrix(0, ABG::GDOT, 0, ABG::GDOT);
 
-    
-    Alin(ABG::A, ABG::A) *= (1.+lambda);
-    Alin(ABG::B, ABG::B) *= (1.+lambda);
-    Alin(ABG::G, ABG::G) *= (1.+lambda);
-    Alin(ABG::ADOT, ABG::ADOT) *= (1.+lambda);
-    Alin(ABG::BDOT, ABG::BDOT) *= (1.+lambda);
-    //A(ABG::GDOT, ABG::GDOT) *= (1+lambda);
+    if (bindingConstraintFactor > 0.) {
+    // Do not allow negative chisq:
+    double w = bindingConstraintFactor / (2. * GM * pow(abs(abg[ABG::G]),3.));
+    chisq += w * (abg[ABG::ADOT] * abg[ABG::ADOT]
+      + abg[ABG::BDOT] * abg[ABG::BDOT]
+      + abg[ABG::GDOT] * abg[ABG::GDOT]);
+
+      double dampFactor = 0.5; // This adjustment prevents the solution from oscillating
+      // due to the energy constraint.
+      b[ABG::ADOT] += -w * abg[ABG::ADOT] * dampFactor;
+      b[ABG::BDOT] += -w * abg[ABG::BDOT] * dampFactor;
+      b[ABG::GDOT] += -w * abg[ABG::GDOT] * dampFactor;
+      A(ABG::ADOT,ABG::ADOT) += w;
+      A(ABG::BDOT,ABG::BDOT) += w;
+      A(ABG::GDOT,ABG::GDOT) += w;
+  }
+
+
+}
+
+void FitterTracklet::setSingleOrbit(double chisqTolerance) {
+  const int MAX_ITERATIONS=1000;
+  double lambda = 0.01;
+  ABG oldabg;
+  int iterations = 0;
+  double oldChisq = 0;
+  double prevchisq=chisq;
+  bool stopCondition = false;
+
+  do{
+    bool chisqUpdated = false;
+    oldabg = abg;
+    prevchisq = chisq;
+
+  iterateTimeDelay();
+  calculateGravity();
+  //calculateOrbit(true);
+  chiSqNoCovariance();
+  // Extract parameters other than GDOT, which we assume is last
+  //DVector blin = b.subVector(0, ABG::GDOT);
+  //DMatrix Alin = A.subMatrix(0, ABG::GDOT, 0, ABG::GDOT);
+
+    A(ABG::A, ABG::A) *= (1.+lambda);
+    A(ABG::B, ABG::B) *= (1.+lambda);
+    A(ABG::G, ABG::G) *= (1.+lambda);
+    A(ABG::ADOT, ABG::ADOT) *= (1.+lambda);
+    A(ABG::BDOT, ABG::BDOT) *= (1.+lambda);
+    A(ABG::GDOT, ABG::GDOT) *= (1+lambda);
+  // Solve (check degeneracies??)
+
+  //DVector blin = b.subVector(0, ABG::GDOT);
+  //DMatrix Alin = A.subMatrix(0, ABG::GDOT, 0, ABG::GDOT);
   
   // Solve (check degeneracies??)
-  auto llt = Alin.llt();
-  DVector answer = llt.solve(blin);
-
+  auto llt = A.llt();
+  DVector answer = llt.solve(b);
 
   // Transfer answer to instance members
-  abg.subVector(0,ABG::GDOT) += answer;
-  //if (abg[ABG::G] < 0) abg[ABG::G] *= -1;
-  abg[ABG::GDOT] = 0.;
+  abg += answer;
+  //abg[ABG::GDOT] = 0.;
+
+  //auto llt = A.llt();
+  //DVector answer = llt.solve(b);
+
+  // Transfer answer to instance members
+  //abg += answer;
 
   oldChisq = chisq;
-
-  calculateChisq(false);
-  /*
-  if (chisq > oldChisq && iterations > 0){
+  chiSqNoCovariance();
+  
+  if (chisq > oldChisq){
       lambda *= 10;
+      abg = oldabg;
+      chisq = oldChisq;
+      chisqUpdated = false;
 
-    abg[ABG::A] = olda;
-    abg[ABG::B] = oldb;
-    abg[ABG::G] = oldg;
-    abg[ABG::ADOT] = oldadot;
-    abg[ABG::BDOT] = oldbdot;
-    abg[ABG::GDOT] = oldgdot;
       //cerr << "Updated" << endl;
-
+      newABG();
       //cerr << abg << endl;
-
+      chiSqNoCovariance();
     }
     else if (iterations > 0)
     {
       lambda /= 10;
+      chisqUpdated = true;
     }
-  */
-    positionsAreValid = false;
-    positionDerivsAreValid = false;
-    //newABG();
+  
+    newABG();
     iterations++;
+
+    stopCondition = chisqUpdated ? abs(chisq-prevchisq) < chisqTolerance : false;
+    stopCondition = iterations > MAX_ITERATIONS ? true : stopCondition;
+
     //cerr << chisq << " " << oldChisq << endl;
-  } while (iterations<MAX_ITERATIONS && abs(chisq-oldChisq) > 0.01);
+  } while (!stopCondition);
 
   newABG(); // Reset results flags
   // But don't consider linear solution to be valid
   abgIsFit = false;
 
   // Update positions, chisq - no derivatives
-  calculateChisq(false, true);
+  //calculateOrbit(false);
+
+  calculateChisq(true, true);
 
 }
 
@@ -765,7 +828,7 @@ FitterTracklet::setLinearOrbit() {
   abgIsFit = false;
 
   // Update positions, chisq - no derivatives
-  calculateChisq(false, false);
+  calculateChisq(true, true);
 }
 
 void
@@ -792,7 +855,7 @@ FitterTracklet::newtonFit(double chisqTolerance, bool dump, bool doCovariances) 
   iterateTimeDelay();
   calculateGravity();
   calculateChisq(true, doCovariances);
-  const int MAX_ITERATIONS = 1000000;
+  const int MAX_ITERATIONS = 10000;
 
   double lambda = 0.01;
   ABG oldabg;
@@ -803,8 +866,12 @@ FitterTracklet::newtonFit(double chisqTolerance, bool dump, bool doCovariances) 
   // Do a series of iterations with time delay and gravity fixed
   int iterations = 0;
   double oldChisq, prevchisq;
+  prevchisq=0;
+  bool stopCondition = false;
+
   do {
-    prevchisq = chisq;
+    bool chisqUpdated = false;
+    newABG();
     calculateChisq(true, doCovariances);
     // Solve (check degeneracies??)
     // LM change
@@ -835,25 +902,38 @@ FitterTracklet::newtonFit(double chisqTolerance, bool dump, bool doCovariances) 
 
     // Recalculate with new ABG
     oldChisq = chisq;
-    calculateChisq(false, doCovariances);
+    newABG();
+    calculateChisq(true, doCovariances);
     if (chisq >= oldChisq){
       cerr << "changing lambda " << lambda << endl;
       lambda *= 10.;
       abg = oldabg;
       //calculateChisq(true);
+      chisq = oldChisq;
+      chisqUpdated = false;
+
 
     }
     else{
       lambda /= 10.;
+      chisqUpdated = true;
     }
-    
-    cerr << endl << " New chisq: " << chisq << endl;
-    cerr << "Delta chisq " << abs(chisq - prevchisq) <<  endl;
+    stopCondition = chisqUpdated ? abs(chisq-prevchisq) < chisqTolerance : false;
+    //cerr << "stopCondition" << endl;
+    //cerr << stopCondition << endl;
+    //cerr << endl << " New chisq: " << chisq << endl;
+    //cerr << "Delta chisq " << abs(chisq - prevchisq) <<  endl;
     iterations++;
-    positionsAreValid = false;
-    positionDerivsAreValid = false;
+    stopCondition = iterations > MAX_ITERATIONS ? true : stopCondition;
+    // << "stopCondition" << endl;
+    //cerr << stopCondition << endl;
+    newABG();
+    //positionsAreValid = false;
+    //positionDerivsAreValid = false;
+    prevchisq = chisq;
 
-  } while (iterations < MAX_ITERATIONS && abs(chisq-prevchisq) > chisqTolerance);
+  } while (!stopCondition);
+  //cerr << "lambda " << lambda << endl; 
   /**
 #pragma omp critical (io)
   cerr << "--NewtonFit done at iteration " << iterations << endl; 
@@ -862,13 +942,21 @@ FitterTracklet::newtonFit(double chisqTolerance, bool dump, bool doCovariances) 
   //  throw NonConvergent("newtonFit exceeded max iterations");
    
   // Then converge with time delay and gravity recalculated
+  newABG();
   iterateTimeDelay();
   calculateGravity();
   calculateChisq(true, doCovariances);
   iterations = 0;
-  lambda = 0.01;
+  
+  lambda = 0.1;
+  stopCondition = false;
+  prevchisq = 0;
   do {
+    bool chisqUpdated = false;
+
+    //prevchisq = chisq;
     // Solve (check degeneracies??)
+    calculateChisq(true, doCovariances);
 
     oldabg = abg;
     A(ABG::A, ABG::A) *= (1.+lambda);
@@ -877,9 +965,12 @@ FitterTracklet::newtonFit(double chisqTolerance, bool dump, bool doCovariances) 
     A(ABG::ADOT, ABG::ADOT) *= (1.+lambda);
     A(ABG::BDOT, ABG::BDOT) *= (1.+lambda);
     A(ABG::GDOT, ABG::GDOT) *= (1.+lambda);
+    
     auto llt = A.llt();
 
     abg += llt.solve(b);
+    newABG();
+
     if (dump) {
       cerr << "Gravity iteration " << iterations <<endl;
       auto dd = llt.solve(b);
@@ -889,6 +980,7 @@ FitterTracklet::newtonFit(double chisqTolerance, bool dump, bool doCovariances) 
       write6(abg,cerr);
       cerr << endl;
     }
+    oldChisq = chisq;
 
     // Quit if iterations have gone completely awry
     //abgSanityCheck();
@@ -897,27 +989,41 @@ FitterTracklet::newtonFit(double chisqTolerance, bool dump, bool doCovariances) 
     iterateTimeDelay();
     calculateGravity();
     positionsAreValid = false;
-    oldChisq = chisq;
-    calculateChisq(false);
+    calculateChisq(true, doCovariances);
+
+    //
+
+    //cerr << endl << " New chisq: " << chisq << endl;
+    //cerr << "Delta chisq " << abs(chisq - prevchisq) <<  endl;
+
 
     
     if (chisq > oldChisq){
       lambda *= 10.;
-      //cerr << "changing lambda " << lambda << endl;
+      //cerr << "increasing lambda " << lambda << endl;
 
       abg = oldabg;
       //calculateChisq(true);
+      chisqUpdated = false;
+      chisq = oldChisq;
 
     }
     else{
       lambda /= 10.;
+      chisqUpdated = true;
     }
+    stopCondition = chisqUpdated ? abs(chisq-prevchisq) < chisqTolerance : false;
     
-    if (dump) cerr << endl << " New chisq: " << chisq << endl;
+    if (dump) cerr << endl << " New chisq: " << chisq << "old chisq: " << prevchisq << endl;
     iterations++;
-  } while (iterations < MAX_ITERATIONS && abs(chisq-oldChisq) > chisqTolerance);
+    stopCondition = iterations > MAX_ITERATIONS ? true : stopCondition;
+    newABG();
+    prevchisq = chisq;
+
+  } while (!stopCondition);
   if (iterations >= MAX_ITERATIONS)
     throw NonConvergent("newtonFit exceeded max fine iterations");
+  calculateChisq(true, doCovariances);
   abgIsFit = true;
   return;
 }

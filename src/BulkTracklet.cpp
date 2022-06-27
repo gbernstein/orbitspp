@@ -209,7 +209,7 @@ int main(int argc,
       obsTable.readCells(sigmax1x2,"SIGMAX1X2");
       obsTable.readCells(sigmax1y2,"SIGMAX1Y2");
       obsTable.readCells(sigmay1x2,"SIGMAY1X2");
-      obsTable.readCells(sigmay1y2,"SIGMAY1Y1");
+      obsTable.readCells(sigmay1y2,"SIGMAY1Y2");
 
 
 
@@ -392,19 +392,23 @@ int main(int argc,
       fit.setFrame(frame);
 
       try {
-  fit.setSingleOrbit();
-  //cerr << fit.getABG(true) << endl;
-  fit.setSingleOrbit();
-  cerr << fit.getABG(true) << endl;
+
   //fit.setSingleOrbit();
-  //  cerr << fit.getABG(true) << endl;
+  //fit.setSingleOrbit();
+
+  fit.setLinearOrbit();
+  fit.setLinearOrbit();
 
   //fit.setLinearOrbit();
+  fit.setSingleOrbit();
+  //fit.setSingleOrbit();
+  //
+
   //cerr << fit.getABG(true) << endl;
   //fit.setLinearOrbit();
-  //cerr << fit.getABG(true) << endl;
+  cerr << fit.getABG(true) << endl;
 
-	fit.newtonFit(0.01, true, true);
+	fit.newtonFit(0.01, true, false);
 
 	auto abg = fit.getABG(true);
 	cerr << abg << endl;
@@ -416,7 +420,8 @@ int main(int argc,
 		    / (2*GM*pow(abs(abg[ABG::G]),3.)) > MAX_LINEAR_ORBIT_KE) {
 	  errorCode = LINEAR_KE_TOO_HIGH;
 	} else {
-	  fit.newtonFit();
+		cerr << "Full fit" << endl;
+	  fit.newtonFit(0.001, true, true);
 	}
       } catch (std::runtime_error& e) {
 	errorCode = NONCONVERGENCE;

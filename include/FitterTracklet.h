@@ -70,10 +70,12 @@ namespace orbits {
     // nearest observation to mean MJD is used.
     void chooseFrame(int obsNumber = 0);
     
+    void chiSqNoCovariance();
+
     // Set abg with simple linear fit: inertial orbit, gdot=0, 1 Newton iteration
     // from current starting point.
     void setLinearOrbit();
-    void setSingleOrbit();
+    void setSingleOrbit(double chisqTolerance=0.01);
 
 
     // Place a Gaussian prior on gamma with the given mean and sigma.
