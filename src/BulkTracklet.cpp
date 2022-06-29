@@ -50,7 +50,7 @@ using namespace std;
 using namespace orbits;
 
 // Some possible fitting failure modes
-const double MAX_LINEAR_CHISQ_PER_PT = 5e20; //**100.;
+const double MAX_LINEAR_CHISQ_PER_PT = 5e30; //**100.;
 const int LINEAR_CHISQ_TOO_HIGH = 1;
 const double MAX_LINEAR_ORBIT_KE = 10.;  // Max ratio of |KE/PE| before quitting
 const int LINEAR_KE_TOO_HIGH = 2;
@@ -288,7 +288,6 @@ int main(int argc,
   sigmaThis(1,3) = sigmaThis(3,1) = sigmay1y2[inputRow];
   sigmaThis(2,3) = sigmaThis(3,2) = sigmax2y2[inputRow];
 
-
   if (useExpnum) {
     expnumThis1 = expnum1[inputRow];
     expnumThis2 = expnum2[inputRow];
@@ -305,7 +304,6 @@ int main(int argc,
 	track.radec1 = astrometry::SphericalICRS(raThis1*DEGREE, decThis1*DEGREE);
 	track.radec2 = astrometry::SphericalICRS(raThis2*DEGREE, decThis2*DEGREE);
 	track.cov = sigmaThis * ARCSEC * ARCSEC;
-
 	if (useExpnum) {
 	  // Read exposure table if needed and not here
 	  if (!exposureTable) {
@@ -336,7 +334,7 @@ int main(int argc,
 	  if (exposureTable->isAstrometric(expnumThis1)) {
 	  	Matrix44 atm;
 	  	for (int i = 0; i < 4; i++){
-	  		for (int j = 0; i < 4; i++){
+	  		for (int j = 0; j < 4; j++){
 	  			atm(i,j) = 0.0;
 	  		}
 	  	}
@@ -392,7 +390,6 @@ int main(int argc,
       fit.setFrame(frame);
 
       try {
-
   //fit.setSingleOrbit();
   //fit.setSingleOrbit();
 
@@ -408,7 +405,7 @@ int main(int argc,
   //fit.setLinearOrbit();
   cerr << fit.getABG(true) << endl;
 
-	fit.newtonFit(0.01, true, false);
+	fit.newtonFit(0.01, false, false);
 
 	auto abg = fit.getABG(true);
 	cerr << abg << endl;
@@ -421,7 +418,7 @@ int main(int argc,
 	  errorCode = LINEAR_KE_TOO_HIGH;
 	} else {
 		cerr << "Full fit" << endl;
-	  fit.newtonFit(0.001, true, true);
+	  fit.newtonFit(0.001, false, true);
 	}
       } catch (std::runtime_error& e) {
 	errorCode = NONCONVERGENCE;
