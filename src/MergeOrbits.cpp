@@ -24,7 +24,7 @@ const double FIELD_RADIUS = 1.15*DEGREE; // A bit larger to be complete
 
 // Time that must pass between exposures to be considered independent detections
 // (e.g. when asteroids or defects would have moved out of linking range)
-const double INDEPENDENT_TIME_INTERVAL = 0.1*DAY;
+const double INDEPENDENT_TIME_INTERVAL = 0.4*DAY;
 
 const string usage =
   "MergeOrbits: program to combine multiple orbit files (produced by\n"
