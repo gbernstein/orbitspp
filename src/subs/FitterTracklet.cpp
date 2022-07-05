@@ -292,8 +292,8 @@ FitterTracklet::calculateOrbit(bool doDerivatives) {
 
 
   // Is is already done?
-  if (doDerivatives && positionsAreValid && positionDerivsAreValid) return;
-  if (!doDerivatives && positionsAreValid) return;
+  //if (doDerivatives && positionsAreValid && positionDerivsAreValid) return;
+  //if (!doDerivatives && positionsAreValid) return;
   
   // Calculate positions
   DVector denom1 = DVector(nobs,1.) + abg[ABG::GDOT]*tEmit1
@@ -633,6 +633,7 @@ FitterTracklet::chiSqNoCovariance(){
   chisq += dx2.transpose() * (invCovMean2.asDiagonal() * dx2);
   chisq += dy2.transpose() * (invCovMean2.asDiagonal() * dy2);
 
+
     DMatrix tmp = invCovMean1.asDiagonal() * dThetaX1dABG;
     b = tmp.transpose() * dx1 ;
     A = dThetaX1dABG.transpose() * tmp;
@@ -684,8 +685,7 @@ void FitterTracklet::setSingleOrbit(double chisqTolerance) {
   //double lambda = 0.01;
   //ABG oldabg;
   int iterations = 0;
-  double oldChisq = 0;
-  double prevchisq=chisq;
+  double prevchisq;
   bool stopCondition = false;
 
   do{
@@ -727,7 +727,7 @@ void
 FitterTracklet::setLinearOrbit() {
 
   // Get positions/derivatives for current ABG
-  calculateChisq(true, true);
+  chiSqNoCovariance();
 
   // Extract parameters other than GDOT, which we assume is last
   DVector blin = b.subVector(0, ABG::GDOT);
@@ -746,7 +746,7 @@ FitterTracklet::setLinearOrbit() {
   abgIsFit = false;
 
   // Update positions, chisq - no derivatives
-  calculateChisq(false, true);
+  chiSqNoCovariance();
 }
 
 void
@@ -773,7 +773,7 @@ FitterTracklet::newtonFit(double chisqTolerance, bool dump, bool doCovariances) 
   iterateTimeDelay();
   calculateGravity();
   calculateChisq(true, doCovariances);
-  const int MAX_ITERATIONS = 10000;
+  const int MAX_ITERATIONS = 100;
   // cancel validity of results until re-converged
   abgIsFit = false;
   

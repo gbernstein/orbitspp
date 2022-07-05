@@ -184,7 +184,6 @@ int main(int argc,
       if (useExpnum) {
 	obsTable.readCells(expnum1, "EXPNUM1");
 	obsTable.readCells(expnum2, "EXPNUM2");
-	cerr << "Exposures were used" << endl;
 
 	// Read the exposure table later.
       } else {
@@ -392,23 +391,24 @@ int main(int argc,
       try {
   //fit.setSingleOrbit();
   //fit.setSingleOrbit();
-
+  //cerr << "Fitting " << idThis << endl;
   fit.setLinearOrbit();
   fit.setLinearOrbit();
+  fit.setLinearOrbit();
 
+  //cerr << fit.getABG(true) << endl;
   //fit.setLinearOrbit();
-  fit.setSingleOrbit();
   //fit.setSingleOrbit();
+  fit.setSingleOrbit();
   //
 
   //cerr << fit.getABG(true) << endl;
   //fit.setLinearOrbit();
-  cerr << fit.getABG(true) << endl;
 
-	fit.newtonFit(0.01, false, false);
+	//fit.newtonFit(0.01, false, false);
 
 	auto abg = fit.getABG(true);
-	cerr << abg << endl;
+	//cerr << abg << endl;
 	if (fit.getChisq() / (2*2*fit.nObservations()) > MAX_LINEAR_CHISQ_PER_PT) {
 	  errorCode = LINEAR_CHISQ_TOO_HIGH;
 	} else if (abg[ABG::G] > MAX_LINEAR_GAMMA) {
@@ -417,7 +417,6 @@ int main(int argc,
 		    / (2*GM*pow(abs(abg[ABG::G]),3.)) > MAX_LINEAR_ORBIT_KE) {
 	  errorCode = LINEAR_KE_TOO_HIGH;
 	} else {
-		cerr << "Full fit" << endl;
 	  fit.newtonFit(0.001, false, true);
 	}
       } catch (std::runtime_error& e) {
