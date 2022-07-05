@@ -11,21 +11,23 @@
 #include <iostream>
 
 const string usage =
-  "BulkFit: produce orbit fits for sets of DES observations.  The input data are\n"
-  "linked sets of detections, identified by common ID number.  Outputs are \n"
+  "BulkTracklet: produce orbit fits for pairs of correlated observations (eg DEEP).  The input data are\n"
+  "linked pairs of detections, identified by common ID number.  Outputs are \n"
   "fit results for each orbit ID.\n"
+  "This script generalizes BulkFit's functionality for these correlated pairs, and so the usage is similar\n"
   "Usage:\n"
-  "  BulkFit [parameter file...] [-<key> <value>...]\n"
+  "  BulkTracklet [parameter file...] [-<key> <value>...]\n"
   "  where any parameter file(s) given will be scanned first, then parameter key/value\n"
   "  pairs on cmd line will be read and override file values.\n"
   "  Program options are listed below.\n"
   "\n"
   "Input detections can be provided either in a binary FITS table or as\n"
-  "ASCII file at stdin. Detections for given orbit should be contiguous\n"
-  "in the input.  FITS file should have columns for TRACK_ID, EXPNUM (=DECam exposure\n"
-  "number, in which case exposure file must be provided) or MJD, then for RA, DEC\n"
-  "(in degrees), and SIGMA (uncertainty per coordinate in arcsec). Header must contain\n"
-  "entries for RA0, DEC0, MJD0, X0, Y0, Z0 specifying reference frame orientation,\n"
+  "ASCII file at stdin (untested!). Detections for given orbit should be contiguous\n"
+  "in the input.  FITS file should have columns for ORBITID, EXPNUM1 and EXPNUM2 (=DECam exposure\n"
+  "number, in which case exposure file must be provided) or MJD1 and MJD2, then for RA1/RA2, DEC1/DEC2\n"
+  "(in degrees), and all 10 covariance matrix terms in the form \n"
+  "SIGMA_COORD_COORD (example: SIGMA_X1Y2, where X is RA and Y is DEC), in arcsec^2.\n" 
+  "Header must contain entries for RA0, DEC0, MJD0, X0, Y0, Z0 specifying reference frame orientation,\n"
   "reference time, and origin.  All detections should be in vicinity of RA0,DEC0\n"
   "\n"
   "If no FITS input file is given, data will be read from stdin.  First non-comment\n"
@@ -50,7 +52,7 @@ using namespace std;
 using namespace orbits;
 
 // Some possible fitting failure modes
-const double MAX_LINEAR_CHISQ_PER_PT = 5e30; //**100.;
+const double MAX_LINEAR_CHISQ_PER_PT = 5e40; //**100.;
 const int LINEAR_CHISQ_TOO_HIGH = 1;
 const double MAX_LINEAR_ORBIT_KE = 10.;  // Max ratio of |KE/PE| before quitting
 const int LINEAR_KE_TOO_HIGH = 2;
@@ -394,12 +396,11 @@ int main(int argc,
   //cerr << "Fitting " << idThis << endl;
   fit.setLinearOrbit();
   fit.setLinearOrbit();
-  fit.setLinearOrbit();
 
   //cerr << fit.getABG(true) << endl;
   //fit.setLinearOrbit();
   //fit.setSingleOrbit();
-  fit.setSingleOrbit();
+  //fit.setSingleOrbit();
   //
 
   //cerr << fit.getABG(true) << endl;
@@ -417,7 +418,7 @@ int main(int argc,
 		    / (2*GM*pow(abs(abg[ABG::G]),3.)) > MAX_LINEAR_ORBIT_KE) {
 	  errorCode = LINEAR_KE_TOO_HIGH;
 	} else {
-	  fit.newtonFit(0.001, false, true);
+	  fit.newtonFit(0.01, false, true);
 	}
       } catch (std::runtime_error& e) {
 	errorCode = NONCONVERGENCE;
