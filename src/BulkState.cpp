@@ -92,6 +92,8 @@ int main(int argc,
     bool useABG = false;
     if ( orbitTable.hasColumn("ABG") && orbitTable.hasColumn("ABGINVCOV"))
       useABG = true;
+    else if ( orbitTable.hasColumn("ABG") && orbitTable.hasColumn("ABGCOV"))
+    	useABG = true;
     else if ( orbitTable.hasColumn("ELEMENTS") && orbitTable.hasColumn("ELEMENTCOV"))
       useABG = false;  // Use elements
     else {
