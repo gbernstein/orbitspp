@@ -30,7 +30,7 @@ http://eigen.tuxfamily.org/index.php?title=Main_Page or mirrored on github
   environment variables and `setenv TKCOMPILER gcc-6` to use my gcc-6
   compiler too.  For the Mac, I had to alter several scripts replace ar, ranlib calls with
   `libtool -static -o $LIBRARY.a *.o`.  Then I needed to change the
-  output library name to `libspice.a` to meet the usual conventions so
+  output library name to `libcspice.a` to meet the usual conventions so
   the linker can find it.
 * The makefiles for my repos take their cues from environment
 variables.  The csh version for my setup looks like:

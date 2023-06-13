@@ -32,17 +32,29 @@ string usage =
   "  observatory = ICRS cartesian coordinates (AU) of observatory\n"
   "  ecl_lon, ecl_lat = ecliptic coords (degrees) of sightline\n"
   "  obs_ecl_lat = ecliptic longitude of observatory.\n"
-  "usage: AddObservatory <exposure table>\n"
-  "  <exposure table> is name of FITS file with exposure data to be augmented.";
+  "usage: AddObservatory <exposure table> <obsCode>\n"
+  "  <exposure table> is name of FITS file with exposure data to be augmented.\n"
+  "  <obsCode> is the observatory code (see observatories.dat)";
+
 
 int
 main(int argc, char *argv[]) {
-  if (argc != 2) {
+  if (argc < 2) {
     cerr << usage << endl;
     exit(1);
   }
+  int obsCode = 807;
 
   string exposureFile = argv[1];
+
+  if (argc > 2) {
+      obsCode = atoi(argv[2]); 
+
+    }
+  else {
+      cerr << "## Assuming observatory is CTIO/DECam" << endl;
+    }
+
   try {
     orbits::Ephemeris ephem;
 
@@ -57,7 +69,9 @@ main(int argc, char *argv[]) {
       cerr << "Input table is missing require column ra, dec, or mjd_mid" << endl;
       exit(1);
     }
-    
+
+      cerr << obsCode << endl;
+
     // See if it has cov, covwarn - if not, add them as we go
     bool addCov = !table.hasColumn("cov");
     if (addCov) {
@@ -111,7 +125,7 @@ main(int argc, char *argv[]) {
 	table.writeCell(true,"covwarn",row);
 
       // Get observatory position
-      astrometry::CartesianICRS observatory = ephem.observatory(807, ephem.mjd2tdb(mjd));
+      astrometry::CartesianICRS observatory = ephem.observatory(obsCode, ephem.mjd2tdb(mjd));
       std::vector<double> v3 = {observatory[0],
 				observatory[1],
 				observatory[2]};

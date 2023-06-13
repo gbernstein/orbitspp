@@ -178,7 +178,7 @@ int main(int argc,
     vector<double> tdbOut;
     vector<double> raOut;
     vector<double> decOut;
-    
+
 
     // Begin reading input lines
     string buffer;
@@ -213,6 +213,7 @@ int main(int argc,
   radec.setUnitVector(target.row(i).transpose());
   double ra,dec;
   radec.getLonLat(ra,dec);
+
 
   if (useStdout) {
     cout << setw(8) << orbitID

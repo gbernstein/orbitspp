@@ -1,6 +1,6 @@
 // Run orbit fits given sets of observations stored in FITS tables
 #include "Pset.h"
-#include "Fitter.h"
+#include "FitterTracklet.h"
 #include "Elements.h"
 #include "StringStuff.h"
 #include "FTable.h"
@@ -11,21 +11,23 @@
 #include <iostream>
 
 const string usage =
-  "BulkFit: produce orbit fits for sets of DES observations.  The input data are\n"
-  "linked sets of detections, identified by common ID number.  Outputs are \n"
+  "BulkTracklet: produce orbit fits for pairs of correlated observations (eg DEEP).  The input data are\n"
+  "linked pairs of detections, identified by common ID number.  Outputs are \n"
   "fit results for each orbit ID.\n"
+  "This script generalizes BulkFit's functionality for these correlated pairs, and so the usage is similar\n"
   "Usage:\n"
-  "  BulkFit [parameter file...] [-<key> <value>...]\n"
+  "  BulkTracklet [parameter file...] [-<key> <value>...]\n"
   "  where any parameter file(s) given will be scanned first, then parameter key/value\n"
   "  pairs on cmd line will be read and override file values.\n"
   "  Program options are listed below.\n"
   "\n"
   "Input detections can be provided either in a binary FITS table or as\n"
-  "ASCII file at stdin. Detections for given orbit should be contiguous\n"
-  "in the input.  FITS file should have columns for TRACK_ID, EXPNUM (=DECam exposure\n"
-  "number, in which case exposure file must be provided) or MJD, then for RA, DEC\n"
-  "(in degrees), and SIGMA (uncertainty per coordinate in arcsec). Header must contain\n"
-  "entries for RA0, DEC0, MJD0, X0, Y0, Z0 specifying reference frame orientation,\n"
+  "ASCII file at stdin (untested!). Detections for given orbit should be contiguous\n"
+  "in the input.  FITS file should have columns for ORBITID, EXPNUM1 and EXPNUM2 (=DECam exposure\n"
+  "number, in which case exposure file must be provided) or MJD1 and MJD2, then for RA1/RA2, DEC1/DEC2\n"
+  "(in degrees), and all 10 covariance matrix terms in the form \n"
+  "SIGMA_COORD_COORD (example: SIGMA_X1Y2, where X is RA and Y is DEC), in arcsec^2.\n" 
+  "Header must contain entries for RA0, DEC0, MJD0, X0, Y0, Z0 specifying reference frame orientation,\n"
   "reference time, and origin.  All detections should be in vicinity of RA0,DEC0\n"
   "\n"
   "If no FITS input file is given, data will be read from stdin.  First non-comment\n"
@@ -50,7 +52,7 @@ using namespace std;
 using namespace orbits;
 
 // Some possible fitting failure modes
-const double MAX_LINEAR_CHISQ_PER_PT = 5e5; //**100.;
+const double MAX_LINEAR_CHISQ_PER_PT = 5e40; //**100.;
 const int LINEAR_CHISQ_TOO_HIGH = 1;
 const double MAX_LINEAR_ORBIT_KE = 10.;  // Max ratio of |KE/PE| before quitting
 const int LINEAR_KE_TOO_HIGH = 2;
@@ -138,13 +140,21 @@ int main(int argc,
     bool useExpnum; // Set true if input will have expnum instead of MJD.
     Frame frame;
     vector<LONGLONG> idIn;
-    vector<int> expnum;
-    vector<double> mjd;
-    vector<double> ra;
-    vector<double> dec;
-    vector<double> sigma;
+    vector<int> expnum1;
+    vector<int> expnum2;
+    vector<double> mjd1;
+    vector<double> mjd2;
+    vector<double> ra1;
+    vector<double> ra2;
+    vector<double> dec1;
+    vector<double> dec2;
+    vector<double> sigmax1x1, sigmay1y1, sigmax2x2, sigmay2y2;
+    vector<double> sigmax1y1, sigmax2y2;
+    vector<double> sigmax1x2, sigmax1y2, sigmay1x2, sigmay1y2;
+
+
     
-    if (observationsFromFile) {
+    
       FITS::FitsTable ft(observationPath,FITS::ReadOnly, 1);
       img::FTable obsTable = ft.extract();
 
@@ -172,36 +182,37 @@ int main(int argc,
       obsTable.readCells(idIn, "ORBITID");
       // Are we using expnum or MJD?
       auto colnames = obsTable.listColumns();
-      useExpnum = (std::find(colnames.begin(),colnames.end(),"EXPNUM")!=colnames.end());
+      useExpnum = (std::find(colnames.begin(),colnames.end(),"EXPNUM1")!=colnames.end());
       if (useExpnum) {
-	obsTable.readCells(expnum, "EXPNUM");
+	obsTable.readCells(expnum1, "EXPNUM1");
+	obsTable.readCells(expnum2, "EXPNUM2");
+
 	// Read the exposure table later.
       } else {
 	// We'll use MJD's
-	obsTable.readCells(mjd,"MJD");
+	obsTable.readCells(mjd1,"MJD1");
+	obsTable.readCells(mjd2,"MJD2");
+	
       }
 
-      obsTable.readCells(ra, "RA");
-      obsTable.readCells(dec,"DEC");
-      obsTable.readCells(sigma,"SIGMA"); 
-    } else {
+      obsTable.readCells(ra1, "RA1");
+      obsTable.readCells(ra2, "RA2");
+      obsTable.readCells(dec1,"DEC1");
+      obsTable.readCells(dec2,"DEC2");
 
-      // Info will come from stdin.  Read the reference frame from first
-      // non-comment line.
-      string buffer;
-      stringstuff::getlineNoComment(cin, buffer);
-      std::istringstream iss(buffer);
-      double ra0, dec0, mjd0;
-      iss >> ra0 >> dec0 >> mjd0;
-      frame.orient.setPole(astrometry::SphericalICRS(ra0*DEGREE,dec0*DEGREE));
-      // Align the frame to ecliptic
-      frame.orient.alignToEcliptic();
-      frame.tdb0 = eph.mjd2tdb(mjd0);
-      // Put origin at position of observatory at MJD0
-      frame.origin = eph.observatory(obscode, frame.tdb0);
-      // Expnum vs MJD will be determined line by line.
-      useExpnum = false;
-    }
+      obsTable.readCells(sigmax1x1,"SIGMAX1X1");
+      obsTable.readCells(sigmay1y1,"SIGMAY1Y1");
+      obsTable.readCells(sigmax1y1,"SIGMAX1Y1");
+      obsTable.readCells(sigmax2x2,"SIGMAX2X2");
+      obsTable.readCells(sigmay2y2,"SIGMAY2Y2");
+      obsTable.readCells(sigmax2y2,"SIGMAX2Y2");
+
+      obsTable.readCells(sigmax1x2,"SIGMAX1X2");
+      obsTable.readCells(sigmax1y2,"SIGMAX1Y2");
+      obsTable.readCells(sigmay1x2,"SIGMAY1X2");
+      obsTable.readCells(sigmay1y2,"SIGMAY1Y2");
+
+
 
     // Create vectors to hold output if we are writing FITS
     vector<LONGLONG> idOut;
@@ -240,7 +251,7 @@ int main(int argc,
 
     while (!done) {
       // Set up a new fitter
-      Fitter fit(eph, Gravity::GIANTS);
+      FitterTracklet fit(eph, Gravity::GIANTS);
       if (bindingFactor > 0.)
 	fit.setBindingConstraint(bindingFactor);
       if (gamma0 > 0.)
@@ -250,91 +261,112 @@ int main(int argc,
       bool isFirst = true;
       LONGLONG idThis;
       while (true) {
-	double raThis, decThis, sigmaThis;
-	int expnumThis;
-	double mjdThis;
-	if (observationsFromFile) {
-	  // Read new data from table
-	  if (isFirst) {
-	    idThis = idIn[inputRow];
-	    isFirst = false;
-	  } else {
-	    if (idIn[inputRow]!=idThis)
-	      break; // Done getting data for this orbit
-	  }
-	  raThis = ra[inputRow];
-	  decThis = dec[inputRow];
-	  sigmaThis = sigma[inputRow];
-	  if (useExpnum) {
-	    expnumThis = expnum[inputRow];
-	  } else {
-	    mjdThis = mjd[inputRow];
-	  }
-	  ++inputRow;
-	  if (inputRow >= idIn.size())
-	    done = true; // This is last input observation.
-	} else {
-	  // Read data from input line.
-	  std::istringstream iss(inputLine);
-	  LONGLONG idTest;
-	  iss >> idTest >> mjdThis >> raThis >> decThis >> sigmaThis;
-	  if (isFirst) {
-	    idThis = idTest;
-	    isFirst = false;
-	  } else {
-	    if (idTest!=idThis)
-	      break; // Done getting data for this orbit
-	  }
-	  // Is input expnum or MJD?
-	  useExpnum = mjdThis > 100000.; // Expnums are >100,000, MJD's are ~50,000
-	  if (useExpnum) {
-	    expnumThis = static_cast<int> (round(mjdThis));
-	  }
-	  // Read next input line (if any)
-	  done = !getlineNoComment(cin, inputLine);
-	}
+	double raThis1, raThis2, decThis1, decThis2;
+	Matrix44 sigmaThis;
+	int expnumThis1, expnumThis2;
+	double mjdThis1, mjdThis2;
+	// Read new data from table
+  if (isFirst) {
+    idThis = idIn[inputRow];
+    isFirst = false;
+  } else {
+    if (idIn[inputRow]!=idThis)
+      break; // Done getting data for this orbit
+  }
+  raThis1 = ra1[inputRow];
+  raThis2 = ra2[inputRow];
+  decThis1 = dec1[inputRow];
+  decThis2 = dec2[inputRow];
+  sigmaThis(0,0) = sigmax1x1[inputRow];
+  sigmaThis(1,1) = sigmay1y1[inputRow];
+  sigmaThis(2,2) = sigmax2x2[inputRow];
+  sigmaThis(3,3) = sigmay2y2[inputRow];
+
+  sigmaThis(0,1) = sigmaThis(1,0) = sigmax1y1[inputRow];
+  sigmaThis(0,2) = sigmaThis(2,0) = sigmax1x2[inputRow];
+  sigmaThis(0,3) = sigmaThis(3,0) = sigmax1y2[inputRow];
+  sigmaThis(1,2) = sigmaThis(2,1) = sigmay1x2[inputRow];
+  sigmaThis(1,3) = sigmaThis(3,1) = sigmay1y2[inputRow];
+  sigmaThis(2,3) = sigmaThis(3,2) = sigmax2y2[inputRow];
+
+  if (useExpnum) {
+    expnumThis1 = expnum1[inputRow];
+    expnumThis2 = expnum2[inputRow];
+  } else {
+    mjdThis1 = mjd1[inputRow];
+    mjdThis2 = mjd2[inputRow];
+  }
+  ++inputRow;
+  if (inputRow >= idIn.size())
+    done = true; // This is last input observation.
 
 	// Build Observation
-	Observation obs;
-	obs.radec = astrometry::SphericalICRS(raThis*DEGREE, decThis*DEGREE);
-	obs.cov(1,1) = obs.cov(0,0) = sigmaThis * ARCSEC * sigmaThis * ARCSEC;
-	obs.cov(1,0) = obs.cov(0,1) = 0.;
-      
+	Tracklet track;
+	track.radec1 = astrometry::SphericalICRS(raThis1*DEGREE, decThis1*DEGREE);
+	track.radec2 = astrometry::SphericalICRS(raThis2*DEGREE, decThis2*DEGREE);
+	track.cov = sigmaThis * ARCSEC * ARCSEC;
 	if (useExpnum) {
 	  // Read exposure table if needed and not here
 	  if (!exposureTable) {
 	    exposureTable = new ExposureTable(exposurePath);
 	  }
 
-	  double mjdThis;
-	  astrometry::CartesianICRS xyzThis;
-	  astrometry::SphericalICRS radecThis;
+	  double mjdThis1, mjdThis2;
+	  astrometry::CartesianICRS xyzThis1, xyzThis2;
+	  astrometry::SphericalICRS radecThis1, radecThis2;
 	  // Get xE and mjd from the DECam table
-	  if (!exposureTable->observingInfo(expnumThis, mjdThis, xyzThis, radecThis)) {
-	    /**/cerr << "Missing exposure info for " << expnumThis << endl;
+	  if (!exposureTable->observingInfo(expnumThis1, mjdThis1, xyzThis1, radecThis1)) {
+	    /**/cerr << "Missing exposure info for " << expnumThis1 << endl;
 	    continue;
 	  }
-	    
-	  for (int i=0; i<3; i++) obs.observer[i] = xyzThis[i];
-	  obs.tdb = eph.mjd2tdb(mjdThis);
+	  if (!exposureTable->observingInfo(expnumThis2, mjdThis2, xyzThis2, radecThis2)) {
+	    /**/cerr << "Missing exposure info for " << expnumThis2 << endl;
+	    continue;
+	  }
 
-	  if (exposureTable->isAstrometric(expnumThis)) {
-	    obs.cov += exposureTable->atmosphereCov(expnumThis);
+
+	  for (int i=0; i<3; i++){
+	  	track.observer1[i] = xyzThis1[i];
+	  	track.observer2[i] = xyzThis2[i];
+	  }
+
+	  track.tdb1 = eph.mjd2tdb(mjdThis1);
+		track.tdb2 = eph.mjd2tdb(mjdThis2);
+	  if (exposureTable->isAstrometric(expnumThis1)) {
+	  	Matrix44 atm;
+	  	for (int i = 0; i < 4; i++){
+	  		for (int j = 0; j < 4; j++){
+	  			atm(i,j) = 0.0;
+	  		}
+	  	}
+	  	atm(0,0) = exposureTable->atmosphereCov(expnumThis1)(0,0);
+	  	atm(1,1) = exposureTable->atmosphereCov(expnumThis1)(1,1);
+	  	atm(0,1) = atm(1,0) = exposureTable->atmosphereCov(expnumThis1)(1,0);
+	  	atm(2,2) = exposureTable->atmosphereCov(expnumThis2)(0,0);
+	  	atm(3,3) = exposureTable->atmosphereCov(expnumThis2)(1,1);
+	  	atm(2,3) = atm(3,2) = exposureTable->atmosphereCov(expnumThis2)(1,0);
+
+	    track.cov += atm;
+
 	  }
 	} else {
 	  // Input data is an MJD.  Use ephemeris to get observatory posn.
-	  obs.tdb = eph.mjd2tdb(mjdThis);
-	  obs.observer = eph.observatory(obscode, obs.tdb);
+	  track.tdb1 = eph.mjd2tdb(mjdThis1);
+	  track.tdb2 = eph.mjd2tdb(mjdThis2);
+	  track.observer1 = eph.observatory(obscode, track.tdb1);
+	  track.observer2 = eph.observatory(obscode, track.tdb2);
+	  
 	  // Note no atmospheric term added to covariance here.
 	}
 
-	fit.addObservation(obs);
+	fit.addTracklet(track);
       } // end collecting observations for this orbit
 
 
       // Set up Fitter and do fit
       int errorCode = 0;
       if (fit.nObservations() < 3) {
+
 	// Do not attempt to fit this orbit
 	errorCode = INSUFFICIENT_OBSERVATIONS;
 	if (orbitsToFile) {
@@ -355,12 +387,30 @@ int main(int argc,
 	}
 	continue;
       }
+
       fit.setFrame(frame);
+
       try {
-	fit.setLinearOrbit();
-	fit.setLinearOrbit(); // Another iteration
+  //fit.setSingleOrbit();
+  //fit.setSingleOrbit();
+  //cerr << "Fitting " << idThis << endl;
+  fit.setLinearOrbit();
+  fit.setLinearOrbit();
+
+  //cerr << fit.getABG(true) << endl;
+  //fit.setLinearOrbit();
+  //fit.setSingleOrbit();
+  //fit.setSingleOrbit();
+  //
+
+  //cerr << fit.getABG(true) << endl;
+  //fit.setLinearOrbit();
+
+	//fit.newtonFit(0.01, false, false);
+
 	auto abg = fit.getABG(true);
-	if (fit.getChisq() / (2*fit.nObservations()) > MAX_LINEAR_CHISQ_PER_PT) {
+	//cerr << abg << endl;
+	if (fit.getChisq() / (2*2*fit.nObservations()) > MAX_LINEAR_CHISQ_PER_PT) {
 	  errorCode = LINEAR_CHISQ_TOO_HIGH;
 	} else if (abg[ABG::G] > MAX_LINEAR_GAMMA) {
 	  errorCode = LINEAR_GAMMA_TOO_HIGH;
@@ -368,7 +418,7 @@ int main(int argc,
 		    / (2*GM*pow(abs(abg[ABG::G]),3.)) > MAX_LINEAR_ORBIT_KE) {
 	  errorCode = LINEAR_KE_TOO_HIGH;
 	} else {
-	  fit.newtonFit();
+	  fit.newtonFit(0.01, false, true);
 	}
       } catch (std::runtime_error& e) {
 	errorCode = NONCONVERGENCE;
